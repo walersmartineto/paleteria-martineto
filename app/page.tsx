@@ -169,33 +169,37 @@ export default function DashboardPage() {
     }
   }, [mesas]);
 
-  async function cargarMesas() {
-    try {
-      const { data, error } = await supabase
-        .from('mesas')
-        .select('*')
-        .order('id', { ascending: true });
+ async function cargarMesas() {
+  try {
+    const { data, error } = await supabase
+      .from('mesas')
+      .select('*')
+      .order('id', { ascending: true });
 
-      if (!error && data && data.length > 0) {
-        const mapeadas: Mesa[] = data.map((m: any) => ({
-          id: Number(m.id),
-          nombre: m.nombre,
-          tipo: m.tipo,
-          estado: m.estado,
-          pedidos: typeof m.pedidos === 'string' ? JSON.parse(m.pedidos) : (m.pedidos || []),
-          totalPagado: Number(m.total_pagado ?? m.totalPagado ?? 0),
-        }));
-        setMesas(mapeadas);
-        localStorage.setItem('martineto_mesas_cache', JSON.stringify(mapeadas));
-      } else {
-        const local = localStorage.getItem('martineto_mesas_cache');
-        if (local) setMesas(JSON.parse(local));
-      }
-    } catch {
-      const local = localStorage.getItem('martineto_mesas_cache');
-      if (local) setMesas(JSON.parse(local));
+    if (error) {
+      console.error("Error al cargar mesas:", error);
+      return;
     }
+
+    if (data && data.length > 0) {
+      const mapeadas: Mesa[] = data.map((m: any) => ({
+        id: Number(m.id),
+        nombre: m.nombre,
+        tipo: m.tipo,
+        estado: m.estado,
+        pedidos: typeof m.pedidos === 'string' ? JSON.parse(m.pedidos) : (m.pedidos || []),
+        totalPagado: Number(m.total_pagado ?? m.totalPagado ?? 0),
+      }));
+      
+      // ACTUALIZAMOS EL ESTADO CON LOS DATOS DE SUPABASE
+      setMesas(mapeadas);
+      // Actualizamos caché por si acaso, pero PRIORIZAMOS LA NUBE
+      localStorage.setItem('martineto_mesas_cache', JSON.stringify(mapeadas));
+    }
+  } catch (err) {
+    console.error("Excepción cargando mesas:", err);
   }
+}
 
   async function guardarMesa(mesaObj: Mesa) {
     setMesas((prev) => {
