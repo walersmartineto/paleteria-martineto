@@ -47,6 +47,7 @@ export default function AdminPage() {
   // Campos para crear usuario
   const [nuevoUsuario, setNuevoUsuario] = useState('');
   const [nuevaClave, setNuevaClave] = useState('');
+  const [cargandoUsuarios, setCargandoUsuarios] = useState(false);
 
   useEffect(() => {
     cargarDatos();
@@ -57,7 +58,7 @@ export default function AdminPage() {
     const hist = JSON.parse(localStorage.getItem('martineto_historial') || '[]');
     setHistorialVentas(hist);
 
-    // 2. Pedidos Suministros iniciales de prueba + localStorage
+    // 2. Pedidos Suministros
     const pedPrevios = JSON.parse(localStorage.getItem('martineto_pedidos_admin') || '[]');
     if (pedPrevios.length === 0) {
       const iniciales: ItemPedidoSuministro[] = [
@@ -74,15 +75,8 @@ export default function AdminPage() {
     // 3. Stock Supabase
     cargarStockDB();
 
-    // 4. Usuarios Sistema
-    const usrs = JSON.parse(localStorage.getItem('martineto_usuarios_admin') || '[]');
-    if (usrs.length === 0) {
-      const base: UsuarioSistema[] = [{ id: '1', usuario: '1234', clave: '1234' }];
-      localStorage.setItem('martineto_usuarios_admin', JSON.stringify(base));
-      setUsuarios(base);
-    } else {
-      setUsuarios(usrs);
-    }
+    // 4. Usuarios desde Supabase DB
+    cargarUsuariosDB();
   }
 
   async function cargarStockDB() {
@@ -94,6 +88,25 @@ export default function AdminPage() {
     } catch {}
   }
 
+  async function cargarUsuariosDB() {
+    setCargandoUsuarios(true);
+    try {
+      const { data, error } = await supabase.from('usuarios').select('*');
+      if (!error && data && data.length > 0) {
+        setUsuarios(data);
+        localStorage.setItem('martineto_usuarios_admin', JSON.stringify(data));
+      } else {
+        const usrsLocal = JSON.parse(localStorage.getItem('martineto_usuarios_admin') || '[]');
+        setUsuarios(usrsLocal.length > 0 ? usrsLocal : [{ id: '1', usuario: '1234', clave: '1234' }]);
+      }
+    } catch (e) {
+      const usrsLocal = JSON.parse(localStorage.getItem('martineto_usuarios_admin') || '[]');
+      setUsuarios(usrsLocal.length > 0 ? usrsLocal : [{ id: '1', usuario: '1234', clave: '1234' }]);
+    } finally {
+      setCargandoUsuarios(false);
+    }
+  }
+
   // Toggle Comprado/Entregado
   function toggleSuministro(id: string, campo: 'comprado' | 'entregado') {
     const actualizados = pedidosSuministros.map((item) =>
@@ -103,25 +116,61 @@ export default function AdminPage() {
     localStorage.setItem('martineto_pedidos_admin', JSON.stringify(actualizados));
   }
 
-  // Crear Usuario
-  function crearUsuario() {
+  // Crear Usuario en Supabase
+  async function crearUsuario() {
     if (!nuevoUsuario.trim() || !nuevaClave.trim()) return;
 
-    const nuevo: UsuarioSistema = {
-      id: Date.now().toString(),
+    setCargandoUsuarios(true);
+
+    const usuarioObj = {
       usuario: nuevoUsuario.trim(),
       clave: nuevaClave.trim(),
     };
 
-    const actualizados = [...usuarios, nuevo];
-    setUsuarios(actualizados);
-    localStorage.setItem('martineto_usuarios_admin', JSON.stringify(actualizados));
-    setNuevoUsuario('');
-    setNuevaClave('');
+    try {
+      const { data, error } = await supabase
+        .from('usuarios')
+        .insert([usuarioObj])
+        .select();
+
+      if (error) {
+        console.error('Error Supabase:', error.message);
+      }
+
+      const usuarioGuardado: UsuarioSistema = (data && data[0]) ? data[0] : {
+        id: Date.now().toString(),
+        ...usuarioObj,
+      };
+
+      const actualizados = [...usuarios, usuarioGuardado];
+      setUsuarios(actualizados);
+      localStorage.setItem('martineto_usuarios_admin', JSON.stringify(actualizados));
+      setNuevoUsuario('');
+      setNuevaClave('');
+    } catch (err: any) {
+      // Fallback local si falla la red
+      const usuarioLocal: UsuarioSistema = {
+        id: Date.now().toString(),
+        ...usuarioObj,
+      };
+      const actualizados = [...usuarios, usuarioLocal];
+      setUsuarios(actualizados);
+      localStorage.setItem('martineto_usuarios_admin', JSON.stringify(actualizados));
+      setNuevoUsuario('');
+      setNuevaClave('');
+    } finally {
+      setCargandoUsuarios(false);
+    }
   }
 
   // Eliminar Usuario
-  function eliminarUsuario(id: string) {
+  async function eliminarUsuario(id: string) {
+    try {
+      await supabase.from('usuarios').delete().eq('id', id);
+    } catch (err) {
+      console.error(err);
+    }
+
     const actualizados = usuarios.filter((u) => u.id !== id);
     setUsuarios(actualizados);
     localStorage.setItem('martineto_usuarios_admin', JSON.stringify(actualizados));
@@ -252,11 +301,11 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* VISTA 3: PEDIDOS SUMINISTROS (INTERACTIVO CON UN TOQUE) */}
+        {/* VISTA 3: PEDIDOS SUMINISTROS */}
         {tab === 'pedidos' && (
           <div className="bg-slate-900 border border-slate-800 p-5 rounded-3xl space-y-4">
             <h2 className="text-base font-black text-white">Solicitudes de Insumos / Aseo</h2>
-            
+
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead>
@@ -325,9 +374,10 @@ export default function AdminPage() {
               </div>
               <button
                 onClick={crearUsuario}
-                className="w-full bg-rose-600 hover:bg-rose-500 text-white font-black py-3 rounded-xl text-xs active:scale-95 transition-all shadow-[0_3px_0_0_#9f1239]"
+                disabled={cargandoUsuarios}
+                className="w-full bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white font-black py-3 rounded-xl text-xs active:scale-95 transition-all shadow-[0_3px_0_0_#9f1239]"
               >
-                + Registrar Usuario
+                {cargandoUsuarios ? 'Guardando...' : '+ Registrar Usuario'}
               </button>
             </div>
 
