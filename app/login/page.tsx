@@ -45,7 +45,7 @@ export default function LoginPage() {
           loggedAt: new Date().toISOString()
         }));
 
-        router.push('/');
+        router.push('/puntos');
       } else {
         setErrorMsg('Usuario o clave incorrectos.');
       }
@@ -64,7 +64,7 @@ export default function LoginPage() {
           <div className="w-14 h-14 rounded-2xl bg-purple-600 flex items-center justify-center text-2xl mx-auto shadow-lg shadow-purple-900/50">
             🍦
           </div>
-          <h1 className="text-xl font-black text-white tracking-wider">MARTINETO POS</h1>
+          <h1 className="text-xl font-black text-white tracking-wider">🍦WALERS🍦</h1>
           <p className="text-xs text-gray-400">Ingresa tus credenciales para acceder</p>
         </div>
 

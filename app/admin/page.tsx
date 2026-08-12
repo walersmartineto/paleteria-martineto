@@ -191,7 +191,7 @@ export default function AdminPage() {
           </div>
 
           <button
-            onClick={() => router.push('/')}
+            onClick={() => router.push('/puntos')}
             className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-2xl text-xs font-black border border-slate-700 transition-all active:scale-95"
           >
             ⬅️ Volver al POS

@@ -119,7 +119,6 @@ export default function DashboardPage() {
   const [alerta, setAlerta] = useState<AlertaMensaje | null>(null);
 
   useEffect(() => {
-    // Validar sesión antes de permitir el acceso al dashboard
     const sesion = localStorage.getItem('martineto_session');
     if (!sesion) {
       router.push('/login');
@@ -129,7 +128,6 @@ export default function DashboardPage() {
     setMounted(true);
     cargarMesas();
 
-    // ESCUCHAR CAMBIOS EN TIEMPO REAL DESDE SUPABASE
     const canal = supabase
       .channel('schema-db-changes')
       .on(
@@ -169,37 +167,35 @@ export default function DashboardPage() {
     }
   }, [mesas]);
 
- async function cargarMesas() {
-  try {
-    const { data, error } = await supabase
-      .from('mesas')
-      .select('*')
-      .order('id', { ascending: true });
+  async function cargarMesas() {
+    try {
+      const { data, error } = await supabase
+        .from('mesas')
+        .select('*')
+        .order('id', { ascending: true });
 
-    if (error) {
-      console.error("Error al cargar mesas:", error);
-      return;
-    }
+      if (error) {
+        console.error("Error al cargar mesas:", error);
+        return;
+      }
 
-    if (data && data.length > 0) {
-      const mapeadas: Mesa[] = data.map((m: any) => ({
-        id: Number(m.id),
-        nombre: m.nombre,
-        tipo: m.tipo,
-        estado: m.estado,
-        pedidos: typeof m.pedidos === 'string' ? JSON.parse(m.pedidos) : (m.pedidos || []),
-        totalPagado: Number(m.total_pagado ?? m.totalPagado ?? 0),
-      }));
-      
-      // ACTUALIZAMOS EL ESTADO CON LOS DATOS DE SUPABASE
-      setMesas(mapeadas);
-      // Actualizamos caché por si acaso, pero PRIORIZAMOS LA NUBE
-      localStorage.setItem('martineto_mesas_cache', JSON.stringify(mapeadas));
+      if (data && data.length > 0) {
+        const mapeadas: Mesa[] = data.map((m: any) => ({
+          id: Number(m.id),
+          nombre: m.nombre,
+          tipo: m.tipo,
+          estado: m.estado,
+          pedidos: typeof m.pedidos === 'string' ? JSON.parse(m.pedidos) : (m.pedidos || []),
+          totalPagado: Number(m.total_pagado ?? m.totalPagado ?? 0),
+        }));
+        
+        setMesas(mapeadas);
+        localStorage.setItem('martineto_mesas_cache', JSON.stringify(mapeadas));
+      }
+    } catch (err) {
+      console.error("Excepción cargando mesas:", err);
     }
-  } catch (err) {
-    console.error("Excepción cargando mesas:", err);
   }
-}
 
   async function guardarMesa(mesaObj: Mesa) {
     setMesas((prev) => {
@@ -481,8 +477,9 @@ export default function DashboardPage() {
     }, 0);
 
   return (
-    <main className="h-screen w-screen bg-[#07090e] text-gray-100 p-3 sm:p-5 font-sans flex flex-col justify-between overflow-hidden">
-      <div className="flex-1 overflow-y-auto pb-4 pr-1 space-y-4">
+    <main className="min-h-screen w-screen bg-[#07090e] text-gray-100 p-3 sm:p-5 font-sans flex flex-col justify-between relative">
+      {/* SECCIÓN SCROLLABLE CON PADDING INFERIOR SUFICIENTE (pb-24) PARA NO CHOCAR CON LA NAV */}
+      <div className="flex-1 overflow-y-auto pb-24 pr-1 space-y-4">
         {/* HEADER */}
         <header className="max-w-7xl mx-auto bg-[#0d111a] p-3.5 sm:p-4 rounded-2xl border border-gray-800 flex justify-between items-center">
           <div className="flex items-center gap-3">
@@ -813,7 +810,8 @@ export default function DashboardPage() {
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 overflow-y-auto max-h-[calc(100vh-280px)] pr-1">
+              {/* MAX ALTURA DE CATALOGO AJUSTADA PARA NO SUPERPONERSE (max-h-[calc(100vh-320px)]) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 overflow-y-auto max-h-[calc(100vh-320px)] pr-1">
                 {productosCatalogo.map((prod) => {
                   const itemAgregado = pedidosMesa.find((p) => p.producto.id === prod.id && !p.pagado);
                   const cantAgregada = itemAgregado ? itemAgregado.cantidad : 0;
@@ -859,7 +857,8 @@ export default function DashboardPage() {
                 {pedidosMesa.length === 0 ? (
                   <p className="text-center text-xs text-gray-500 py-4">Mesa sin pedidos</p>
                 ) : (
-                  <ul className="space-y-1.5 overflow-y-auto max-h-[calc(100vh-380px)] pr-1">
+                  /* MAX ALTURA DE LISTA DE COMANDA AJUSTADA */
+                  <ul className="space-y-1.5 overflow-y-auto max-h-[calc(100vh-420px)] pr-1">
                     {pedidosMesa.map((item, idx) => (
                       <li
                         key={idx}
@@ -937,29 +936,15 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* NAV INFERIOR */}
-      <nav className="w-full max-w-7xl mx-auto bg-[#0a0d14]/95 backdrop-blur-md border-t border-gray-800/80 px-4 py-2 z-40 shrink-0">
+      {/* NAV INFERIOR FIJO: SOLAMENTE INICIO Y PEDIR SUMINISTROS */}
+      <nav className="fixed bottom-0 left-0 right-0 w-full max-w-7xl mx-auto bg-[#0a0d14]/95 backdrop-blur-md border-t border-gray-800/80 px-4 py-2.5 z-40">
         <div className="flex justify-around items-center text-center">
           <button
-            onClick={() => setMesaSeleccionada(null)}
-            className={`flex flex-col items-center gap-0.5 relative ${
-              !mesaSeleccionada ? 'text-purple-400 font-bold' : 'text-gray-500'
-            }`}
+            onClick={() => router.push('/puntos')}
+            className="flex flex-col items-center gap-0.5 text-purple-400 font-bold"
           >
             <span className="text-xl">🏠</span>
             <span className="text-[10px]">Inicio</span>
-            {!mesaSeleccionada && <span className="w-8 h-0.5 bg-purple-500 rounded-full absolute -top-2"></span>}
-          </button>
-
-          <button
-            onClick={() => setMesaSeleccionada(mesas[0])}
-            className={`flex flex-col items-center gap-0.5 relative ${
-              mesaSeleccionada ? 'text-purple-400 font-bold' : 'text-gray-500'
-            }`}
-          >
-            <span className="text-xl">🪑</span>
-            <span className="text-[10px]">Mesas</span>
-            {mesaSeleccionada && <span className="w-8 h-0.5 bg-purple-500 rounded-full absolute -top-2"></span>}
           </button>
 
           <button
@@ -969,18 +954,10 @@ export default function DashboardPage() {
             <span className="text-xl">📦</span>
             <span className="text-[10px]">Pedir Suministros</span>
           </button>
-
-          <button
-            onClick={() => setMostrarLoginAdmin(true)}
-            className="flex flex-col items-center gap-0.5 text-gray-500 hover:text-rose-400 transition-colors"
-          >
-            <span className="text-xl">🛡️</span>
-            <span className="text-[10px]">Admin</span>
-          </button>
         </div>
       </nav>
 
-      {/* MODAL TRASLADO */}
+      {/* MODALES IGUALES */}
       {mesaAMover && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
           <div className="bg-[#0d111a] border border-gray-800 p-5 rounded-3xl max-w-xs w-full space-y-4">
@@ -1032,7 +1009,6 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* MODAL COBRO */}
       {mostrarPago && mesaSeleccionada && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
           <div className="bg-[#0d111a] border border-gray-800 p-5 rounded-3xl max-w-xs w-full space-y-4">
@@ -1087,7 +1063,6 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* MODAL LOGIN ADMIN */}
       {mostrarLoginAdmin && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
           <div className="bg-[#0d111a] border border-gray-800 p-5 rounded-3xl max-w-xs w-full space-y-3">
@@ -1135,7 +1110,6 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* MODAL PEDIR SUMINISTROS */}
       {mostrarSolicitarSuministro && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
           <div className="bg-[#0d111a] border border-gray-800 p-5 rounded-3xl max-w-xs w-full space-y-3">
@@ -1170,7 +1144,6 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* MODAL ALERTA NATIVA */}
       {alerta && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
           <div className="bg-[#0d111a] border border-gray-800 p-5 rounded-3xl max-w-xs w-full text-center space-y-3">
