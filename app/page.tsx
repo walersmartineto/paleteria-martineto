@@ -93,15 +93,16 @@ export default function Home() {
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
   const [usuarioActual, setUsuarioActual] = useState<UsuarioSistema | null>(null);
+
   const [mesas, setMesas] = useState<Mesa[]>(MESAS_INICIALES);
+  const [cargandoMesas, setCargandoMesas] = useState(true);
+
   const [productos, setProductos] = useState<Producto[]>(PRODUCTOS_RESPALDO);
   const [cargandoProds, setCargandoProds] = useState(true);
   const [mesaSeleccionada, setMesaSeleccionada] = useState<Mesa | null>(null);
   const [busqueda, setBusqueda] = useState('');
 
-  // Control de vistas: 'tarjetas' | 'plano'
   const [vistaActual, setVistaActual] = useState<'tarjetas' | 'plano'>('tarjetas');
-
   const [historialVentas, setHistorialVentas] = useState<VentaHistorial[]>([]);
 
   const [mostrarPago, setMostrarPago] = useState(false);
@@ -127,7 +128,6 @@ export default function Home() {
 
   const [alerta, setAlerta] = useState<AlertaMensaje | null>(null);
 
-  // Verificación e Suscripción Realtime
   useEffect(() => {
     setMounted(true);
     const sesionStr = localStorage.getItem('martineto_sesion_activa');
@@ -168,7 +168,6 @@ export default function Home() {
     };
   }, [router]);
 
-  // Sincronizar mesa seleccionada si hay cambios externos en vivo
   useEffect(() => {
     if (mesaSeleccionada) {
       const actualizada = mesas.find((m) => m.id === mesaSeleccionada.id);
@@ -177,20 +176,45 @@ export default function Home() {
   }, [mesas]);
 
   async function cargarMesasBaseDatos() {
+    setCargandoMesas(true);
     try {
-      const { data, error } = await supabase.from('mesas').select('*').order('id', { ascending: true });
+      const { data, error } = await supabase
+        .from('mesas')
+        .select('*')
+        .order('id', { ascending: true });
+
       if (!error && data && data.length > 0) {
         setMesas(data as Mesa[]);
+      } else {
+        // Si la tabla en Supabase está vacía, se auto-puebla con la estructura por defecto
+        setMesas(MESAS_INICIALES);
+        await supabase.from('mesas').upsert(
+          MESAS_INICIALES.map((m) => ({
+            id: m.id,
+            nombre: m.nombre,
+            tipo: m.tipo,
+            estado: m.estado,
+            pedidos: m.pedidos,
+            totalPagado: m.totalPagado,
+          }))
+        );
       }
-    } catch {
+    } catch (e) {
+      console.error('Error cargando mesas:', e);
       setMesas(MESAS_INICIALES);
+    } finally {
+      setCargandoMesas(false);
     }
   }
 
   async function cargarProductosBaseDatos() {
     setCargandoProds(true);
     try {
-      const { data, error } = await supabase.from('productos').select('*').order('nombre', { ascending: true });
+      const { data, error } = await supabase
+        .from('productos')
+        .select('*')
+        .order('nombre', { ascending: true });
+
       if (error || !data || data.length === 0) {
         setProductos(PRODUCTOS_RESPALDO);
       } else {
@@ -202,11 +226,9 @@ export default function Home() {
     setCargandoProds(false);
   }
 
-  // Guardar Cambios en Supabase en Tiempo Real
   async function actualizarMesaDB(mesaObj: Mesa) {
-    // Actualización Optimista local
     setMesas((prev) => prev.map((m) => (m.id === mesaObj.id ? mesaObj : m)));
-    
+
     await supabase.from('mesas').upsert({
       id: mesaObj.id,
       nombre: mesaObj.nombre,
@@ -525,7 +547,13 @@ export default function Home() {
         </div>
 
         {/* CONTENIDO PRINCIPAL */}
-        {!mesaSeleccionada ? (
+        {cargandoMesas ? (
+          <div className="max-w-7xl mx-auto text-center py-20">
+            <p className="text-purple-400 font-bold text-sm animate-pulse">
+              🔄 Sincronizando estado de las mesas en tiempo real...
+            </p>
+          </div>
+        ) : !mesaSeleccionada ? (
           <div className="max-w-7xl mx-auto space-y-4">
             {/* RESUMEN METRICAS */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -731,7 +759,7 @@ export default function Home() {
                 })}
               </div>
             ) : (
-              /* VISTA PLANO (LISTADO DIRECTO Y MINIMALISTA) */
+              /* VISTA PLANO */
               <div className="bg-[#0d111a] border border-gray-800 rounded-2xl divide-y divide-gray-800/80">
                 {mesas.map((m) => {
                   const totalConsumos = Math.max(0, m.pedidos.reduce((a, b) => a + b.producto.precio * b.cantidad, 0));
