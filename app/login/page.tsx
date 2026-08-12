@@ -22,26 +22,21 @@ export default function LoginPage() {
     setErrorMsg('');
 
     try {
-      // 1. Consultar en Supabase
+      // Consulta directa y exclusiva en Supabase
       const { data, error } = await supabase
         .from('usuarios')
         .select('*')
         .eq('usuario', userInput.trim())
         .eq('clave', passInput.trim());
 
-      let usuarioEncontrado = data && data.length > 0 ? data[0] : null;
-
-      // 2. Fallback local si la consulta falló o no dio resultados
-      if (!usuarioEncontrado) {
-        const usrsLocal = JSON.parse(localStorage.getItem('martineto_usuarios_admin') || '[]');
-        const lista = usrsLocal.length > 0 ? usrsLocal : [{ usuario: '1234', clave: '1234' }];
-        
-        usuarioEncontrado = lista.find(
-          (u: any) =>
-            u.usuario.trim().toLowerCase() === userInput.trim().toLowerCase() &&
-            u.clave.trim() === passInput.trim()
-        );
+      if (error) {
+        console.error('Error de Supabase:', error.message);
+        setErrorMsg('Error al conectar con la base de datos.');
+        setLoading(false);
+        return;
       }
+
+      const usuarioEncontrado = data && data.length > 0 ? data[0] : null;
 
       if (usuarioEncontrado) {
         // Guardar sesión activa en localStorage
@@ -55,6 +50,7 @@ export default function LoginPage() {
         setErrorMsg('Usuario o clave incorrectos.');
       }
     } catch (err) {
+      console.error('Excepción:', err);
       setErrorMsg('Error al conectar con el servidor.');
     } finally {
       setLoading(false);
