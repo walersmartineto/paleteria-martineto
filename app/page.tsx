@@ -74,12 +74,12 @@ const PRODUCTOS_RESPALDO: Producto[] = [
 ];
 
 const MESAS_INICIALES: Mesa[] = [
-  { id: 1, nombre: 'Mesa 1', tipo: 'mesa', estado: 'libre', pedidos: [], totalPagado: 0 },
-  { id: 2, nombre: 'Mesa 2', tipo: 'mesa', estado: 'libre', pedidos: [], totalPagado: 0 },
-  { id: 3, nombre: 'Mesa 3', tipo: 'mesa', estado: 'libre', pedidos: [], totalPagado: 0 },
-  { id: 4, nombre: 'Mesa 4', tipo: 'mesa', estado: 'libre', pedidos: [], totalPagado: 0 },
-  { id: 5, nombre: 'Mesa 5', tipo: 'mesa', estado: 'libre', pedidos: [], totalPagado: 0 },
-  { id: 6, nombre: 'Mesa 6', tipo: 'mesa', estado: 'libre', pedidos: [], totalPagado: 0 },
+  { id: 1, nombre: 'MESA 01', tipo: 'mesa', estado: 'libre', pedidos: [], totalPagado: 0 },
+  { id: 2, nombre: 'MESA 02', tipo: 'mesa', estado: 'libre', pedidos: [], totalPagado: 0 },
+  { id: 3, nombre: 'MESA 03', tipo: 'mesa', estado: 'libre', pedidos: [], totalPagado: 0 },
+  { id: 4, nombre: 'MESA 04', tipo: 'mesa', estado: 'libre', pedidos: [], totalPagado: 0 },
+  { id: 5, nombre: 'MESA 05', tipo: 'mesa', estado: 'libre', pedidos: [], totalPagado: 0 },
+  { id: 6, nombre: 'MESA 06', tipo: 'mesa', estado: 'libre', pedidos: [], totalPagado: 0 },
   { id: 7, nombre: 'Rappi 🛵', tipo: 'domicilio', estado: 'libre', pedidos: [], totalPagado: 0 },
 ];
 
@@ -113,12 +113,10 @@ export default function Home() {
 
   const [alerta, setAlerta] = useState<AlertaMensaje | null>(null);
 
-  // Cargar estado guardado al iniciar
   useEffect(() => {
     setMounted(true);
     cargarProductosBaseDatos();
 
-    // Recuperar estado de las mesas almacenadas
     const mesasGuardadas = localStorage.getItem('martineto_mesas_pos');
     if (mesasGuardadas) {
       try {
@@ -129,7 +127,6 @@ export default function Home() {
     }
   }, []);
 
-  // Guardar mesas en localStorage cada vez que cambien
   useEffect(() => {
     if (mounted) {
       localStorage.setItem('martineto_mesas_pos', JSON.stringify(mesas));
@@ -399,192 +396,215 @@ export default function Home() {
     (p) => p.precio > 0 && p.nombre.toLowerCase().includes(busqueda.toLowerCase())
   );
 
+  const totalPorCobrarCalculado = mesas
+    .filter((m) => m.estado === 'ocupada_debe')
+    .reduce((acc, m) => {
+      const sub = m.pedidos.reduce((a, b) => a + b.producto.precio * b.cantidad, 0);
+      return acc + Math.max(0, sub - m.totalPagado);
+    }, 0);
+
   return (
-    <main className="min-h-screen bg-[#0d1117] text-gray-100 p-3 sm:p-6 font-sans selection:bg-purple-600 selection:text-white pb-24 lg:pb-6">
-      {/* Header en fondo oscuro neutro */}
-      <header className="max-w-7xl mx-auto mb-6 bg-[#161b22] p-4 sm:p-5 rounded-3xl border border-gray-800 shadow-2xl flex flex-col md:flex-row justify-between items-center gap-4">
-        <div className="flex items-center gap-3 w-full md:w-auto justify-between md:justify-start">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-purple-600 flex items-center justify-center text-xl shadow-lg shadow-purple-900/40">
-              🍦
+    <main className="min-h-screen bg-[#07090e] text-gray-100 p-3 sm:p-6 font-sans pb-28">
+      {/* HEADER PRINCIPAL (PANTALLA COMPLETA EN PC/TABLET) */}
+      <header className="max-w-7xl mx-auto mb-4 bg-[#0d111a] p-3.5 sm:p-4 rounded-2xl border border-gray-800 flex justify-between items-center">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-purple-600 flex items-center justify-center text-xl shadow-md shadow-purple-900/50">
+            🍦
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-base sm:text-lg font-black text-white tracking-wider">MARTINETO</h1>
+              <span className="text-[9px] font-black px-2 py-0.5 rounded-md bg-purple-900/60 text-purple-300 border border-purple-700/50">POS 2026</span>
             </div>
-            <div>
-              <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white flex items-center gap-2">
-                MARTINETO <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-purple-900/50 text-purple-300 border border-purple-700/50">POS 2026</span>
-              </h1>
-              <p className="text-xs text-gray-400">Punto de Venta e Inventario</p>
-            </div>
+            <p className="text-xs text-gray-400">Punto de Venta & Inventario</p>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center justify-center gap-2.5 w-full md:w-auto">
-          <button
-            onClick={() => setMesaSeleccionada(null)}
-            className={`px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-black transition-all border flex items-center gap-2 active:translate-y-0.5 ${
-              !mesaSeleccionada
-                ? 'bg-purple-600 text-white border-purple-500 shadow-md'
-                : 'bg-gray-800 hover:bg-gray-700 text-gray-300 border-gray-700'
-            }`}
-          >
-            🏠 Ir al Lobby
-          </button>
-
-          <button
-            onClick={() => setMostrarSolicitarSuministro(true)}
-            className="bg-amber-600 hover:bg-amber-500 text-white px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-black transition-all border border-amber-500/50 flex items-center gap-2 active:translate-y-0.5"
-          >
-            📦 Pedir Suministros
-          </button>
-
-          <button
-            onClick={() => setMostrarLoginAdmin(true)}
-            className="bg-rose-600 hover:bg-rose-500 text-white px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-black transition-all border border-rose-500/50 flex items-center gap-2 active:translate-y-0.5"
-          >
-            🔐 Admin
-          </button>
-
-          <div className="flex items-center gap-1.5 overflow-x-auto max-w-full py-1">
-            {mesas.map((m) => {
-              const isSelected = mesaSeleccionada?.id === m.id;
-              let statusStyle = "bg-gray-800 border-gray-700 text-gray-300";
-              if (m.estado === 'libre') statusStyle = "bg-emerald-950/40 border-emerald-600/50 text-emerald-400";
-              if (m.estado === 'ocupada_debe') statusStyle = "bg-rose-950/60 border-rose-500 text-rose-400";
-              if (m.estado === 'ocupada_pagado') statusStyle = "bg-cyan-950/60 border-cyan-500 text-cyan-300";
-
-              return (
-                <button
-                  key={m.id}
-                  onClick={() => setMesaSeleccionada(m)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-black border transition-all whitespace-nowrap active:scale-95 ${statusStyle} ${
-                    isSelected ? 'ring-2 ring-purple-400 scale-105' : ''
-                  }`}
-                >
-                  {m.nombre}
-                </button>
-              );
-            })}
+        <div className="flex items-center gap-3">
+          <span className="inline-flex items-center gap-1.5 text-xs bg-emerald-950/80 text-emerald-400 border border-emerald-800/60 px-3 py-1 rounded-full font-bold">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            Sistema operativo
+          </span>
+          <div className="w-8 h-8 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center text-sm text-gray-300 relative">
+            👤
+            <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-400 border border-gray-900"></span>
           </div>
         </div>
       </header>
 
-      {/* LOBBY / MONITOR FÍSICO DE SALA DE MESAS */}
+      {/* TABS MESAS HORIZONTAL */}
+      <div className="max-w-7xl mx-auto bg-[#0d111a] p-1.5 rounded-2xl border border-gray-800 mb-4 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+        {mesas.map((m) => {
+          const isSelected = mesaSeleccionada?.id === m.id;
+          return (
+            <button
+              key={m.id}
+              onClick={() => setMesaSeleccionada(m)}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider border transition-all whitespace-nowrap ${
+                isSelected
+                  ? 'bg-emerald-950 text-emerald-400 border-emerald-500 shadow-sm'
+                  : 'bg-transparent text-gray-400 border-transparent hover:text-gray-200'
+              }`}
+            >
+              {m.nombre}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* CONTENIDO PRINCIPAL: LOBBY O COMANDA */}
       {!mesaSeleccionada ? (
-        <div className="max-w-7xl mx-auto space-y-6">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="bg-[#161b22] p-5 rounded-3xl border border-gray-800 shadow-xl">
-              <p className="text-xs font-black text-gray-400 uppercase tracking-wider">Mesas Libres</p>
-              <p className="text-3xl sm:text-4xl font-black text-emerald-400 mt-1">
-                {mesas.filter((m) => m.estado === 'libre').length}
-              </p>
+        <div className="max-w-7xl mx-auto space-y-4">
+          {/* TARJETAS RESUMEN TOP */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="bg-[#0d111a] p-3.5 rounded-2xl border border-gray-800/80 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-950/60 border border-emerald-800/50 flex items-center justify-center text-emerald-400 text-xl shrink-0">
+                🪑
+              </div>
+              <div className="truncate">
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-tight">MESAS LIBRES</p>
+                <p className="text-xl font-black text-emerald-400 leading-tight">
+                  {mesas.filter((m) => m.estado === 'libre').length}
+                </p>
+                <p className="text-[10px] text-gray-500 font-semibold">disponibles</p>
+              </div>
             </div>
-            <div className="bg-[#161b22] p-5 rounded-3xl border border-rose-900/50 shadow-xl">
-              <p className="text-xs font-black text-rose-400 uppercase tracking-wider">Por Cobrar (Debe)</p>
-              <p className="text-3xl sm:text-4xl font-black text-rose-400 mt-1">
-                {mesas.filter((m) => m.estado === 'ocupada_debe').length}
-              </p>
+
+            <div className="bg-[#0d111a] p-3.5 rounded-2xl border border-rose-900/30 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-950/60 border border-rose-800/50 flex items-center justify-center text-rose-400 text-xl shrink-0">
+                🎟️
+              </div>
+              <div className="truncate">
+                <p className="text-xs font-bold text-rose-400 uppercase tracking-tight">POR COBRAR</p>
+                <p className="text-lg font-black text-rose-400 leading-tight truncate">
+                  ${formatPrecio(totalPorCobrarCalculado)}
+                </p>
+                <p className="text-[10px] text-gray-500 font-semibold">pendiente</p>
+              </div>
             </div>
-            <div className="bg-[#161b22] p-5 rounded-3xl border border-cyan-900/50 shadow-xl">
-              <p className="text-xs font-black text-cyan-300 uppercase tracking-wider">Pagadas en Mesa</p>
-              <p className="text-3xl sm:text-4xl font-black text-cyan-300 mt-1">
-                {mesas.filter((m) => m.estado === 'ocupada_pagado').length}
-              </p>
+
+            <div className="bg-[#0d111a] p-3.5 rounded-2xl border border-cyan-900/30 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-cyan-950/60 border border-cyan-800/50 flex items-center justify-center text-cyan-400 text-xl shrink-0">
+                👥
+              </div>
+              <div className="truncate">
+                <p className="text-xs font-bold text-cyan-300 uppercase tracking-tight">PAGADAS EN MESA</p>
+                <p className="text-xl font-black text-cyan-300 leading-tight">
+                  {mesas.filter((m) => m.estado === 'ocupada_pagado').length}
+                </p>
+                <p className="text-[10px] text-gray-500 font-semibold">activas</p>
+              </div>
             </div>
           </div>
 
-          <h2 className="text-lg font-black text-gray-300 tracking-wide">PLANO FÍSICO DE SALA</h2>
+          {/* TITULO Y VISTAS */}
+          <div className="flex justify-between items-center pt-2">
+            <div className="flex items-center gap-2">
+              <span className="text-purple-400 text-lg">🏢</span>
+              <div>
+                <h2 className="text-base font-black text-white tracking-wide">SALÓN</h2>
+                <p className="text-xs text-gray-400">
+                  {mesas.filter((m) => m.estado === 'libre').length} mesas disponibles • {mesas.filter((m) => m.estado !== 'libre').length} ocupadas
+                </p>
+              </div>
+            </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+            <div className="flex items-center gap-1 bg-[#0d111a] p-1 rounded-xl border border-gray-800">
+              <button className="px-2.5 py-1 rounded-lg bg-purple-900/50 text-purple-300 text-xs font-bold border border-purple-700/50 flex items-center gap-1">
+                <span>░░</span> Vista tarjetas
+              </button>
+              <button className="px-2.5 py-1 rounded-lg text-gray-400 text-xs font-bold flex items-center gap-1 hover:text-white">
+                <span>🗺️</span> Plano
+              </button>
+            </div>
+          </div>
+
+          {/* GRILLA DE MESAS: 2 EN MÓVIL, HASTA 4 EN PANTALLAS GRANDES */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3.5">
             {mesas.map((m) => {
               const totalConsumos = Math.max(
                 0,
                 m.pedidos.reduce((a, b) => a + b.producto.precio * b.cantidad, 0)
               );
               const pendienteMesa = Math.max(0, totalConsumos - m.totalPagado);
+              const totalItems = m.pedidos.reduce((acc, p) => acc + p.cantidad, 0);
 
-              let borderCard = "border-2 border-emerald-600/40 bg-[#161b22]";
-              let badgeStyle = "bg-emerald-950 text-emerald-400 border-emerald-700/50";
-              let sillaColor = "bg-emerald-500 shadow-md";
-              let mesaBg = "bg-gray-800/80 border-gray-700";
+              let cardBorder = "border-emerald-600/40 bg-[#0c1313]";
+              let badgeStyle = "bg-emerald-950/80 text-emerald-400 border-emerald-700/60";
+              let mesaBg = "bg-[#111f1c] border-emerald-500/40";
+              let sillaColor = "bg-emerald-500";
+              let estadoTexto = "LIBRE";
+              let accionTexto = "Sin consumos";
 
               if (m.estado === 'ocupada_debe') {
-                borderCard = "border-2 border-rose-500 bg-rose-950/20";
-                badgeStyle = "bg-rose-950 text-rose-400 border-rose-700/50";
-                sillaColor = "bg-rose-500 shadow-md animate-pulse";
-                mesaBg = "bg-rose-950/40 border-rose-700/50";
+                cardBorder = "border-rose-600/50 bg-[#160d13]";
+                badgeStyle = "bg-rose-950/80 text-rose-400 border-rose-700/60";
+                mesaBg = "bg-[#25121a] border-rose-500/50";
+                sillaColor = "bg-rose-500";
+                estadoTexto = "POR COBRAR";
+                accionTexto = "VER CUENTA >";
               } else if (m.estado === 'ocupada_pagado') {
-                borderCard = "border-2 border-cyan-500 bg-cyan-950/20";
-                badgeStyle = "bg-cyan-950 text-cyan-300 border-cyan-700/50";
-                sillaColor = "bg-cyan-400 shadow-md";
-                mesaBg = "bg-cyan-950/40 border-cyan-700/50";
+                cardBorder = "border-amber-500/50 bg-[#17130b]";
+                badgeStyle = "bg-amber-950/80 text-amber-400 border-amber-700/60";
+                mesaBg = "bg-[#261c0d] border-amber-500/50";
+                sillaColor = "bg-amber-500";
+                estadoTexto = "OCUPADA";
+                accionTexto = "VER PEDIDO >";
               }
 
               return (
                 <div
                   key={m.id}
                   onClick={() => setMesaSeleccionada(m)}
-                  className={`p-5 rounded-3xl cursor-pointer transition-all duration-200 hover:-translate-y-1 flex flex-col justify-between relative overflow-hidden shadow-xl ${borderCard}`}
+                  className={`p-3.5 rounded-2xl cursor-pointer transition-all border flex flex-col justify-between shadow-lg ${cardBorder}`}
                 >
-                  <div>
-                    <div className="flex justify-between items-center mb-3">
-                      <h3 className="text-lg font-black text-white flex items-center gap-2">
-                        {m.nombre}
-                      </h3>
-                      <span className={`text-[10px] font-black px-2.5 py-1 rounded-full border uppercase tracking-wider ${badgeStyle}`}>
-                        {m.estado.replace('_', ' ')}
-                      </span>
-                    </div>
-
-                    <div className="my-4 flex justify-center items-center py-3 relative">
-                      <div className={`relative w-32 h-20 rounded-2xl border-2 flex flex-col items-center justify-center transition-all ${mesaBg}`}>
-                        {m.pedidos.length > 0 ? (
-                          <div className="flex items-center gap-1 bg-gray-900 px-2 py-0.5 rounded-full border border-amber-500/40 shadow-md animate-bounce">
-                            <span className="text-base">🍦</span>
-                            <span className="text-[10px] font-black text-amber-400">{m.pedidos.length} Ítems</span>
-                          </div>
-                        ) : (
-                          <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">
-                            DISPONIBLE
-                          </span>
-                        )}
-
-                        <div className={`absolute -top-3 w-10 h-2.5 rounded-full transition-all ${sillaColor}`} />
-                        <div className={`absolute -bottom-3 w-10 h-2.5 rounded-full transition-all ${sillaColor}`} />
-                        <div className={`absolute -left-3 w-2.5 h-10 rounded-full transition-all ${sillaColor}`} />
-                        <div className={`absolute -right-3 w-2.5 h-10 rounded-full transition-all ${sillaColor}`} />
-                      </div>
-                    </div>
-
-                    {m.pedidos.length === 0 ? (
-                      <p className="text-xs text-gray-500 py-1 text-center font-bold">Sin consumos</p>
-                    ) : (
-                      <ul className="space-y-1 my-2 max-h-24 overflow-hidden text-xs text-gray-300">
-                        {m.pedidos.map((p, idx) => (
-                          <li key={idx} className="flex justify-between items-center">
-                            <span className="truncate max-w-[140px]">
-                              {p.producto.nombre} <b className="text-purple-400">x{p.cantidad}</b>
-                            </span>
-                            <span className={`font-bold ${p.producto.precio < 0 ? 'text-amber-400' : 'text-gray-400'}`}>
-                              {p.producto.precio < 0 ? '-' : ''}${formatPrecio(p.producto.precio * p.cantidad)}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-xs font-black text-white">{m.nombre}</span>
+                    <span className={`text-[9px] font-black px-2 py-0.5 rounded-full border tracking-wider ${badgeStyle}`}>
+                      ● {estadoTexto}
+                    </span>
                   </div>
 
-                  <div className="border-t border-gray-800 pt-3 mt-3 space-y-1">
-                    {m.totalPagado > 0 && (
-                      <div className="flex justify-between items-center text-xs">
-                        <span className="text-gray-400 font-bold">Pagado:</span>
-                        <span className="text-cyan-300 font-black">${formatPrecio(m.totalPagado)}</span>
-                      </div>
-                    )}
-                    <div className="flex justify-between items-center">
-                      <span className="text-xs font-bold text-gray-400">Pendiente:</span>
-                      <span className="text-lg font-black text-rose-400">
-                        ${formatPrecio(pendienteMesa)}
+                  {/* REPRESENTACIÓN DE LA MESA CON SILLAS */}
+                  <div className="my-3 flex justify-center items-center py-2">
+                    <div className={`relative w-28 h-16 rounded-2xl border flex flex-col items-center justify-center transition-all ${mesaBg}`}>
+                      {m.estado === 'libre' ? (
+                        <span className="text-[10px] font-black text-emerald-400 uppercase tracking-wider">
+                          LIBRE
+                        </span>
+                      ) : m.estado === 'ocupada_debe' ? (
+                        <div className="flex flex-col items-center">
+                          <span className="text-rose-400 text-sm">🎟️</span>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center">
+                          <span className="text-amber-400 text-xs">👥</span>
+                          <span className="text-[8px] font-black text-amber-300 mt-0.5">3 personas</span>
+                        </div>
+                      )}
+
+                      {/* Sillas alrededor */}
+                      <div className={`absolute -top-2 w-8 h-1.5 rounded-full ${sillaColor}`} />
+                      <div className={`absolute -bottom-2 w-8 h-1.5 rounded-full ${sillaColor}`} />
+                      <div className={`absolute -left-2 w-1.5 h-6 rounded-full ${sillaColor}`} />
+                      <div className={`absolute -right-2 w-1.5 h-6 rounded-full ${sillaColor}`} />
+                    </div>
+                  </div>
+
+                  {/* PIE DE TARJETA MESA */}
+                  <div className="space-y-1.5 pt-1 border-t border-gray-800/60">
+                    <div className="flex justify-between items-center text-[10px]">
+                      <span className="text-gray-400 font-bold flex items-center gap-1">
+                        🛍️ {totalItems} productos
+                      </span>
+                      <span className={`font-black text-xs ${m.estado === 'libre' ? 'text-emerald-400' : m.estado === 'ocupada_debe' ? 'text-rose-400' : 'text-amber-400'}`}>
+                        ${formatPrecio(m.estado === 'libre' ? 0 : pendienteMesa)}
                       </span>
                     </div>
+
+                    <p className={`text-[9px] font-black text-center ${m.estado === 'libre' ? 'text-gray-500' : m.estado === 'ocupada_debe' ? 'text-rose-400' : 'text-amber-400'}`}>
+                      {accionTexto}
+                    </p>
                   </div>
                 </div>
               );
@@ -592,33 +612,27 @@ export default function Home() {
           </div>
         </div>
       ) : (
-        /* VISTA POS / CATÁLOGO Y COMANDA CON ALTO CONTRASTE */
-        <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Columna Izquierda: Catálogo de Productos */}
-          <div className="lg:col-span-2 bg-[#161b22] p-4 sm:p-6 rounded-3xl border border-gray-800 shadow-2xl">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
+        /* VISTA POS / COMANDA EN PC Y MÓVIL */
+        <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="lg:col-span-2 bg-[#0d111a] p-4 rounded-2xl border border-gray-800 space-y-3">
+            <div className="flex justify-between items-center">
               <div>
-                <h2 className="text-xl font-black text-white">
-                  {mesaSeleccionada.nombre}
-                </h2>
+                <h2 className="text-base font-black text-white">{mesaSeleccionada.nombre}</h2>
                 <p className="text-xs text-gray-400">Catálogo de productos Martineto</p>
               </div>
-
               <input
                 type="text"
-                placeholder="🔍 Buscar producto..."
+                placeholder="🔍 Buscar..."
                 value={busqueda}
                 onChange={(e) => setBusqueda(e.target.value)}
-                className="w-full sm:w-64 bg-gray-900 border border-gray-700 rounded-2xl px-4 py-2.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-purple-500 transition-colors"
+                className="w-44 bg-gray-900 border border-gray-700 rounded-xl px-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none"
               />
             </div>
 
             {cargandoProds ? (
-              <div className="text-center text-gray-500 py-20 font-bold animate-pulse">
-                Cargando productos...
-              </div>
+              <p className="text-center text-xs text-gray-500 py-6">Cargando productos...</p>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[500px] overflow-y-auto pr-1">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-96 overflow-y-auto pr-1">
                 {productosCatalogo.map((prod) => {
                   const itemAgregado = pedidosMesa.find(
                     (p) => p.producto.id === prod.id && !p.pagado
@@ -628,30 +642,26 @@ export default function Home() {
                   return (
                     <div
                       key={prod.id}
-                      className="bg-[#21262d] hover:bg-[#272c34] border border-gray-700 p-3.5 rounded-2xl flex justify-between items-center transition-all shadow-md"
+                      className="bg-[#121722] border border-gray-800 p-2.5 rounded-xl flex justify-between items-center"
                     >
-                      <div className="pr-2 truncate">
-                        <h4 className="font-bold text-white text-sm truncate">
-                          {prod.nombre}
-                        </h4>
-                        <p className="text-xs text-emerald-400 font-extrabold mt-0.5">
-                          ${formatPrecio(prod.precio)}
-                        </p>
+                      <div className="truncate pr-2">
+                        <p className="font-bold text-white text-xs truncate">{prod.nombre}</p>
+                        <p className="text-[10px] text-emerald-400 font-black">${formatPrecio(prod.precio)}</p>
                       </div>
 
-                      <div className="flex items-center gap-2 bg-gray-900 p-1.5 rounded-2xl border border-gray-800 shrink-0">
+                      <div className="flex items-center gap-1.5 bg-gray-900 p-1 rounded-xl border border-gray-800 shrink-0">
                         <button
                           onClick={() => modificarCantidad(prod, -1)}
-                          className="w-9 h-9 rounded-xl bg-gray-800 hover:bg-rose-600 active:scale-95 text-white font-black flex items-center justify-center text-lg transition-all"
+                          className="w-7 h-7 rounded-lg bg-gray-800 hover:bg-rose-600 text-white font-black text-sm flex items-center justify-center"
                         >
                           -
                         </button>
-                        <span className="font-black text-sm w-6 text-center text-purple-400">
+                        <span className="font-black text-xs w-5 text-center text-purple-400">
                           {cantAgregada}
                         </span>
                         <button
                           onClick={() => modificarCantidad(prod, 1)}
-                          className="w-9 h-9 rounded-xl bg-purple-600 hover:bg-purple-500 active:scale-95 text-white font-black flex items-center justify-center text-lg transition-all"
+                          className="w-7 h-7 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-black text-sm flex items-center justify-center"
                         >
                           +
                         </button>
@@ -663,110 +673,38 @@ export default function Home() {
             )}
           </div>
 
-          {/* Columna Derecha: Panel de Comanda */}
-          <div className="bg-[#161b22] p-4 sm:p-6 rounded-3xl border border-gray-800 shadow-2xl flex flex-col justify-between">
-            <div>
-              <div className="flex justify-between items-center border-b border-gray-800 pb-3 mb-4">
-                <h3 className="text-lg font-black text-white">
-                  Resumen de Comanda
-                </h3>
-                <span className="text-xs font-bold text-gray-400">
-                  {pedidosMesa.length} ítems
-                </span>
+          <div className="bg-[#0d111a] p-4 rounded-2xl border border-gray-800 space-y-3 flex flex-col justify-between">
+            <div className="space-y-3">
+              <div className="flex justify-between items-center border-b border-gray-800 pb-2">
+                <h3 className="text-xs font-black text-white">Resumen de Comanda</h3>
+                <span className="text-[10px] text-gray-400 font-bold">{pedidosMesa.length} ítems</span>
               </div>
 
               {pedidosMesa.length === 0 ? (
-                <div className="text-center py-16 text-gray-600 space-y-2">
-                  <p className="text-4xl">🛒</p>
-                  <p className="text-xs font-bold">Mesa sin pedidos</p>
-                </div>
+                <p className="text-center text-xs text-gray-500 py-4">Mesa sin pedidos</p>
               ) : (
-                <ul className="space-y-2.5 max-h-[240px] overflow-y-auto pr-1">
-                  {pedidosMesa.map((item, idx) => {
-                    const esDescuento = item.producto.precio < 0;
-
-                    return (
-                      <li
-                        key={idx}
-                        className={`flex justify-between items-center text-xs p-2.5 rounded-2xl border ${
-                          esDescuento
-                            ? 'bg-amber-950/40 border-amber-600/50 text-amber-300'
-                            : item.pagado
-                            ? 'bg-cyan-950/30 border-cyan-800/40 text-gray-400'
-                            : 'bg-gray-900 border-gray-800 text-gray-200'
-                        }`}
-                      >
-                        <div className="truncate pr-2">
-                          <p className="font-bold truncate flex items-center gap-1.5">
-                            {item.producto.nombre}
-                            {item.pagado && (
-                              <span className="text-[9px] bg-cyan-900/50 text-cyan-300 px-1.5 py-0.5 rounded-full border border-cyan-700/50 font-bold">
-                                PAGADO
-                              </span>
-                            )}
-                          </p>
-                          <p className="text-[10px] text-gray-400">
-                            {esDescuento ? 'Descuento' : `$${formatPrecio(item.producto.precio)}`} x {item.cantidad}
-                          </p>
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          <span className={`font-black text-sm shrink-0 ${esDescuento ? 'text-amber-400' : item.pagado ? 'text-cyan-300' : 'text-purple-400'}`}>
-                            {esDescuento ? '-' : ''}${formatPrecio(item.producto.precio * item.cantidad)}
-                          </span>
-
-                          {!item.pagado && (
-                            <button
-                              onClick={() => modificarCantidad(item.producto, -1)}
-                              className="text-gray-500 hover:text-rose-400 text-xs px-1 font-bold"
-                              title="Quitar"
-                            >
-                              ✕
-                            </button>
-                          )}
-                        </div>
-                      </li>
-                    );
-                  })}
+                <ul className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                  {pedidosMesa.map((item, idx) => (
+                    <li key={idx} className="flex justify-between items-center text-[11px] bg-gray-900/60 p-2 rounded-xl border border-gray-800/80">
+                      <span className="truncate max-w-[180px] font-medium text-gray-200">
+                        {item.producto.nombre} <b className="text-purple-400">x{item.cantidad}</b>
+                      </span>
+                      <span className="font-black text-purple-300">
+                        ${formatPrecio(item.producto.precio * item.cantidad)}
+                      </span>
+                    </li>
+                  ))}
                 </ul>
               )}
-
-              <div className="mt-4 pt-3 border-t border-gray-800">
-                <p className="text-xs font-black text-gray-400 mb-2">
-                  🏷️ APLICAR DESCUENTO
-                </p>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    onClick={() => agregarDescuentoItem('Descuento Estudiante', -500)}
-                    className="bg-amber-950/30 hover:bg-amber-900/40 text-amber-400 border border-amber-600/50 font-bold py-2 rounded-xl text-xs transition-all active:scale-95"
-                  >
-                    Estudiante (-$500)
-                  </button>
-                  <button
-                    onClick={() => agregarDescuentoItem('Descuento Especial', -1000)}
-                    className="bg-amber-950/30 hover:bg-amber-900/40 text-amber-400 border border-amber-600/50 font-bold py-2 rounded-xl text-xs transition-all active:scale-95"
-                  >
-                    Especial (-$1.000)
-                  </button>
-                </div>
-              </div>
             </div>
 
-            <div className="mt-6 border-t border-gray-800 pt-4 space-y-2">
-              <div className="bg-gray-900 p-3.5 rounded-2xl border border-gray-800 text-xs space-y-1.5">
-                <div className="flex justify-between text-gray-400 font-medium">
-                  <span>Monto Total Consumos:</span>
+            <div className="space-y-2 pt-2">
+              <div className="bg-gray-900/80 p-2.5 rounded-xl border border-gray-800 text-[11px] space-y-1">
+                <div className="flex justify-between text-gray-400">
+                  <span>Consumos:</span>
                   <span className="font-bold text-white">${formatPrecio(subtotalTotalMesa)}</span>
                 </div>
-
-                {totalPagadoPrevio > 0 && (
-                  <div className="flex justify-between text-cyan-300 font-bold border-t border-gray-800 pt-1">
-                    <span>Pagado previamente:</span>
-                    <span>-${formatPrecio(totalPagadoPrevio)}</span>
-                  </div>
-                )}
-
-                <div className="flex justify-between text-base font-black border-t border-gray-800 pt-2 text-rose-400">
+                <div className="flex justify-between text-rose-400 font-black text-xs border-t border-gray-800 pt-1">
                   <span>Saldo Pendiente:</span>
                   <span>${formatPrecio(saldoPendienteMesa)}</span>
                 </div>
@@ -776,16 +714,16 @@ export default function Home() {
                 <button
                   onClick={pagarRappiDirecto}
                   disabled={saldoPendienteMesa === 0}
-                  className="w-full bg-orange-600 hover:bg-orange-500 disabled:opacity-40 text-white font-black py-3.5 rounded-2xl text-xs sm:text-sm active:scale-95 transition-all border border-orange-500/50"
+                  className="w-full bg-orange-600 hover:bg-orange-500 disabled:opacity-40 text-white font-black py-2.5 rounded-xl text-xs"
                 >
                   🛵 Confirmar Pedido Rappi
                 </button>
               ) : (
-                <div className="grid grid-cols-2 gap-3 pt-1">
+                <div className="grid grid-cols-2 gap-2">
                   <button
                     onClick={() => registrarEstadoMesa('ocupada_debe')}
                     disabled={pedidosMesa.length === 0}
-                    className="bg-rose-600 hover:bg-rose-500 disabled:opacity-40 text-white font-black py-3 rounded-2xl text-xs active:scale-95 transition-all border border-rose-500/50"
+                    className="bg-rose-600 hover:bg-rose-500 disabled:opacity-40 text-white font-black py-2.5 rounded-xl text-xs"
                   >
                     Ocupada (Debe)
                   </button>
@@ -795,7 +733,7 @@ export default function Home() {
                       setMostrarPago(true);
                     }}
                     disabled={saldoPendienteMesa === 0}
-                    className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-black py-3 rounded-2xl text-xs active:scale-95 transition-all border border-emerald-500/50"
+                    className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-black py-2.5 rounded-xl text-xs"
                   >
                     Pagar Novedad
                   </button>
@@ -805,7 +743,7 @@ export default function Home() {
               {mesaSeleccionada.estado !== 'libre' && (
                 <button
                   onClick={() => liberarMesa(mesaSeleccionada.id)}
-                  className="w-full bg-gray-800 hover:bg-gray-700 text-gray-300 font-bold py-2.5 rounded-2xl text-xs active:scale-95 transition-all border border-gray-700 mt-1"
+                  className="w-full bg-gray-800 hover:bg-gray-700 text-gray-300 font-bold py-2 rounded-xl text-xs"
                 >
                   Liberar / Desocupar Mesa
                 </button>
@@ -815,104 +753,96 @@ export default function Home() {
         </div>
       )}
 
+      {/* NAV INFERIOR CON 4 OPCIONES: INICIO, MESAS, PEDIR SUMINISTROS, ADMIN */}
+      <nav className="fixed bottom-0 left-0 right-0 bg-[#0a0d14]/95 backdrop-blur-md border-t border-gray-800/80 px-4 py-2.5 z-40 max-w-7xl mx-auto">
+        <div className="flex justify-around items-center text-center">
+          <button
+            onClick={() => setMesaSeleccionada(null)}
+            className={`flex flex-col items-center gap-0.5 relative ${!mesaSeleccionada ? 'text-purple-400 font-bold' : 'text-gray-500'}`}
+          >
+            <span className="text-xl">🏠</span>
+            <span className="text-[10px]">Inicio</span>
+            {!mesaSeleccionada && <span className="w-8 h-0.5 bg-purple-500 rounded-full absolute -top-2"></span>}
+          </button>
+
+          <button
+            onClick={() => setMesaSeleccionada(mesas[0])}
+            className={`flex flex-col items-center gap-0.5 relative ${mesaSeleccionada ? 'text-purple-400 font-bold' : 'text-gray-500'}`}
+          >
+            <span className="text-xl">🪑</span>
+            <span className="text-[10px]">Mesas</span>
+            {mesaSeleccionada && <span className="w-8 h-0.5 bg-purple-500 rounded-full absolute -top-2"></span>}
+          </button>
+
+          <button
+            onClick={() => setMostrarSolicitarSuministro(true)}
+            className="flex flex-col items-center gap-0.5 text-gray-500 hover:text-amber-400 transition-colors"
+          >
+            <span className="text-xl">📦</span>
+            <span className="text-[10px]">Pedir Suministros</span>
+          </button>
+
+          <button
+            onClick={() => setMostrarLoginAdmin(true)}
+            className="flex flex-col items-center gap-0.5 text-gray-500 hover:text-rose-400 transition-colors"
+          >
+            <span className="text-xl">🛡️</span>
+            <span className="text-[10px]">Admin</span>
+          </button>
+        </div>
+      </nav>
+
       {/* MODAL COBRO */}
       {mostrarPago && mesaSeleccionada && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
-          <div className="bg-[#161b22] border border-gray-800 p-6 rounded-3xl max-w-md w-full shadow-2xl max-h-[90vh] overflow-y-auto">
-            <h3 className="text-lg font-black text-white mb-1">
-              Cobrar {mesaSeleccionada.nombre}
-            </h3>
-            <p className="text-2xl font-black text-emerald-400 mb-4">
-              Saldo Pendiente: ${formatPrecio(saldoPendienteMesa)}
+          <div className="bg-[#0d111a] border border-gray-800 p-5 rounded-3xl max-w-xs w-full space-y-4">
+            <h3 className="text-sm font-black text-white">Cobrar {mesaSeleccionada.nombre}</h3>
+            <p className="text-xl font-black text-emerald-400">
+              Pendiente: ${formatPrecio(saldoPendienteMesa)}
             </p>
 
-            <div className="space-y-3.5 mb-5">
+            <div className="space-y-2 text-xs">
               <div>
-                <label className="text-xs font-bold text-gray-400 block mb-1.5">
-                  💵 Efectivo
-                </label>
+                <label className="text-gray-400 font-bold block mb-1">💵 Efectivo</label>
                 <input
                   type="number"
-                  placeholder="Monto entregado"
                   value={metodosPago.efectivo || ''}
-                  onChange={(e) =>
-                    setMetodosPago({
-                      ...metodosPago,
-                      efectivo: Number(e.target.value),
-                    })
-                  }
-                  className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-3 text-sm text-white outline-none focus:border-purple-500 font-bold"
+                  onChange={(e) => setMetodosPago({ ...metodosPago, efectivo: Number(e.target.value) })}
+                  className="w-full bg-gray-900 border border-gray-800 rounded-xl p-2.5 text-white outline-none font-bold"
                 />
               </div>
-
               <div>
-                <label className="text-xs font-bold text-gray-400 block mb-1.5">
-                  📱 Nequi
-                </label>
+                <label className="text-gray-400 font-bold block mb-1">📱 Nequi</label>
                 <input
                   type="number"
-                  placeholder="Monto Nequi"
                   value={metodosPago.nequi || ''}
-                  onChange={(e) =>
-                    setMetodosPago({
-                      ...metodosPago,
-                      nequi: Number(e.target.value),
-                    })
-                  }
-                  className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-3 text-sm text-white outline-none focus:border-purple-500 font-bold"
+                  onChange={(e) => setMetodosPago({ ...metodosPago, nequi: Number(e.target.value) })}
+                  className="w-full bg-gray-900 border border-gray-800 rounded-xl p-2.5 text-white outline-none font-bold"
                 />
               </div>
-
               <div>
-                <label className="text-xs font-bold text-gray-400 block mb-1.5">
-                  📱 Daviplata
-                </label>
+                <label className="text-gray-400 font-bold block mb-1">📱 Daviplata</label>
                 <input
                   type="number"
-                  placeholder="Monto Daviplata"
                   value={metodosPago.daviplata || ''}
-                  onChange={(e) =>
-                    setMetodosPago({
-                      ...metodosPago,
-                      daviplata: Number(e.target.value),
-                    })
-                  }
-                  className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-3 text-sm text-white outline-none focus:border-purple-500 font-bold"
+                  onChange={(e) => setMetodosPago({ ...metodosPago, daviplata: Number(e.target.value) })}
+                  className="w-full bg-gray-900 border border-gray-800 rounded-xl p-2.5 text-white outline-none font-bold"
                 />
               </div>
             </div>
 
-            <div className="bg-gray-900 p-3.5 rounded-2xl mb-5 text-xs space-y-2 border border-gray-800">
-              <div className="flex justify-between text-gray-400 font-bold">
-                <span>Total Recibido:</span>
-                <span className="text-white">${formatPrecio(totalPagosIngresados)}</span>
-              </div>
-
-              {pendienteEnModal > 0 ? (
-                <div className="flex justify-between text-rose-400 font-black border-t border-gray-800 pt-2">
-                  <span>Falta por Cobrar:</span>
-                  <span>${formatPrecio(pendienteEnModal)}</span>
-                </div>
-              ) : (
-                <div className="flex justify-between text-emerald-400 font-black border-t border-gray-800 pt-2 text-sm">
-                  <span>Devueltas / Cambio:</span>
-                  <span>${formatPrecio(cambioDevueltas)}</span>
-                </div>
-              )}
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-2 pt-2">
               <button
                 onClick={() => setMostrarPago(false)}
-                className="bg-gray-800 hover:bg-gray-700 text-gray-300 font-bold py-3 rounded-2xl text-xs active:scale-95 transition-all"
+                className="bg-gray-800 text-gray-300 font-bold py-2 rounded-xl text-xs"
               >
                 Cancelar
               </button>
               <button
                 onClick={() => registrarEstadoMesa('ocupada_pagado')}
-                className="bg-emerald-600 hover:bg-emerald-500 text-white font-black py-3 rounded-2xl text-xs active:scale-95 transition-all"
+                className="bg-emerald-600 text-white font-black py-2 rounded-xl text-xs"
               >
-                Confirmar Pago
+                Confirmar
               </button>
             </div>
           </div>
@@ -922,46 +852,43 @@ export default function Home() {
       {/* MODAL LOGIN ADMIN */}
       {mostrarLoginAdmin && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
-          <div className="bg-[#161b22] border border-gray-800 p-6 rounded-3xl max-w-xs w-full shadow-2xl space-y-4">
+          <div className="bg-[#0d111a] border border-gray-800 p-5 rounded-3xl max-w-xs w-full space-y-3">
             <div className="text-center space-y-1">
-              <p className="text-3xl">🔐</p>
-              <h3 className="text-lg font-black text-white">Panel Administrador</h3>
-              <p className="text-xs text-gray-400">Ingresa tus credenciales</p>
+              <p className="text-2xl">🔐</p>
+              <h3 className="text-sm font-black text-white">Panel Administrador</h3>
             </div>
 
             {errorLogin && (
-              <p className="text-xs text-rose-400 bg-rose-950/60 p-2 rounded-xl border border-rose-800/40 text-center font-bold">
+              <p className="text-[10px] text-rose-400 bg-rose-950/60 p-2 rounded-xl border border-rose-800/40 text-center font-bold">
                 {errorLogin}
               </p>
             )}
 
-            <div className="space-y-3">
-              <input
-                type="text"
-                placeholder="Usuario"
-                value={userInput}
-                onChange={(e) => setUserInput(e.target.value)}
-                className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-3 text-xs text-white outline-none focus:border-rose-500 font-bold"
-              />
-              <input
-                type="password"
-                placeholder="Contraseña"
-                value={passInput}
-                onChange={(e) => setPassInput(e.target.value)}
-                className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-3 text-xs text-white outline-none focus:border-rose-500 font-bold"
-              />
-            </div>
+            <input
+              type="text"
+              placeholder="Usuario"
+              value={userInput}
+              onChange={(e) => setUserInput(e.target.value)}
+              className="w-full bg-gray-900 border border-gray-800 rounded-xl p-2.5 text-xs text-white outline-none font-bold"
+            />
+            <input
+              type="password"
+              placeholder="Contraseña"
+              value={passInput}
+              onChange={(e) => setPassInput(e.target.value)}
+              className="w-full bg-gray-900 border border-gray-800 rounded-xl p-2.5 text-xs text-white outline-none font-bold"
+            />
 
-            <div className="grid grid-cols-2 gap-2 pt-2">
+            <div className="grid grid-cols-2 gap-2 pt-1">
               <button
                 onClick={() => setMostrarLoginAdmin(false)}
-                className="bg-gray-800 hover:bg-gray-700 text-gray-300 font-bold py-2.5 rounded-xl text-xs active:scale-95 transition-all"
+                className="bg-gray-800 text-gray-300 font-bold py-2 rounded-xl text-xs"
               >
                 Cancelar
               </button>
               <button
                 onClick={validarLoginAdmin}
-                className="bg-rose-600 hover:bg-rose-500 text-white font-black py-2.5 rounded-xl text-xs active:scale-95 transition-all"
+                className="bg-rose-600 text-white font-black py-2 rounded-xl text-xs"
               >
                 Ingresar
               </button>
@@ -973,57 +900,56 @@ export default function Home() {
       {/* MODAL PEDIR SUMINISTROS */}
       {mostrarSolicitarSuministro && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
-          <div className="bg-[#161b22] border border-gray-800 p-6 rounded-3xl max-w-sm w-full shadow-2xl space-y-4">
+          <div className="bg-[#0d111a] border border-gray-800 p-5 rounded-3xl max-w-xs w-full space-y-3">
             <div className="text-center space-y-1">
-              <p className="text-3xl">🧹</p>
-              <h3 className="text-lg font-black text-white">Pedir Suministros</h3>
-              <p className="text-xs text-gray-400">Solicita artículos de aseo o insumos requeridos</p>
+              <p className="text-2xl">🧹</p>
+              <h3 className="text-sm font-black text-white">Pedir Suministros</h3>
             </div>
 
             <input
               type="text"
-              placeholder="Ej: Escoba, Jabón de losas, Balde..."
+              placeholder="Ej: Escoba, Jabón..."
               value={itemSolicitado}
               onChange={(e) => setItemSolicitado(e.target.value)}
-              className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-3 text-xs text-white outline-none focus:border-amber-500 font-bold"
+              className="w-full bg-gray-900 border border-gray-800 rounded-xl p-2.5 text-xs text-white outline-none font-bold"
             />
 
-            <div className="grid grid-cols-2 gap-2 pt-2">
+            <div className="grid grid-cols-2 gap-2 pt-1">
               <button
                 onClick={() => setMostrarSolicitarSuministro(false)}
-                className="bg-gray-800 hover:bg-gray-700 text-gray-300 font-bold py-2.5 rounded-xl text-xs active:scale-95 transition-all"
+                className="bg-gray-800 text-gray-300 font-bold py-2 rounded-xl text-xs"
               >
                 Cancelar
               </button>
               <button
                 onClick={enviarSolicitudSuministro}
-                className="bg-amber-600 hover:bg-amber-500 text-white font-black py-2.5 rounded-xl text-xs active:scale-95 transition-all"
+                className="bg-amber-600 text-white font-black py-2 rounded-xl text-xs"
               >
-                Enviar Pedido
+                Enviar
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* MODAL DE ALERTA NATIVA CON DIRECCIONAMIENTO AL LOBBY */}
+      {/* MODAL ALERTA NATIVA */}
       {alerta && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
-          <div className="bg-[#161b22] border border-gray-800 p-6 rounded-3xl max-w-sm w-full shadow-2xl text-center space-y-4">
-            <div className="w-14 h-14 rounded-full flex items-center justify-center mx-auto text-2xl border bg-gray-800 border-gray-700">
+          <div className="bg-[#0d111a] border border-gray-800 p-5 rounded-3xl max-w-xs w-full text-center space-y-3">
+            <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto text-xl border bg-gray-800 border-gray-700">
               {alerta.tipo === 'error' ? '⚠️' : alerta.tipo === 'exito' ? '✅' : '🔔'}
             </div>
 
             <div>
-              <h3 className="text-lg font-black text-white">{alerta.titulo}</h3>
-              <p className="text-xs text-gray-400 mt-2 font-medium leading-relaxed">
+              <h3 className="text-sm font-black text-white">{alerta.titulo}</h3>
+              <p className="text-[11px] text-gray-400 mt-1 font-medium leading-relaxed">
                 {alerta.mensaje}
               </p>
             </div>
 
             <button
               onClick={cerrarAlerta}
-              className="w-full bg-purple-600 hover:bg-purple-500 text-white font-black py-3 rounded-2xl text-xs transition-all active:scale-95"
+              className="w-full bg-purple-600 hover:bg-purple-500 text-white font-black py-2.5 rounded-xl text-xs"
             >
               Entendido
             </button>
