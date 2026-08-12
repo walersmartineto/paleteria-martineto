@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabase';
+import { SUPABASE_URL, SUPABASE_KEY, supabase } from '@/lib/supabase';
 
 interface Producto {
   id: number;
@@ -75,36 +75,58 @@ export default function AdminPage() {
     // 3. Stock Supabase
     cargarStockDB();
 
-    // 4. Usuarios desde Supabase DB
+    // 4. Usuarios
     cargarUsuariosDB();
   }
 
   async function cargarStockDB() {
     try {
-      const { data } = await supabase.from('productos').select('*').order('nombre', { ascending: true });
-      if (data && data.length > 0) {
-        setStockProductos(data);
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/productos?select=*&order=nombre.asc`, {
+        headers: {
+          apikey: SUPABASE_KEY,
+          Authorization: `Bearer ${SUPABASE_KEY}`,
+        },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.length > 0) setStockProductos(data);
       }
-    } catch {}
+    } catch (e) {
+      console.warn('Error cargando stock:', e);
+    }
   }
 
   async function cargarUsuariosDB() {
     setCargandoUsuarios(true);
     try {
-      const { data, error } = await supabase.from('usuarios').select('*');
-      if (!error && data && data.length > 0) {
-        setUsuarios(data);
-        localStorage.setItem('martineto_usuarios_admin', JSON.stringify(data));
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/usuarios?select=*`, {
+        headers: {
+          apikey: SUPABASE_KEY,
+          Authorization: `Bearer ${SUPABASE_KEY}`,
+        },
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.length > 0) {
+          setUsuarios(data);
+          localStorage.setItem('martineto_usuarios_admin', JSON.stringify(data));
+        } else {
+          cargarUsuariosLocal();
+        }
       } else {
-        const usrsLocal = JSON.parse(localStorage.getItem('martineto_usuarios_admin') || '[]');
-        setUsuarios(usrsLocal.length > 0 ? usrsLocal : [{ id: '1', usuario: '1234', clave: '1234' }]);
+        cargarUsuariosLocal();
       }
-    } catch (e) {
-      const usrsLocal = JSON.parse(localStorage.getItem('martineto_usuarios_admin') || '[]');
-      setUsuarios(usrsLocal.length > 0 ? usrsLocal : [{ id: '1', usuario: '1234', clave: '1234' }]);
+    } catch {
+      cargarUsuariosLocal();
     } finally {
       setCargandoUsuarios(false);
     }
+  }
+
+  function cargarUsuariosLocal() {
+    const usrsLocal = JSON.parse(localStorage.getItem('martineto_usuarios_admin') || '[]');
+    setUsuarios(usrsLocal.length > 0 ? usrsLocal : [{ id: '1', usuario: '1234', clave: '1234' }]);
   }
 
   // Toggle Comprado/Entregado
@@ -116,49 +138,48 @@ export default function AdminPage() {
     localStorage.setItem('martineto_pedidos_admin', JSON.stringify(actualizados));
   }
 
-  // Crear Usuario en Supabase
+  // Crear Usuario en Supabase usando API REST
   async function crearUsuario() {
     if (!nuevoUsuario.trim() || !nuevaClave.trim()) return;
 
     setCargandoUsuarios(true);
 
-    const usuarioObj = {
+    const datosNuevos = {
       usuario: nuevoUsuario.trim(),
       clave: nuevaClave.trim(),
     };
 
+    let usuarioGuardado: UsuarioSistema = {
+      id: Date.now().toString(),
+      ...datosNuevos,
+    };
+
     try {
-      const { data, error } = await supabase
-        .from('usuarios')
-        .insert([usuarioObj])
-        .select();
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/usuarios`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: SUPABASE_KEY,
+          Authorization: `Bearer ${SUPABASE_KEY}`,
+          Prefer: 'return=representation',
+        },
+        body: JSON.stringify(datosNuevos),
+      });
 
-      if (error) {
-        console.error('Error Supabase:', error.message);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.length > 0) {
+          usuarioGuardado = data[0];
+        }
       }
-
-      const usuarioGuardado: UsuarioSistema = (data && data[0]) ? data[0] : {
-        id: Date.now().toString(),
-        ...usuarioObj,
-      };
-
+    } catch (e) {
+      console.warn('Fallback local para guardar usuario');
+    } finally {
       const actualizados = [...usuarios, usuarioGuardado];
       setUsuarios(actualizados);
       localStorage.setItem('martineto_usuarios_admin', JSON.stringify(actualizados));
       setNuevoUsuario('');
       setNuevaClave('');
-    } catch (err: any) {
-      // Fallback local si falla la red
-      const usuarioLocal: UsuarioSistema = {
-        id: Date.now().toString(),
-        ...usuarioObj,
-      };
-      const actualizados = [...usuarios, usuarioLocal];
-      setUsuarios(actualizados);
-      localStorage.setItem('martineto_usuarios_admin', JSON.stringify(actualizados));
-      setNuevoUsuario('');
-      setNuevaClave('');
-    } finally {
       setCargandoUsuarios(false);
     }
   }
@@ -166,7 +187,13 @@ export default function AdminPage() {
   // Eliminar Usuario
   async function eliminarUsuario(id: string) {
     try {
-      await supabase.from('usuarios').delete().eq('id', id);
+      await fetch(`${SUPABASE_URL}/rest/v1/usuarios?id=eq.${id}`, {
+        method: 'DELETE',
+        headers: {
+          apikey: SUPABASE_KEY,
+          Authorization: `Bearer ${SUPABASE_KEY}`,
+        },
+      });
     } catch (err) {
       console.error(err);
     }
