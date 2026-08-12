@@ -2,20 +2,16 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-
-interface UsuarioSistema {
-  id: string;
-  usuario: string;
-  clave: string;
-}
+import { supabase } from '@/lib/supabase'; // Importante importar supabase
 
 export default function LoginPage() {
   const router = useRouter();
   const [usuarioInput, setUsuarioInput] = useState('');
   const [claveInput, setClaveInput] = useState('');
   const [error, setError] = useState('');
+  const [cargando, setCargando] = useState(false);
 
-  function handleLogin(e: React.FormEvent) {
+  async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     setError('');
 
@@ -24,38 +20,50 @@ export default function LoginPage() {
       return;
     }
 
-    // Cargar lista de usuarios del admin desde localStorage
-    const usuariosRegistrados: UsuarioSistema[] = JSON.parse(
-      localStorage.getItem('martineto_usuarios_admin') || '[]'
-    );
+    setCargando(true);
 
-    // Usuario por defecto si la lista está vacía
-    const usuariosValidos =
-      usuariosRegistrados.length > 0
-        ? usuariosRegistrados
-        : [{ id: '1', usuario: '1234', clave: '1234' }];
+    try {
+      // 1. Consultar en Supabase en la tabla 'usuarios'
+      const { data, error: errorDb } = await supabase
+        .from('usuarios')
+        .select('*')
+        .eq('usuario', usuarioInput.trim())
+        .eq('clave', claveInput.trim())
+        .single();
 
-    // Validar coincidencia
-    const usuarioEncontrado = usuariosValidos.find(
-      (u) =>
-        u.usuario.trim().toLowerCase() === usuarioInput.trim().toLowerCase() &&
-        u.clave.trim() === claveInput.trim()
-    );
+      if (errorDb || !data) {
+        // 2. Respaldo por si no se encuentra en BD pero existe en localStorage
+        const usuariosLocal = JSON.parse(
+          localStorage.getItem('martineto_usuarios_admin') || '[]'
+        );
+        const fallback = usuariosLocal.find(
+          (u: any) =>
+            u.usuario.trim().toLowerCase() === usuarioInput.trim().toLowerCase() &&
+            u.clave.trim() === claveInput.trim()
+        );
 
-    if (usuarioEncontrado) {
-      // Guardar sesión activa (opcional para persistencia)
-      localStorage.setItem('martineto_sesion_activa', JSON.stringify(usuarioEncontrado));
-      // Redirigir a la vista principal app/page.tsx
-      router.push('/');
-    } else {
-      setError('Usuario o contraseña incorrectos.');
+        if (fallback) {
+          localStorage.setItem('martineto_sesion_activa', JSON.stringify(fallback));
+          router.push('/');
+          return;
+        }
+
+        setError('Usuario o contraseña incorrectos.');
+      } else {
+        // 3. Usuario encontrado exitosamente en Supabase
+        localStorage.setItem('martineto_sesion_activa', JSON.stringify(data));
+        router.push('/');
+      }
+    } catch (err) {
+      setError('Error al conectar con el servidor.');
+    } finally {
+      setCargando(false);
     }
   }
 
   return (
     <main className="min-h-screen bg-[#07090e] text-gray-100 flex items-center justify-center p-4 font-sans">
       <div className="w-full max-w-sm bg-[#0d111a] border border-gray-800 p-6 sm:p-8 rounded-3xl shadow-2xl space-y-6">
-        {/* LOGO Y ENCABEZADO */}
         <div className="text-center space-y-2">
           <div className="w-14 h-14 rounded-2xl bg-purple-600 mx-auto flex items-center justify-center text-3xl shadow-lg shadow-purple-900/50">
             🍦
@@ -64,14 +72,12 @@ export default function LoginPage() {
           <p className="text-xs text-gray-400">Ingresa tus credenciales para acceder</p>
         </div>
 
-        {/* MENSAJE DE ERROR */}
         {error && (
           <div className="bg-rose-950/70 text-rose-300 border border-rose-800/60 text-xs p-3 rounded-xl font-bold text-center">
             ⚠️ {error}
           </div>
         )}
 
-        {/* FORMULARIO */}
         <form onSubmit={handleLogin} className="space-y-4">
           <div className="space-y-1.5">
             <label className="text-xs font-bold text-gray-300 block">Usuario</label>
@@ -97,9 +103,10 @@ export default function LoginPage() {
 
           <button
             type="submit"
-            className="w-full bg-purple-600 hover:bg-purple-500 text-white font-black py-3 rounded-xl text-xs active:scale-95 transition-all shadow-lg shadow-purple-900/40 mt-2"
+            disabled={cargando}
+            className="w-full bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-black py-3 rounded-xl text-xs active:scale-95 transition-all shadow-lg shadow-purple-900/40 mt-2"
           >
-            Iniciar Sesión
+            {cargando ? 'Verificando...' : 'Iniciar Sesión'}
           </button>
         </form>
       </div>
