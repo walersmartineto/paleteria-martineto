@@ -132,24 +132,25 @@ export default function AdminPage() {
       clave: nuevaClave.trim(),
     };
 
-    let usuarioGuardado: UsuarioSistema = {
-      id: Date.now().toString(),
-      ...datosNuevos,
-    };
-
     try {
       const { data, error } = await supabase.from('usuarios').insert([datosNuevos]).select();
-      if (!error && data && data.length > 0) {
-        usuarioGuardado = data[0];
+      
+      if (error) {
+        console.error('Error detallado de Supabase:', error.message);
+        alert('Error al guardar en la base de datos: ' + error.message);
+        return;
+      }
+
+      if (data && data.length > 0) {
+        const actualizados = [...usuarios, data[0]];
+        setUsuarios(actualizados);
+        localStorage.setItem('martineto_usuarios_admin', JSON.stringify(actualizados));
+        setNuevoUsuario('');
+        setNuevaClave('');
       }
     } catch (e) {
-      console.warn('Fallback local para guardar usuario');
+      console.error('Excepción al conectar con Supabase:', e);
     } finally {
-      const actualizados = [...usuarios, usuarioGuardado];
-      setUsuarios(actualizados);
-      localStorage.setItem('martineto_usuarios_admin', JSON.stringify(actualizados));
-      setNuevoUsuario('');
-      setNuevaClave('');
       setCargandoUsuarios(false);
     }
   }

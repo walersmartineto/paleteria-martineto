@@ -83,7 +83,7 @@ const MESAS_INICIALES: Mesa[] = [
   { id: 7, nombre: 'Rappi 🛵', tipo: 'domicilio', estado: 'libre', pedidos: [], totalPagado: 0 },
 ];
 
-export default function Home() {
+export default function DashboardPage() {
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
 
@@ -119,6 +119,13 @@ export default function Home() {
   const [alerta, setAlerta] = useState<AlertaMensaje | null>(null);
 
   useEffect(() => {
+    // Validar sesión antes de permitir el acceso al dashboard
+    const sesion = localStorage.getItem('martineto_session');
+    if (!sesion) {
+      router.push('/login');
+      return;
+    }
+
     setMounted(true);
     cargarMesas();
 
@@ -153,7 +160,7 @@ export default function Home() {
     return () => {
       supabase.removeChannel(canal);
     };
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     if (mesaSeleccionada) {
@@ -191,7 +198,6 @@ export default function Home() {
   }
 
   async function guardarMesa(mesaObj: Mesa) {
-    // Reflejo local inmediato
     setMesas((prev) => {
       const nuevas = prev.map((m) => (m.id === mesaObj.id ? mesaObj : m));
       localStorage.setItem('martineto_mesas_cache', JSON.stringify(nuevas));
@@ -425,6 +431,11 @@ export default function Home() {
     }
   }
 
+  function cerrarSesion() {
+    localStorage.removeItem('martineto_session');
+    router.push('/login');
+  }
+
   function enviarSolicitudSuministro() {
     if (!itemSolicitado.trim()) return;
 
@@ -486,10 +497,16 @@ export default function Home() {
           </div>
 
           <div className="flex items-center gap-3">
-            <span className="inline-flex items-center gap-1.5 text-xs bg-emerald-950/80 text-emerald-400 border border-emerald-800/60 px-3 py-1 rounded-full font-bold">
+            <span className="hidden sm:inline-flex items-center gap-1.5 text-xs bg-emerald-950/80 text-emerald-400 border border-emerald-800/60 px-3 py-1 rounded-full font-bold">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
               Sincronizado
             </span>
+            <button
+              onClick={cerrarSesion}
+              className="bg-gray-800 hover:bg-rose-950 text-gray-300 hover:text-rose-300 border border-gray-700 hover:border-rose-800 px-3 py-1.5 rounded-xl text-xs font-bold transition-all"
+            >
+              🚪 Salir
+            </button>
           </div>
         </header>
 
