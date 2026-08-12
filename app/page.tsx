@@ -88,7 +88,7 @@ export default function DashboardPage() {
   const [mounted, setMounted] = useState(false);
 
   const [mesas, setMesas] = useState<Mesa[]>(MESAS_INICIALES);
-  const [productos] = useState<Producto[]>(PRODUCTOS_RESPALDO);
+  const [productos, setProductos] = useState<Producto[]>(PRODUCTOS_RESPALDO);
   const [mesaSeleccionada, setMesaSeleccionada] = useState<Mesa | null>(null);
   const [busqueda, setBusqueda] = useState('');
 
@@ -127,6 +127,7 @@ export default function DashboardPage() {
 
     setMounted(true);
     cargarMesas();
+    cargarProductos();
 
     const canal = supabase
       .channel('schema-db-changes')
@@ -166,6 +167,17 @@ export default function DashboardPage() {
       if (actualizada) setMesaSeleccionada(actualizada);
     }
   }, [mesas]);
+
+  async function cargarProductos() {
+    try {
+      const { data, error } = await supabase.from('productos').select('*').order('nombre', { ascending: true });
+      if (!error && data && data.length > 0) {
+        setProductos(data);
+      }
+    } catch (e) {
+      console.warn('Usando catálogo de respaldo para productos:', e);
+    }
+  }
 
   async function cargarMesas() {
     try {
@@ -265,21 +277,27 @@ export default function DashboardPage() {
   const totalPagosIngresados = metodosPago.efectivo + metodosPago.nequi + metodosPago.daviplata;
   const pendienteEnModal = Math.max(0, saldoPendienteMesa - totalPagosIngresados);
 
-  function guardarEnHistorial(mesaNombre: string, total: number, metodo: string, items: ItemPedido[]) {
+  async function guardarEnHistorial(mesaNombre: string, total: number, metodo: string, items: ItemPedido[]) {
     const ahora = new Date();
-    const nuevaVenta: VentaHistorial = {
-      id: Date.now().toString(),
-      fechaHora: ahora.toLocaleString('es-CO'),
-      fechaCorta: ahora.toISOString().split('T')[0],
-      mesaNombre,
+    const nuevaVenta = {
+      fecha_hora: ahora.toLocaleString('es-CO'),
+      fecha_corta: ahora.toISOString().split('T')[0],
+      mesa_nombre: mesaNombre,
       total,
-      metodoPago: metodo,
+      metodo_pago: metodo,
+      punto_id: 'martineto',
       items: items.map((i) => ({ ...i })),
     };
 
+    try {
+      await supabase.from('historial_ventas').insert([nuevaVenta]);
+    } catch (e) {
+      console.error('Error insertando en historial_ventas:', e);
+    }
+
     const actual = JSON.parse(localStorage.getItem('martineto_historial') || '[]');
     localStorage.setItem('martineto_historial', JSON.stringify([nuevaVenta, ...actual]));
-    setHistorialVentas((prev) => [nuevaVenta, ...prev]);
+    setHistorialVentas((prev: any) => [nuevaVenta, ...prev]);
   }
 
   function pagarRappiDirecto() {
@@ -436,24 +454,30 @@ export default function DashboardPage() {
     router.push('/login');
   }
 
-  function enviarSolicitudSuministro() {
+  async function enviarSolicitudSuministro() {
     if (!itemSolicitado.trim()) return;
 
-    const solicitudesPrevias = JSON.parse(localStorage.getItem('martineto_pedidos_admin') || '[]');
     const nuevaSolicitud = {
-      id: Date.now().toString(),
       producto: itemSolicitado.trim(),
       comprado: false,
       entregado: false,
     };
 
-    localStorage.setItem('martineto_pedidos_admin', JSON.stringify([...solicitudesPrevias, nuevaSolicitud]));
+    try {
+      const { error } = await supabase.from('pedidos').insert([nuevaSolicitud]);
+      if (error) {
+        console.error('Error enviando suministro a pedidos:', error.message);
+      }
+    } catch (e) {
+      console.error('Excepción enviando suministro:', e);
+    }
+
     setItemSolicitado('');
     setMostrarSolicitarSuministro(false);
 
     setAlerta({
       titulo: 'Solicitud Enviada',
-      mensaje: 'El pedido de suministros ha sido registrado para el administrador.',
+      mensaje: 'El pedido de suministros ha sido registrado en la tabla pedidos.',
       tipo: 'exito',
     });
   }
@@ -478,7 +502,6 @@ export default function DashboardPage() {
 
   return (
     <main className="min-h-screen w-screen bg-[#07090e] text-gray-100 p-3 sm:p-5 font-sans flex flex-col justify-between relative">
-      {/* SECCIÓN SCROLLABLE CON PADDING INFERIOR SUFICIENTE (pb-24) PARA NO CHOCAR CON LA NAV */}
       <div className="flex-1 overflow-y-auto pb-24 pr-1 space-y-4">
         {/* HEADER */}
         <header className="max-w-7xl mx-auto bg-[#0d111a] p-3.5 sm:p-4 rounded-2xl border border-gray-800 flex justify-between items-center">
@@ -810,7 +833,6 @@ export default function DashboardPage() {
                 />
               </div>
 
-              {/* MAX ALTURA DE CATALOGO AJUSTADA PARA NO SUPERPONERSE (max-h-[calc(100vh-320px)]) */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 overflow-y-auto max-h-[calc(100vh-320px)] pr-1">
                 {productosCatalogo.map((prod) => {
                   const itemAgregado = pedidosMesa.find((p) => p.producto.id === prod.id && !p.pagado);
@@ -857,7 +879,6 @@ export default function DashboardPage() {
                 {pedidosMesa.length === 0 ? (
                   <p className="text-center text-xs text-gray-500 py-4">Mesa sin pedidos</p>
                 ) : (
-                  /* MAX ALTURA DE LISTA DE COMANDA AJUSTADA */
                   <ul className="space-y-1.5 overflow-y-auto max-h-[calc(100vh-420px)] pr-1">
                     {pedidosMesa.map((item, idx) => (
                       <li
@@ -936,7 +957,7 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* NAV INFERIOR FIJO: SOLAMENTE INICIO Y PEDIR SUMINISTROS */}
+      {/* NAV INFERIOR FIJO */}
       <nav className="fixed bottom-0 left-0 right-0 w-full max-w-7xl mx-auto bg-[#0a0d14]/95 backdrop-blur-md border-t border-gray-800/80 px-4 py-2.5 z-40">
         <div className="flex justify-around items-center text-center">
           <button
@@ -957,7 +978,7 @@ export default function DashboardPage() {
         </div>
       </nav>
 
-      {/* MODALES IGUALES */}
+      {/* MODALES */}
       {mesaAMover && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
           <div className="bg-[#0d111a] border border-gray-800 p-5 rounded-3xl max-w-xs w-full space-y-4">
