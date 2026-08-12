@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { SUPABASE_URL, SUPABASE_KEY, supabase } from '@/lib/supabase';
+import { supabase } from '@/lib/supabase';
 
 interface Producto {
   id: number;
@@ -81,15 +81,9 @@ export default function AdminPage() {
 
   async function cargarStockDB() {
     try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/productos?select=*&order=nombre.asc`, {
-        headers: {
-          apikey: SUPABASE_KEY,
-          Authorization: `Bearer ${SUPABASE_KEY}`,
-        },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data && data.length > 0) setStockProductos(data);
+      const { data, error } = await supabase.from('productos').select('*').order('nombre', { ascending: true });
+      if (!error && data) {
+        setStockProductos(data);
       }
     } catch (e) {
       console.warn('Error cargando stock:', e);
@@ -99,21 +93,10 @@ export default function AdminPage() {
   async function cargarUsuariosDB() {
     setCargandoUsuarios(true);
     try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/usuarios?select=*`, {
-        headers: {
-          apikey: SUPABASE_KEY,
-          Authorization: `Bearer ${SUPABASE_KEY}`,
-        },
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        if (data && data.length > 0) {
-          setUsuarios(data);
-          localStorage.setItem('martineto_usuarios_admin', JSON.stringify(data));
-        } else {
-          cargarUsuariosLocal();
-        }
+      const { data, error } = await supabase.from('usuarios').select('*');
+      if (!error && data && data.length > 0) {
+        setUsuarios(data);
+        localStorage.setItem('martineto_usuarios_admin', JSON.stringify(data));
       } else {
         cargarUsuariosLocal();
       }
@@ -138,7 +121,7 @@ export default function AdminPage() {
     localStorage.setItem('martineto_pedidos_admin', JSON.stringify(actualizados));
   }
 
-  // Crear Usuario en Supabase usando API REST
+  // Crear Usuario en Supabase
   async function crearUsuario() {
     if (!nuevoUsuario.trim() || !nuevaClave.trim()) return;
 
@@ -155,22 +138,9 @@ export default function AdminPage() {
     };
 
     try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/usuarios`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          apikey: SUPABASE_KEY,
-          Authorization: `Bearer ${SUPABASE_KEY}`,
-          Prefer: 'return=representation',
-        },
-        body: JSON.stringify(datosNuevos),
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        if (data && data.length > 0) {
-          usuarioGuardado = data[0];
-        }
+      const { data, error } = await supabase.from('usuarios').insert([datosNuevos]).select();
+      if (!error && data && data.length > 0) {
+        usuarioGuardado = data[0];
       }
     } catch (e) {
       console.warn('Fallback local para guardar usuario');
@@ -187,13 +157,7 @@ export default function AdminPage() {
   // Eliminar Usuario
   async function eliminarUsuario(id: string) {
     try {
-      await fetch(`${SUPABASE_URL}/rest/v1/usuarios?id=eq.${id}`, {
-        method: 'DELETE',
-        headers: {
-          apikey: SUPABASE_KEY,
-          Authorization: `Bearer ${SUPABASE_KEY}`,
-        },
-      });
+      await supabase.from('usuarios').delete().eq('id', id);
     } catch (err) {
       console.error(err);
     }

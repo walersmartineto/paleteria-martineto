@@ -44,12 +44,6 @@ interface AlertaMensaje {
   irAlLobbyAlCerrar?: boolean;
 }
 
-interface UsuarioSistema {
-  id: string;
-  usuario: string;
-  clave: string;
-}
-
 const PRODUCTOS_RESPALDO: Producto[] = [
   { id: 1, nombre: 'Adición', precio: 1000, stock: 10 },
   { id: 2, nombre: 'Chamoy', precio: 13000, stock: 10 },
@@ -92,18 +86,14 @@ const MESAS_INICIALES: Mesa[] = [
 export default function Home() {
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
-  const [usuarioActual, setUsuarioActual] = useState<UsuarioSistema | null>(null);
 
   const [mesas, setMesas] = useState<Mesa[]>(MESAS_INICIALES);
-  const [cargandoMesas, setCargandoMesas] = useState(true);
-
-  const [productos, setProductos] = useState<Producto[]>(PRODUCTOS_RESPALDO);
-  const [cargandoProds, setCargandoProds] = useState(true);
+  const [productos] = useState<Producto[]>(PRODUCTOS_RESPALDO);
   const [mesaSeleccionada, setMesaSeleccionada] = useState<Mesa | null>(null);
   const [busqueda, setBusqueda] = useState('');
 
   const [vistaActual, setVistaActual] = useState<'tarjetas' | 'plano'>('tarjetas');
-  const [historialVentas, setHistorialVentas] = useState<VentaHistorial[]>([]);
+  const [, setHistorialVentas] = useState<VentaHistorial[]>([]);
 
   const [mostrarPago, setMostrarPago] = useState(false);
   const [metodosPago, setMetodosPago] = useState({
@@ -116,7 +106,7 @@ export default function Home() {
   const [mesaAMover, setMesaAMover] = useState<Mesa | null>(null);
   const [mesaDestinoId, setMesaDestinoId] = useState<number | null>(null);
 
-  // Modal Login Admin
+  // Modal Admin
   const [mostrarLoginAdmin, setMostrarLoginAdmin] = useState(false);
   const [userInput, setUserInput] = useState('');
   const [passInput, setPassInput] = useState('');
@@ -130,43 +120,40 @@ export default function Home() {
 
   useEffect(() => {
     setMounted(true);
-    const sesionStr = localStorage.getItem('martineto_sesion_activa');
-    if (!sesionStr) {
-      router.push('/login');
-      return;
-    } else {
-      try {
-        setUsuarioActual(JSON.parse(sesionStr));
-      } catch (e) {
-        router.push('/login');
-        return;
-      }
-    }
+    cargarMesas();
 
-    cargarProductosBaseDatos();
-    cargarMesasBaseDatos();
-
-    // SUSCRIPCIÓN TIEMPO REAL A SUPABASE
-    const canalMesas = supabase
-      .channel('cambios_mesas_realtime')
+    // ESCUCHAR CAMBIOS EN TIEMPO REAL DESDE SUPABASE
+    const canal = supabase
+      .channel('schema-db-changes')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'mesas' },
         (payload) => {
-          if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT') {
-            const mesaActualizada = payload.new as Mesa;
-            setMesas((prev) =>
-              prev.map((m) => (m.id === mesaActualizada.id ? mesaActualizada : m))
-            );
+          if (payload.new) {
+            const mRemota = payload.new as any;
+            const mesaActualizada: Mesa = {
+              id: Number(mRemota.id),
+              nombre: mRemota.nombre,
+              tipo: mRemota.tipo,
+              estado: mRemota.estado,
+              pedidos: typeof mRemota.pedidos === 'string' ? JSON.parse(mRemota.pedidos) : (mRemota.pedidos || []),
+              totalPagado: Number(mRemota.total_pagado ?? mRemota.totalPagado ?? 0),
+            };
+
+            setMesas((prev) => {
+              const nuevas = prev.map((m) => (m.id === mesaActualizada.id ? mesaActualizada : m));
+              localStorage.setItem('martineto_mesas_cache', JSON.stringify(nuevas));
+              return nuevas;
+            });
           }
         }
       )
       .subscribe();
 
     return () => {
-      supabase.removeChannel(canalMesas);
+      supabase.removeChannel(canal);
     };
-  }, [router]);
+  }, []);
 
   useEffect(() => {
     if (mesaSeleccionada) {
@@ -175,8 +162,7 @@ export default function Home() {
     }
   }, [mesas]);
 
-  async function cargarMesasBaseDatos() {
-    setCargandoMesas(true);
+  async function cargarMesas() {
     try {
       const { data, error } = await supabase
         .from('mesas')
@@ -184,70 +170,58 @@ export default function Home() {
         .order('id', { ascending: true });
 
       if (!error && data && data.length > 0) {
-        setMesas(data as Mesa[]);
+        const mapeadas: Mesa[] = data.map((m: any) => ({
+          id: Number(m.id),
+          nombre: m.nombre,
+          tipo: m.tipo,
+          estado: m.estado,
+          pedidos: typeof m.pedidos === 'string' ? JSON.parse(m.pedidos) : (m.pedidos || []),
+          totalPagado: Number(m.total_pagado ?? m.totalPagado ?? 0),
+        }));
+        setMesas(mapeadas);
+        localStorage.setItem('martineto_mesas_cache', JSON.stringify(mapeadas));
       } else {
-        // Si la tabla en Supabase está vacía, se auto-puebla con la estructura por defecto
-        setMesas(MESAS_INICIALES);
-        await supabase.from('mesas').upsert(
-          MESAS_INICIALES.map((m) => ({
-            id: m.id,
-            nombre: m.nombre,
-            tipo: m.tipo,
-            estado: m.estado,
-            pedidos: m.pedidos,
-            totalPagado: m.totalPagado,
-          }))
-        );
-      }
-    } catch (e) {
-      console.error('Error cargando mesas:', e);
-      setMesas(MESAS_INICIALES);
-    } finally {
-      setCargandoMesas(false);
-    }
-  }
-
-  async function cargarProductosBaseDatos() {
-    setCargandoProds(true);
-    try {
-      const { data, error } = await supabase
-        .from('productos')
-        .select('*')
-        .order('nombre', { ascending: true });
-
-      if (error || !data || data.length === 0) {
-        setProductos(PRODUCTOS_RESPALDO);
-      } else {
-        setProductos(data);
+        const local = localStorage.getItem('martineto_mesas_cache');
+        if (local) setMesas(JSON.parse(local));
       }
     } catch {
-      setProductos(PRODUCTOS_RESPALDO);
+      const local = localStorage.getItem('martineto_mesas_cache');
+      if (local) setMesas(JSON.parse(local));
     }
-    setCargandoProds(false);
   }
 
-  async function actualizarMesaDB(mesaObj: Mesa) {
-    setMesas((prev) => prev.map((m) => (m.id === mesaObj.id ? mesaObj : m)));
-
-    await supabase.from('mesas').upsert({
-      id: mesaObj.id,
-      nombre: mesaObj.nombre,
-      tipo: mesaObj.tipo,
-      estado: mesaObj.estado,
-      pedidos: mesaObj.pedidos,
-      totalPagado: mesaObj.totalPagado,
+  async function guardarMesa(mesaObj: Mesa) {
+    // Reflejo local inmediato
+    setMesas((prev) => {
+      const nuevas = prev.map((m) => (m.id === mesaObj.id ? mesaObj : m));
+      localStorage.setItem('martineto_mesas_cache', JSON.stringify(nuevas));
+      return nuevas;
     });
+
+    try {
+      const payloadData = {
+        id: mesaObj.id,
+        nombre: mesaObj.nombre,
+        tipo: mesaObj.tipo,
+        estado: mesaObj.estado,
+        pedidos: mesaObj.pedidos,
+        total_pagado: mesaObj.totalPagado || 0,
+      };
+
+      const { error } = await supabase.from('mesas').upsert(payloadData, { onConflict: 'id' });
+
+      if (error) {
+        console.error('Error al guardar en Supabase:', error.message);
+      }
+    } catch (err) {
+      console.error('Error enviando datos a la nube:', err);
+    }
   }
 
   const formatPrecio = (valor: number) => {
     if (!mounted) return valor.toString();
     return Math.abs(valor).toLocaleString('es-CO');
   };
-
-  function cerrarSesion() {
-    localStorage.removeItem('martineto_sesion_activa');
-    router.push('/login');
-  }
 
   function modificarCantidad(producto: Producto, delta: number) {
     if (!mesaSeleccionada) return;
@@ -267,7 +241,7 @@ export default function Home() {
     }
 
     const hayPendientes = nuevosPedidos.some((p) => !p.pagado);
-    const nuevoEstado = hayPendientes ? 'ocupada_debe' : mesaSeleccionada.estado;
+    const nuevoEstado = hayPendientes ? 'ocupada_debe' : (nuevosPedidos.length === 0 ? 'libre' : mesaSeleccionada.estado);
 
     const mesaActualizada: Mesa = {
       ...mesaSeleccionada,
@@ -275,7 +249,7 @@ export default function Home() {
       estado: nuevoEstado,
     };
 
-    actualizarMesaDB(mesaActualizada);
+    guardarMesa(mesaActualizada);
   }
 
   const pedidosMesa = mesaSeleccionada?.pedidos || [];
@@ -315,7 +289,7 @@ export default function Home() {
       pedidos: mesaSeleccionada.pedidos.map((p) => ({ ...p, pagado: true })),
     };
 
-    actualizarMesaDB(mesaActualizada);
+    guardarMesa(mesaActualizada);
 
     setAlerta({
       titulo: '¡Pedido Rappi Exitoso!',
@@ -355,7 +329,7 @@ export default function Home() {
       pedidos: mesaSeleccionada.pedidos.map((p) => (estado === 'ocupada_pagado' ? { ...p, pagado: true } : p)),
     };
 
-    actualizarMesaDB(mesaActualizada);
+    guardarMesa(mesaActualizada);
 
     setMostrarPago(false);
     setMetodosPago({ efectivo: 0, nequi: 0, daviplata: 0 });
@@ -385,7 +359,7 @@ export default function Home() {
     }
 
     const mesaLiberada: Mesa = { ...mesaTarget, estado: 'libre', pedidos: [], totalPagado: 0 };
-    actualizarMesaDB(mesaLiberada);
+    guardarMesa(mesaLiberada);
 
     setAlerta({
       titulo: 'Mesa Liberada',
@@ -415,8 +389,8 @@ export default function Home() {
       totalPagado: 0,
     };
 
-    actualizarMesaDB(mesaDestinoActualizada);
-    actualizarMesaDB(mesaOrigenLiberada);
+    guardarMesa(mesaDestinoActualizada);
+    guardarMesa(mesaOrigenLiberada);
 
     const origenNombre = mesaAMover.nombre;
     const destinoNombre = destino.nombre;
@@ -436,7 +410,7 @@ export default function Home() {
     const listaUsuarios = usrs.length > 0 ? usrs : [{ id: '1', usuario: '1234', clave: '1234' }];
 
     const esValido = listaUsuarios.some(
-      (u: UsuarioSistema) =>
+      (u: any) =>
         u.usuario.trim().toLowerCase() === userInput.trim().toLowerCase() && u.clave.trim() === passInput.trim()
     );
 
@@ -504,7 +478,7 @@ export default function Home() {
               <div className="flex items-center gap-2">
                 <h1 className="text-base sm:text-lg font-black text-white tracking-wider">MARTINETO</h1>
                 <span className="text-[9px] font-black px-2 py-0.5 rounded-md bg-purple-900/60 text-purple-300 border border-purple-700/50">
-                  POS REALTIME
+                  REALTIME CLOUD
                 </span>
               </div>
               <p className="text-xs text-gray-400">Punto de Venta & Inventario</p>
@@ -514,15 +488,8 @@ export default function Home() {
           <div className="flex items-center gap-3">
             <span className="inline-flex items-center gap-1.5 text-xs bg-emerald-950/80 text-emerald-400 border border-emerald-800/60 px-3 py-1 rounded-full font-bold">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-              {usuarioActual ? usuarioActual.usuario : 'Sistema activo'}
+              Sincronizado
             </span>
-            <button
-              onClick={cerrarSesion}
-              title="Cerrar sesión"
-              className="w-8 h-8 rounded-full bg-gray-800 border border-gray-700 hover:border-rose-500 hover:text-rose-400 flex items-center justify-center text-sm text-gray-300 relative transition-all"
-            >
-              👤
-            </button>
           </div>
         </header>
 
@@ -547,13 +514,7 @@ export default function Home() {
         </div>
 
         {/* CONTENIDO PRINCIPAL */}
-        {cargandoMesas ? (
-          <div className="max-w-7xl mx-auto text-center py-20">
-            <p className="text-purple-400 font-bold text-sm animate-pulse">
-              🔄 Sincronizando estado de las mesas en tiempo real...
-            </p>
-          </div>
-        ) : !mesaSeleccionada ? (
+        {!mesaSeleccionada ? (
           <div className="max-w-7xl mx-auto space-y-4">
             {/* RESUMEN METRICAS */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -831,44 +792,40 @@ export default function Home() {
                 />
               </div>
 
-              {cargandoProds ? (
-                <p className="text-center text-xs text-gray-500 py-6">Cargando productos...</p>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 overflow-y-auto max-h-[calc(100vh-280px)] pr-1">
-                  {productosCatalogo.map((prod) => {
-                    const itemAgregado = pedidosMesa.find((p) => p.producto.id === prod.id && !p.pagado);
-                    const cantAgregada = itemAgregado ? itemAgregado.cantidad : 0;
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 overflow-y-auto max-h-[calc(100vh-280px)] pr-1">
+                {productosCatalogo.map((prod) => {
+                  const itemAgregado = pedidosMesa.find((p) => p.producto.id === prod.id && !p.pagado);
+                  const cantAgregada = itemAgregado ? itemAgregado.cantidad : 0;
 
-                    return (
-                      <div
-                        key={prod.id}
-                        className="bg-[#121722] border border-gray-800 p-2.5 rounded-xl flex justify-between items-center"
-                      >
-                        <div className="truncate pr-2">
-                          <p className="font-bold text-white text-xs truncate">{prod.nombre}</p>
-                          <p className="text-[10px] text-emerald-400 font-black">${formatPrecio(prod.precio)}</p>
-                        </div>
-
-                        <div className="flex items-center gap-1.5 bg-gray-900 p-1 rounded-xl border border-gray-800 shrink-0">
-                          <button
-                            onClick={() => modificarCantidad(prod, -1)}
-                            className="w-7 h-7 rounded-lg bg-gray-800 hover:bg-rose-600 text-white font-black text-sm flex items-center justify-center"
-                          >
-                            -
-                          </button>
-                          <span className="font-black text-xs w-5 text-center text-purple-400">{cantAgregada}</span>
-                          <button
-                            onClick={() => modificarCantidad(prod, 1)}
-                            className="w-7 h-7 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-black text-sm flex items-center justify-center"
-                          >
-                            +
-                          </button>
-                        </div>
+                  return (
+                    <div
+                      key={prod.id}
+                      className="bg-[#121722] border border-gray-800 p-2.5 rounded-xl flex justify-between items-center"
+                    >
+                      <div className="truncate pr-2">
+                        <p className="font-bold text-white text-xs truncate">{prod.nombre}</p>
+                        <p className="text-[10px] text-emerald-400 font-black">${formatPrecio(prod.precio)}</p>
                       </div>
-                    );
-                  })}
-                </div>
-              )}
+
+                      <div className="flex items-center gap-1.5 bg-gray-900 p-1 rounded-xl border border-gray-800 shrink-0">
+                        <button
+                          onClick={() => modificarCantidad(prod, -1)}
+                          className="w-7 h-7 rounded-lg bg-gray-800 hover:bg-rose-600 text-white font-black text-sm flex items-center justify-center"
+                        >
+                          -
+                        </button>
+                        <span className="font-black text-xs w-5 text-center text-purple-400">{cantAgregada}</span>
+                        <button
+                          onClick={() => modificarCantidad(prod, 1)}
+                          className="w-7 h-7 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-black text-sm flex items-center justify-center"
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
 
             <div className="bg-[#0d111a] p-4 rounded-2xl border border-gray-800 space-y-3 flex flex-col justify-between">
