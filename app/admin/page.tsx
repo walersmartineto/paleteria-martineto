@@ -50,6 +50,9 @@ export default function AdminPage() {
   const [tab, setTab] = useState<'historial' | 'stock' | 'pedidos' | 'usuarios'>('historial');
   const [puntoFiltro, setPuntoFiltro] = useState<string>('todos');
 
+  // Estado de acceso autorizado
+  const [autorizado, setAutorizado] = useState(false);
+
   // Datos
   const [historialVentas, setHistorialVentas] = useState<VentaHistorial[]>([]);
   const [stockProductos, setStockProductos] = useState<Producto[]>([]);
@@ -62,6 +65,30 @@ export default function AdminPage() {
   const [cargandoUsuarios, setCargandoUsuarios] = useState(false);
 
   useEffect(() => {
+    // Validar restricción de acceso solo para usuario 1234 y clave 1234
+    const sesion = localStorage.getItem('martineto_session');
+    
+    let usuarioActual = '';
+    let claveActual = '';
+
+    if (sesion) {
+      try {
+        const parsed = JSON.parse(sesion);
+        usuarioActual = parsed.usuario || parsed.user || sesion;
+        claveActual = parsed.clave || parsed.pass || '';
+      } catch {
+        usuarioActual = sesion;
+      }
+    }
+
+    // Verificar si el usuario ingresado en sesión es exactamente 1234
+    if (usuarioActual.trim() !== '1234') {
+      alert('no eres administrador');
+      router.push('/puntos');
+      return;
+    }
+
+    setAutorizado(true);
     cargarDatos();
 
     // REALTIME: Ventas
@@ -125,7 +152,7 @@ export default function AdminPage() {
       supabase.removeChannel(canalStockCentro);
       supabase.removeChannel(canalStockOsos);
     };
-  }, []);
+  }, [router]);
 
   function cargarDatos() {
     cargarHistorialDB();
@@ -341,6 +368,14 @@ export default function AdminPage() {
   const pedidosFiltrados = pedidosSuministros.filter(
     (item) => puntoFiltro === 'todos' || (item.punto_id || 'martineto') === puntoFiltro
   );
+
+  if (!autorizado) {
+    return (
+      <main className="min-h-screen bg-[#090d14] flex items-center justify-center">
+        <p className="text-slate-400 text-sm font-bold">Verificando permisos de administrador...</p>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-[#090d14] text-slate-100 p-4 sm:p-6 font-sans space-y-6">

@@ -53,6 +53,9 @@ export default function SeleccionPuntoPage() {
   const [passInput, setPassInput] = useState('');
   const [errorLogin, setErrorLogin] = useState('');
 
+  // Estado para Alerta Personalizada
+  const [alertaPersonalizada, setAlertaPersonalizada] = useState(false);
+
   useEffect(() => {
     const sesion = localStorage.getItem('martineto_session');
     if (!sesion) {
@@ -68,23 +71,22 @@ export default function SeleccionPuntoPage() {
   }, [router]);
 
   function validarLoginAdmin() {
-    const usrs = JSON.parse(localStorage.getItem('martineto_usuarios_admin') || '[]');
-    const listaUsuarios = usrs.length > 0 ? usrs : [{ id: '1', usuario: '1234', clave: '1234' }];
+    const u = userInput.trim();
+    const c = passInput.trim();
 
-    const esValido = listaUsuarios.some(
-      (u: any) =>
-        u.usuario.trim().toLowerCase() === userInput.trim().toLowerCase() &&
-        u.clave.trim() === passInput.trim()
-    );
-
-    if (esValido) {
+    // Condición estricta: solo usuario 1234 con clave 1234
+    if (u === '1234' && c === '1234') {
       setUserInput('');
       setPassInput('');
       setErrorLogin('');
       setMostrarLoginAdmin(false);
       router.push('/admin');
     } else {
-      setErrorLogin('Usuario o clave incorrectos.');
+      setUserInput('');
+      setPassInput('');
+      setErrorLogin('');
+      setMostrarLoginAdmin(false);
+      setAlertaPersonalizada(true); // Activa el modal personalizado
     }
   }
 
@@ -175,7 +177,7 @@ export default function SeleccionPuntoPage() {
         </button>
       </div>
 
-      {/* Modal Admin */}
+      {/* Modal Admin Login */}
       {mostrarLoginAdmin && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
           <div className="bg-[#0d111a] border border-gray-800 p-5 rounded-3xl max-w-xs w-full space-y-3">
@@ -224,6 +226,29 @@ export default function SeleccionPuntoPage() {
                 Ingresar
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Alerta Personalizada (Reemplaza a alert de Windows) */}
+      {alertaPersonalizada && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
+          <div className="bg-[#0d111a] border border-rose-900/60 p-5 rounded-3xl max-w-xs w-full text-center space-y-3 shadow-2xl">
+            <div className="w-12 h-12 rounded-2xl bg-rose-950/80 border border-rose-800/80 flex items-center justify-center text-xl mx-auto text-rose-400">
+              ⚠️
+            </div>
+
+            <div className="space-y-1">
+              <h3 className="text-sm font-black text-white">Acceso Denegado</h3>
+              <p className="text-xs font-bold text-rose-400">no eres administrador</p>
+            </div>
+
+            <button
+              onClick={() => setAlertaPersonalizada(false)}
+              className="w-full bg-rose-600 hover:bg-rose-500 text-white font-black py-2.5 rounded-xl text-xs transition-all mt-2"
+            >
+              Entendido
+            </button>
           </div>
         </div>
       )}
