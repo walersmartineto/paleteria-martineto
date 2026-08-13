@@ -138,13 +138,13 @@ export default function AdminPage() {
     try {
       const { data, error } = await supabase.from('historial_ventas').select('*').order('created_at', { ascending: false });
       if (!error && data && data.length > 0) {
-        const mapeadas: VentaHistorial[] = data.map((v: any) => ({
-          id: v.id,
-          fechaHora: v.fecha_hora || v.fechaHora,
-          fechaCorta: v.fecha_corta || v.fechaCorta,
-          mesaNombre: v.mesa_nombre || v.mesaNombre,
+        const mapeadas: VentaHistorial[] = data.map((v: any, index: number) => ({
+          id: v.id ? String(v.id) : `venta-db-${index}-${Date.now()}`,
+          fechaHora: v.fecha_hora || v.fechaHora || '',
+          fechaCorta: v.fecha_corta || v.fechaCorta || '',
+          mesaNombre: v.mesa_nombre || v.mesaNombre || 'Mesa',
           total: Number(v.total || 0),
-          metodoPago: v.metodo_pago || v.metodoPago,
+          metodoPago: v.metodo_pago || v.metodoPago || 'Efectivo',
           punto_id: v.punto_id || 'martineto',
         }));
         setHistorialVentas(mapeadas);
@@ -168,7 +168,6 @@ export default function AdminPage() {
 
       let listaConsolidada: ItemPedidoSuministro[] = [];
 
-      // Suministros de Martineto provienen de la tabla 'pedidos'
       if (resPedidos.data) {
         listaConsolidada.push(...resPedidos.data.map((p: any) => ({ 
           ...p, 
@@ -256,7 +255,6 @@ export default function AdminPage() {
     );
     setPedidosSuministros(actualizados);
 
-    // Mapeo exacto de la tabla de origen
     const tablaTarget = itemTarget.origen_tabla || 'pedidos';
 
     try {
@@ -473,9 +471,9 @@ export default function AdminPage() {
               </p>
             ) : (
               <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1">
-                {historialFiltrado.map((venta) => (
+                {historialFiltrado.map((venta, idx) => (
                   <div
-                    key={venta.id}
+                    key={`${venta.id || 'venta'}-${venta.punto_id || 'p'}-${idx}`}
                     className="bg-slate-950 border border-slate-800 p-4 rounded-2xl flex justify-between items-start"
                   >
                     <div>
@@ -624,9 +622,9 @@ export default function AdminPage() {
                 Usuarios Registrados
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                {usuarios.map((u) => (
+                {usuarios.map((u, idx) => (
                   <div
-                    key={u.id}
+                    key={`${u.id || 'usr'}-${idx}`}
                     className="bg-slate-950 border border-slate-800 p-3.5 rounded-2xl flex justify-between items-center"
                   >
                     <div>

@@ -277,6 +277,36 @@ export default function DashboardPage() {
   const totalPagosIngresados = metodosPago.efectivo + metodosPago.nequi + metodosPago.daviplata;
   const pendienteEnModal = Math.max(0, saldoPendienteMesa - totalPagosIngresados);
 
+  // Función para descontar el stock en Supabase
+  async function descontarStockSupabase(items: ItemPedido[]) {
+    for (const item of items) {
+      try {
+        const { data: prodData, error: fetchError } = await supabase
+          .from('productos')
+          .select('stock')
+          .eq('id', item.producto.id)
+          .single();
+
+        if (!fetchError && prodData) {
+          const nuevoStock = Math.max(0, prodData.stock - item.cantidad);
+
+          const { error: updateError } = await supabase
+            .from('productos')
+            .update({ stock: nuevoStock })
+            .eq('id', item.producto.id);
+
+          if (updateError) {
+            console.error(`Error actualizando stock para ID ${item.producto.id}:`, updateError.message);
+          }
+        }
+      } catch (err) {
+        console.error(`Excepción al descontar stock del producto ${item.producto.id}:`, err);
+      }
+    }
+
+    await cargarProductos();
+  }
+
   async function guardarEnHistorial(mesaNombre: string, total: number, metodo: string, items: ItemPedido[]) {
     const ahora = new Date();
     const nuevaVenta = {
@@ -291,8 +321,10 @@ export default function DashboardPage() {
 
     try {
       await supabase.from('historial_ventas').insert([nuevaVenta]);
+      // Descontamos el stock tras realizar la venta
+      await descontarStockSupabase(items);
     } catch (e) {
-      console.error('Error insertando en historial_ventas:', e);
+      console.error('Error insertando en historial_ventas o descontando stock:', e);
     }
 
     const actual = JSON.parse(localStorage.getItem('martineto_historial') || '[]');
@@ -846,6 +878,7 @@ export default function DashboardPage() {
                       <div className="truncate pr-2">
                         <p className="font-bold text-white text-xs truncate">{prod.nombre}</p>
                         <p className="text-[10px] text-emerald-400 font-black">${formatPrecio(prod.precio)}</p>
+                        <p className="text-[9px] text-gray-400">Stock: {prod.stock ?? 0}</p>
                       </div>
 
                       <div className="flex items-center gap-1.5 bg-gray-900 p-1 rounded-xl border border-gray-800 shrink-0">
