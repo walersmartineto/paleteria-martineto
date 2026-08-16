@@ -3,92 +3,24 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-interface PuntoVenta {
-  id: string;
-  nombre: string;
-  badge: string;
-  ruta: string;
-  activo: boolean;
-  descripcion: string;
-  emoji: string;
-}
-
-const SEDES: PuntoVenta[] = [
-  {
-    id: 'martineto',
-    nombre: 'Martineto',
-    badge: 'ACTIVO',
-    ruta: '/',
-    activo: true,
-    descripcion: 'Punto principal de atención y ventas',
-    emoji: '🍦',
-  },
-  {
-    id: 'osos',
-    nombre: 'Osos',
-    badge: 'ACTIVO',
-    ruta: '/punto2',
-    activo: true,
-    descripcion: 'Sede en etapa de configuración',
-    emoji: '🐻',
-  },
-  {
-    id: 'centro',
-    nombre: 'Centro',
-    badge: 'ACTIVO',
-    ruta: '/punto3',
-    activo: true,
-    descripcion: 'Sede punto centro',
-    emoji: '🏢',
-  },
-];
-
-export default function SeleccionPuntoPage() {
+export default function PuntosPage() {
   const router = useRouter();
-  const [usuario, setUsuario] = useState('');
-
-  // Estados para Modal Admin
-  const [mostrarLoginAdmin, setMostrarLoginAdmin] = useState(false);
-  const [userInput, setUserInput] = useState('');
-  const [passInput, setPassInput] = useState('');
-  const [errorLogin, setErrorLogin] = useState('');
-
-  // Estado para Alerta Personalizada
-  const [alertaPersonalizada, setAlertaPersonalizada] = useState(false);
+  const [sesion, setSesion] = useState<any>(null);
 
   useEffect(() => {
-    const sesion = localStorage.getItem('martineto_session');
-    if (!sesion) {
-      router.push('/login');
-      return;
-    }
-    try {
-      const data = JSON.parse(sesion);
-      setUsuario(data.usuario || 'Operador');
-    } catch {
-      setUsuario('Operador');
+    if (typeof window !== 'undefined') {
+      const sesionLocal = localStorage.getItem('martineto_session');
+      if (!sesionLocal) {
+        router.replace('/login');
+        return;
+      }
+      try {
+        setSesion(JSON.parse(sesionLocal));
+      } catch {
+        router.replace('/login');
+      }
     }
   }, [router]);
-
-  function validarLoginAdmin() {
-    const u = userInput.trim();
-    const c = passInput.trim();
-
-    // Condición estricta: solo usuario 1234 con clave 1234
-    if (u === '1234' && c === '1234') {
-      setUserInput('');
-      setPassInput('');
-      setErrorLogin('');
-      setMostrarLoginAdmin(false);
-      router.push('/admin');
-    } else {
-      setUserInput('');
-      setPassInput('');
-      setErrorLogin('');
-      setMostrarLoginAdmin(false);
-      setAlertaPersonalizada(true); // Activa el modal personalizado
-    }
-  }
 
   function cerrarSesion() {
     localStorage.removeItem('martineto_session');
@@ -96,162 +28,115 @@ export default function SeleccionPuntoPage() {
   }
 
   return (
-    <main className="min-h-screen w-screen bg-[#07090e] text-slate-100 flex flex-col items-center justify-center p-4 font-sans">
-      <div className="max-w-md w-full space-y-6">
-        {/* Header */}
-        <div className="bg-[#0d111a] border border-gray-800 p-6 rounded-3xl text-center space-y-3 shadow-2xl">
+    <main className="min-h-screen bg-[#07090e] text-slate-100 flex flex-col items-center justify-center p-4 font-sans">
+      <div className="max-w-md w-full bg-[#0d111a] border border-gray-800 p-6 rounded-3xl space-y-4 shadow-2xl">
+        {/* Header Logo */}
+        <div className="text-center space-y-1">
           <div className="w-12 h-12 rounded-2xl bg-purple-600 flex items-center justify-center text-2xl mx-auto shadow-lg shadow-purple-900/50">
-            🏬
+            🏢
           </div>
-          <div>
-            <h1 className="text-lg font-black text-white tracking-wider">SELECCIONAR SEDE</h1>
-            <p className="text-xs text-gray-400">
-              Bienvenido/a, <b className="text-purple-400">{usuario}</b>
-            </p>
-          </div>
+          <h1 className="text-lg font-black text-white tracking-wider">SELECCIONAR SEDE</h1>
+          <p className="text-xs text-purple-400">
+            Bienvenido/a, <b>{sesion?.nombre || 'Operador'}</b>
+          </p>
         </div>
 
-        {/* Lista de Puntos */}
-        <div className="space-y-3">
-          {SEDES.map((sed) => (
-            <div
-              key={sed.id}
-              onClick={() => sed.activo && router.push(sed.ruta)}
-              className={`p-4 rounded-2xl border transition-all flex items-center justify-between ${
-                sed.activo
-                  ? 'bg-[#0d111a] border-purple-800/60 hover:border-purple-500 cursor-pointer hover:scale-[1.02] shadow-lg'
-                  : 'bg-[#0a0d14] border-gray-800/40 opacity-50 cursor-not-allowed'
-              }`}
-            >
-              <div className="flex items-center gap-3.5">
-                <div className="w-10 h-10 rounded-xl bg-gray-900 border border-gray-800 flex items-center justify-center text-xl shrink-0">
-                  {sed.emoji}
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h2 className="text-sm font-black text-white">{sed.nombre}</h2>
-                    <span
-                      className={`text-[8px] font-black px-2 py-0.5 rounded-md border ${
-                        sed.activo
-                          ? 'bg-emerald-950/80 text-emerald-400 border-emerald-700/60'
-                          : 'bg-gray-800 text-gray-400 border-gray-700'
-                      }`}
-                    >
-                      {sed.badge}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-gray-400">{sed.descripcion}</p>
-                </div>
-              </div>
-
-              <div className="text-gray-500 text-sm font-bold">
-                {sed.activo ? '➔' : '🔒'}
-              </div>
-            </div>
-          ))}
-
-          {/* Opción Directa a Administrador */}
-          <div
-            onClick={() => setMostrarLoginAdmin(true)}
-            className="p-4 rounded-2xl border border-rose-900/50 bg-[#160d13] hover:border-rose-600 cursor-pointer hover:scale-[1.02] shadow-lg transition-all flex items-center justify-between"
+        {/* Tarjetas de Sedes y Módulos */}
+        <div className="space-y-2.5 pt-2">
+          {/* Martineto POS */}
+          <button
+            onClick={() => router.push('/pos')}
+            className="w-full bg-gray-900 hover:bg-gray-800 border border-gray-800 hover:border-purple-500/50 p-3.5 rounded-2xl flex items-center justify-between text-left transition-all group"
           >
-            <div className="flex items-center gap-3.5">
-              <div className="w-10 h-10 rounded-xl bg-rose-950/80 border border-rose-800 flex items-center justify-center text-xl shrink-0">
-                🛡️
-              </div>
+            <div className="flex items-center gap-3">
+              <span className="text-2xl p-2 rounded-xl bg-purple-950/60 border border-purple-800/60">🍦</span>
               <div>
-                <h2 className="text-sm font-black text-white">Panel Administrador</h2>
-                <p className="text-[11px] text-gray-400">Gestión global y reportes</p>
+                <p className="font-black text-xs text-white group-hover:text-purple-400 transition-colors">
+                  Martineto POS
+                </p>
+                <p className="text-[10px] text-gray-400">Punto principal de atención y ventas</p>
               </div>
             </div>
-            <div className="text-rose-400 text-sm font-bold">🔐</div>
-          </div>
+            <span className="text-xs text-purple-400 font-bold">➔</span>
+          </button>
+
+          {/* Walers Viva */}
+          <button
+            onClick={() => alert('Módulo de Inventario Viva en desarrollo')}
+            className="w-full bg-gray-900 hover:bg-gray-800 border border-gray-800 hover:border-purple-500/50 p-3.5 rounded-2xl flex items-center justify-between text-left transition-all group"
+          >
+            <div className="flex items-center gap-3">
+              <span className="text-2xl p-2 rounded-xl bg-amber-950/60 border border-amber-800/60">🛍️</span>
+              <div>
+                <p className="font-black text-xs text-white group-hover:text-amber-400 transition-colors">
+                  Walers Viva
+                </p>
+                <p className="text-[10px] text-gray-400">Sede Centro Comercial Viva</p>
+              </div>
+            </div>
+            <span className="text-xs text-amber-400 font-bold">➔</span>
+          </button>
+
+          {/* Walers Centro */}
+          <button
+            onClick={() => alert('Módulo de Inventario Centro en desarrollo')}
+            className="w-full bg-gray-900 hover:bg-gray-800 border border-gray-800 hover:border-purple-500/50 p-3.5 rounded-2xl flex items-center justify-between text-left transition-all group"
+          >
+            <div className="flex items-center gap-3">
+              <span className="text-2xl p-2 rounded-xl bg-sky-950/60 border border-sky-800/60">🏬</span>
+              <div>
+                <p className="font-black text-xs text-white group-hover:text-sky-400 transition-colors">
+                  Walers Centro
+                </p>
+                <p className="text-[10px] text-gray-400">Sede Sector Centro</p>
+              </div>
+            </div>
+            <span className="text-xs text-sky-400 font-bold">➔</span>
+          </button>
+
+          {/* Ositos */}
+          <button
+            onClick={() => alert('Módulo de Inventario Ositos en desarrollo')}
+            className="w-full bg-gray-900 hover:bg-gray-800 border border-gray-800 hover:border-purple-500/50 p-3.5 rounded-2xl flex items-center justify-between text-left transition-all group"
+          >
+            <div className="flex items-center gap-3">
+              <span className="text-2xl p-2 rounded-xl bg-emerald-950/60 border border-emerald-800/60">🐻</span>
+              <div>
+                <p className="font-black text-xs text-white group-hover:text-emerald-400 transition-colors">
+                  Ositos
+                </p>
+                <p className="text-[10px] text-gray-400">Sede Ositos</p>
+              </div>
+            </div>
+            <span className="text-xs text-emerald-400 font-bold">➔</span>
+          </button>
+
+          {/* Panel Administrador */}
+          <button
+            onClick={() => router.push('/admin')}
+            className="w-full bg-rose-950/40 hover:bg-rose-950/70 border border-rose-900/60 p-3.5 rounded-2xl flex items-center justify-between text-left transition-all group mt-2"
+          >
+            <div className="flex items-center gap-3">
+              <span className="text-2xl p-2 rounded-xl bg-rose-900/40 border border-rose-700/60">⚙️</span>
+              <div>
+                <p className="font-black text-xs text-rose-300">
+                  Panel Administrador
+                </p>
+                <p className="text-[10px] text-rose-400/80">Gestión global y reportes</p>
+              </div>
+            </div>
+            <span className="text-xs text-rose-400 font-bold">🔒</span>
+          </button>
         </div>
 
-        {/* Botón Salir */}
+        {/* Botón Cerrar Sesión */}
         <button
           onClick={cerrarSesion}
-          className="w-full bg-gray-900 hover:bg-rose-950/50 text-gray-400 hover:text-rose-300 border border-gray-800 hover:border-rose-800/50 font-bold py-3 rounded-2xl text-xs transition-all"
+          className="w-full bg-gray-900 hover:bg-rose-950 text-gray-300 hover:text-rose-300 border border-gray-800 font-bold py-2.5 rounded-xl text-xs transition-all mt-3"
         >
           🚪 Cerrar Sesión
         </button>
       </div>
-
-      {/* Modal Admin Login */}
-      {mostrarLoginAdmin && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
-          <div className="bg-[#0d111a] border border-gray-800 p-5 rounded-3xl max-w-xs w-full space-y-3">
-            <div className="text-center space-y-1">
-              <p className="text-2xl">🔐</p>
-              <h3 className="text-sm font-black text-white">Panel Administrador</h3>
-            </div>
-
-            {errorLogin && (
-              <p className="text-[10px] text-rose-400 bg-rose-950/60 p-2 rounded-xl border border-rose-800/40 text-center font-bold">
-                {errorLogin}
-              </p>
-            )}
-
-            <input
-              type="text"
-              placeholder="Usuario"
-              value={userInput}
-              onChange={(e) => setUserInput(e.target.value)}
-              className="w-full bg-gray-900 border border-gray-800 rounded-xl p-2.5 text-xs text-white outline-none font-bold"
-            />
-            <input
-              type="password"
-              placeholder="Contraseña"
-              value={passInput}
-              onChange={(e) => setPassInput(e.target.value)}
-              className="w-full bg-gray-900 border border-gray-800 rounded-xl p-2.5 text-xs text-white outline-none font-bold"
-            />
-
-            <div className="grid grid-cols-2 gap-2 pt-1">
-              <button
-                onClick={() => {
-                  setErrorLogin('');
-                  setUserInput('');
-                  setPassInput('');
-                  setMostrarLoginAdmin(false);
-                }}
-                className="bg-gray-800 text-gray-300 font-bold py-2 rounded-xl text-xs"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={validarLoginAdmin}
-                className="bg-rose-600 hover:bg-rose-500 text-white font-black py-2 rounded-xl text-xs transition-all"
-              >
-                Ingresar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal Alerta Personalizada (Reemplaza a alert de Windows) */}
-      {alertaPersonalizada && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
-          <div className="bg-[#0d111a] border border-rose-900/60 p-5 rounded-3xl max-w-xs w-full text-center space-y-3 shadow-2xl">
-            <div className="w-12 h-12 rounded-2xl bg-rose-950/80 border border-rose-800/80 flex items-center justify-center text-xl mx-auto text-rose-400">
-              ⚠️
-            </div>
-
-            <div className="space-y-1">
-              <h3 className="text-sm font-black text-white">Acceso Denegado</h3>
-              <p className="text-xs font-bold text-rose-400">no eres administrador</p>
-            </div>
-
-            <button
-              onClick={() => setAlertaPersonalizada(false)}
-              className="w-full bg-rose-600 hover:bg-rose-500 text-white font-black py-2.5 rounded-xl text-xs transition-all mt-2"
-            >
-              Entendido
-            </button>
-          </div>
-        </div>
-      )}
     </main>
   );
 }
