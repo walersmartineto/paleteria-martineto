@@ -185,22 +185,33 @@ export async function registrarMovimientoViva(
 // 6. Crear y Obtener Pedidos de Insumos Categorizados
 export async function crearPedidoInsumosViva(
   sedeId: number,
-  usuarioId: number,
+  usuarioId: any,
   categoria: string,
-  detalleItems: any,
+  detalleItems: Record<string, number>,
   observaciones: string
 ) {
-  const payload: any = {
-    sede_id: sedeId || 2,
-    categoria,
-    detalle_items: detalleItems,
-    observaciones,
-    estado: 'pendiente',
-  };
-  if (usuarioId && !isNaN(Number(usuarioId))) payload.usuario_id = Number(usuarioId);
+  // Aseguramos que usuarioId sea numérico o string según tu estructura
+  const parsedUsuarioId = isNaN(Number(usuarioId)) ? usuarioId : Number(usuarioId);
 
-  const { error } = await supabase.from('pedidos').insert([payload]);
-  return !error;
+  const { data, error } = await supabase
+    .from('pedidos_insumos_viva') // ⚠️ VERIFICA QUE ESTE SEA EL NOMBRE EXACTO DE TU TABLA
+    .insert([
+      {
+        sede_id: Number(sedeId),
+        usuario_id: parsedUsuarioId,
+        categoria: categoria,
+        detalle_items: detalleItems,
+        observaciones: observaciones || '',
+        estado: 'pendiente'
+      }
+    ]);
+
+  if (error) {
+    console.error('❌ ERROR EXACTO DE SUPABASE:', error.message, error.details, error.hint);
+    return false;
+  }
+
+  return true;
 }
 
 export async function obtenerPedidosInsumosViva(sedeId: number) {
@@ -214,4 +225,30 @@ export async function obtenerPedidosInsumosViva(sedeId: number) {
   if (error || !data) return [];
 
   return data;
+}
+
+export async function obtenerUsuariosOperarios() {
+  try {
+    const { data, error } = await supabase
+      .from('usuario')
+      .select('id, nombre_completo, codigo_acceso, tipo_usuario, activo')
+      .eq('activo', true)
+      .neq('tipo_usuario', 'administrador'); // Excluye al Administrador Principal
+
+    if (error) {
+      console.error('Error obteniendo usuarios de Supabase:', error);
+      return [];
+    }
+
+    // Mapeamos los campos exactos de tu base de datos
+    return (data || []).map((u: any) => ({
+      id: u.id,
+      nombre: u.nombre_completo,
+      pin: u.codigo_acceso,
+      tipo: u.tipo_usuario
+    }));
+  } catch (err) {
+    console.error('Excepción al cargar operarios:', err);
+    return [];
+  }
 }
