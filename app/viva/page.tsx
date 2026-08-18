@@ -13,7 +13,6 @@ import {
   TarifasViva,
 } from '@/lib/vivaQueries';
 
-// LISTAS EXACTAS DE PEDIDOS VIVA SEGÚN FORMULARIO
 const LISTA_PLASTICOS_RICHI = [
   'Bolsa Blanca',
   'Bolsa de Papel',
@@ -65,6 +64,19 @@ const LISTA_ASEO = [
   'Trapitos',
 ];
 
+// FUNCIONES DE FORMATO DE MONEDA
+const formatearMoneda = (val: number | string): string => {
+  if (val === '' || val === null || val === undefined) return '';
+  const num = typeof val === 'string' ? Number(val.replace(/\D/g, '')) : val;
+  if (isNaN(num) || num === 0) return '';
+  return `$ ${num.toLocaleString('es-CO')}`;
+};
+
+const desformatearMoneda = (val: string): number | '' => {
+  const soloNumeros = val.replace(/\D/g, '');
+  return soloNumeros === '' ? '' : Number(soloNumeros);
+};
+
 export default function VivaPage() {
   const router = useRouter();
   const [sesion, setSesion] = useState<any>(null);
@@ -90,7 +102,7 @@ export default function VivaPage() {
   const [cajasMostrador, setCajasMostrador] = useState<number | ''>('');
   const [observaciones, setObservaciones] = useState<string>('');
 
-  // REQUISICIÓN DE PEDIDOS (SOLO 4 CATEGORÍAS)
+  // REQUISICIÓN DE PEDIDOS
   const [mostrarModuloPedidos, setMostrarModuloPedidos] = useState(false);
   const [categoriaPedido, setCategoriaPedido] = useState<'paletas' | 'richi' | 'insumos' | 'aseo'>('paletas');
   const [cantidadesPedidoPaletas, setCantidadesPedidoPaletas] = useState<{ [saborId: number]: number | '' }>({});
@@ -100,11 +112,15 @@ export default function VivaPage() {
   const [otroInsumoTexto, setOtroInsumoTexto] = useState('');
   const [obsPedido, setObsPedido] = useState('');
 
-  // NÓMINA Y TURNO
+  // NÓMINA Y ARQUEO DE CAJA
   const [tipoDia, setTipoDia] = useState<'entre_semana' | 'domingo_festivo'>('entre_semana');
   const [horasDia, setHorasDia] = useState<number | ''>('');
   const [horasNoche, setHorasNoche] = useState<number | ''>('');
-  const [efectivoDejado, setEfectivoDejado] = useState<number | ''>('');
+  const [efectivoCaja, setEfectivoCaja] = useState<number | ''>('');
+  const [nequi, setNequi] = useState<number | ''>('');
+  const [daviplata, setDaviplata] = useState<number | ''>('');
+  const [gastos, setGastos] = useState<number | ''>('');
+  const [motivoGasto, setMotivoGasto] = useState<string>('');
 
   // MODAL CAMBIO DE TURNO
   const [mostrarModalCambioTurno, setMostrarModalCambioTurno] = useState(false);
@@ -117,8 +133,7 @@ export default function VivaPage() {
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
 
-  // REFERENCIAS PARA NAVEGACIÓN CON ENTER
-  const inputsRef = useRef<{ [key: string]: HTMLInputElement | null }>({});
+  const inputsRef = useRef<{ [key: string]: HTMLInputElement | HTMLTextAreaElement | null }>({});
 
   const hDia = Number(horasDia) || 0;
   const hNoche = Number(horasNoche) || 0;
@@ -126,7 +141,26 @@ export default function VivaPage() {
   const valorHoraNoche = tipoDia === 'domingo_festivo' ? tarifas.horaNocheFestivo : tarifas.horaNocheEntreSemana;
   const totalNomina = tarifas.subsidio + tarifas.transporte + hDia * valorHoraDia + hNoche * valorHoraNoche;
 
+  const totalVentasCalculado = (Number(efectivoCaja) || 0) + (Number(nequi) || 0) + (Number(daviplata) || 0);
+
   const SEDE_ID_VIVA = 2;
+
+  // FILTRO EXCLUSIVO PARA PALETAS REALES (EXCLUYE INSUMOS, ASEO, EMPAQUES)
+  const paletasFiltradas = saboresViva.filter((p) => {
+    const cat = (p.categoria || '').toLowerCase();
+    const nom = (p.nombre || '').toLowerCase();
+    return (
+      !cat.includes('aseo') &&
+      !cat.includes('insumo') &&
+      !cat.includes('materia') &&
+      !cat.includes('empaque') &&
+      !cat.includes('richi') &&
+      !nom.includes('antibacterial') &&
+      !nom.includes('servilleta') &&
+      !nom.includes('sal limón') &&
+      !nom.includes('girasol')
+    );
+  });
 
   const totalPaletasSuma = Object.values(cantidadesSabores).reduce(
     (acc: number, val) => acc + (Number(val) || 0),
@@ -186,8 +220,8 @@ export default function VivaPage() {
   function handleKeyDownSabor(e: React.KeyboardEvent<HTMLInputElement>, index: number) {
     if (e.key === 'Enter') {
       e.preventDefault();
-      if (index < saboresViva.length - 1) {
-        const siguienteSabor = saboresViva[index + 1];
+      if (index < paletasFiltradas.length - 1) {
+        const siguienteSabor = paletasFiltradas[index + 1];
         inputsRef.current[`sabor_${siguienteSabor.id}`]?.focus();
       } else {
         inputsRef.current['caja_mostac']?.focus();
@@ -203,6 +237,13 @@ export default function VivaPage() {
         const key = typeof siguienteItem === 'object' ? siguienteItem.id : siguienteItem;
         inputsRef.current[`${prefijo}_${key}`]?.focus();
       }
+    }
+  }
+
+  function handleKeyDownCierre(e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>, siguienteInputKey: string) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      inputsRef.current[siguienteInputKey]?.focus();
     }
   }
 
@@ -405,11 +446,15 @@ export default function VivaPage() {
     }
 
     setGuardando(true);
-    const efDejado = Number(efectivoDejado) || 0;
+    const efCaja = Number(efectivoCaja) || 0;
+    const neq = Number(nequi) || 0;
+    const dav = Number(daviplata) || 0;
+    const gst = Number(gastos) || 0;
+
     const usuarioId = sesion?.usuario_id || sesion?.id;
     const sedeId = sesion?.sede_id || SEDE_ID_VIVA;
 
-    const ok = await registrarNominaYCambioTurno({
+    const datosPayload: any = {
       sedeId,
       usuarioId,
       tipoDia,
@@ -418,23 +463,28 @@ export default function VivaPage() {
       subsidio: tarifas.subsidio,
       transporte: tarifas.transporte,
       totalPagado: totalNomina,
-      efectivoDejadoCaja: efDejado,
-    });
+      efectivoCaja: esTurnoCierre ? efCaja : 0,
+      nequi: esTurnoCierre ? neq : 0,
+      daviplata: esTurnoCierre ? dav : 0,
+      gastos: esTurnoCierre ? gst : 0,
+      motivoGasto: esTurnoCierre ? motivoGasto : '',
+    };
+
+    const ok = await registrarNominaYCambioTurno(datosPayload);
     setGuardando(false);
 
     if (ok) {
       if (esTurnoCierre) {
-        alert(`¡Cierre de jornada completado con éxito!\nNómina registrada: $${totalNomina.toLocaleString()}\nEfectivo en caja: $${efDejado.toLocaleString()}\n\n¡Hasta mañana!`);
+        alert(`¡Cierre de jornada completado con éxito!\n\nNómina: $ ${totalNomina.toLocaleString('es-CO')}\nTotal Recaudado: $ ${totalVentasCalculado.toLocaleString('es-CO')}\nGastos: $ ${gst.toLocaleString('es-CO')}\n\n¡Hasta mañana!`);
         cerrarSesion();
       } else {
-        alert(`¡Nómina del operador saliente registrada!\nTotal Pagado: $${totalNomina.toLocaleString()}\nEfectivo dejado en Caja: $${efDejado.toLocaleString()}\n\nA continuación, ingresa el operario que recibe el turno.`);
+        alert(`¡Nómina del operador saliente registrada con éxito!\nTotal Pagado: $ ${totalNomina.toLocaleString('es-CO')}\n\nA continuación, ingresa el operario que recibe el turno.`);
         setHorasDia('');
         setHorasNoche('');
-        setEfectivoDejado('');
         setMostrarModalCambioTurno(true);
       }
     } else {
-      alert('Error al registrar nómina.');
+      alert('Error al registrar.');
     }
   }
 
@@ -528,13 +578,13 @@ export default function VivaPage() {
         </span>
         <div className="flex gap-3">
           <input
-            type="number"
+            type="text"
             placeholder="Monto en efectivo $"
-            value={baseCaja}
-            onChange={(e) => setBaseCaja(e.target.value === '' ? '' : Number(e.target.value))}
+            value={formatearMoneda(baseCaja)}
+            onChange={(e) => setBaseCaja(desformatearMoneda(e.target.value))}
             onFocus={(e) => e.target.select()}
             disabled={baseGuardada}
-            className="w-full bg-gray-900 border border-gray-800 text-emerald-300 font-black text-sm md:text-base rounded-xl p-3 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            className="w-full bg-gray-900 border border-gray-800 text-emerald-300 font-black text-sm md:text-base rounded-xl p-3 outline-none"
           />
           <button
             onClick={handleGuardarBase}
@@ -586,19 +636,19 @@ export default function VivaPage() {
             </select>
           </div>
 
-          {/* LISTADO DE PALETAS CON CATEGORÍA DESDE LA TABLA PRODUCTO */}
+          {/* LISTADO DE PALETAS FILTRADAS POR CATEGORÍA */}
           <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1 border border-gray-800 p-2.5 rounded-xl bg-gray-950/40">
             <span className="text-[10px] text-purple-400 font-bold uppercase block mb-1">Ingresar Cantidad por Sabor:</span>
-            {saboresViva.map((s, idx) => (
+            {paletasFiltradas.map((s, idx) => (
               <div key={s.id} className="bg-gray-900/60 border border-gray-800 p-2 rounded-xl flex justify-between items-center gap-2">
                 <div className="truncate">
                   <p className="font-bold text-xs text-white truncate">{s.nombre}</p>
                   <span className="text-[10px] font-semibold text-purple-400 block -mt-0.5 capitalize">
-                    {s.categoria || s.tipo || ''}
+                    {s.categoria || ''}
                   </span>
                 </div>
                 <input
-                  ref={(el) => (inputsRef.current[`sabor_${s.id}`] = el)}
+                  ref={(el) => { inputsRef.current[`sabor_${s.id}`] = el; }}
                   type="number"
                   placeholder="0"
                   value={cantidadesSabores[s.id] ?? ''}
@@ -627,7 +677,7 @@ export default function VivaPage() {
             <div className="flex justify-between items-center bg-gray-950 p-2.5 rounded-lg border border-gray-800">
               <span className="text-xs text-gray-300 font-bold">📦 Caja Mostac:</span>
               <input 
-                ref={(el) => (inputsRef.current['caja_mostac'] = el)}
+                ref={(el) => { inputsRef.current['caja_mostac'] = el; }}
                 type="number" 
                 placeholder="0" 
                 value={cajasMostrador} 
@@ -658,7 +708,7 @@ export default function VivaPage() {
           </button>
         </div>
 
-        {/* COLUMNA DERECHA: PEDIDOS Y NÓMINA */}
+        {/* COLUMNA DERECHA: PEDIDOS Y CIERRE DE CAJA / NÓMINA */}
         <div className={`space-y-4 transition-opacity ${bloqueadoPorApertura ? 'opacity-40 pointer-events-none select-none' : 'opacity-100'}`}>
           
           {/* MÓDULO PEDIDOS */}
@@ -678,7 +728,6 @@ export default function VivaPage() {
 
             {mostrarModuloPedidos && (
               <div className="space-y-3 pt-1">
-                {/* 4 BOTONES DE CATEGORÍA SEGÚN FORMULARIO */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[10px]">
                   <button type="button" onClick={() => setCategoriaPedido('paletas')} className={`py-2 px-1 rounded-xl font-bold border text-center transition-all ${categoriaPedido === 'paletas' ? 'bg-amber-600 text-white border-amber-500 shadow' : 'bg-gray-900 text-gray-400 border-gray-800'}`}>🍦 Paletas</button>
                   <button type="button" onClick={() => setCategoriaPedido('richi')} className={`py-2 px-1 rounded-xl font-bold border text-center transition-all ${categoriaPedido === 'richi' ? 'bg-amber-600 text-white border-amber-500 shadow' : 'bg-gray-900 text-gray-400 border-gray-800'}`}>🛍️ Richi</button>
@@ -689,16 +738,21 @@ export default function VivaPage() {
                 {categoriaPedido === 'paletas' && (
                   <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 border border-gray-800/60 p-2.5 rounded-xl bg-gray-950/40">
                     <span className="text-[10px] text-amber-400 font-bold uppercase block">Seleccionar Sabores a Solicitar a Bodega:</span>
-                    {saboresViva.map((s, idx) => (
+                    {paletasFiltradas.map((s, idx) => (
                       <div key={s.id} className="bg-gray-900/60 border border-gray-800 p-2 rounded-xl flex justify-between items-center gap-2">
-                        <p className="font-bold text-xs text-white truncate">{s.nombre}</p>
+                        <div className="truncate">
+                          <p className="font-bold text-xs text-white truncate">{s.nombre}</p>
+                          <span className="text-[10px] font-semibold text-amber-500 block -mt-0.5 capitalize">
+                            {s.categoria || ''}
+                          </span>
+                        </div>
                         <input
-                          ref={(el) => (inputsRef.current[`pedido_paleta_${s.id}`] = el)}
+                          ref={(el) => { inputsRef.current[`pedido_paleta_${s.id}`] = el; }}
                           type="number"
                           placeholder="0"
                           value={cantidadesPedidoPaletas[s.id] ?? ''}
                           onChange={(e) => handleCantidadPedidoChange(s.id, e.target.value)}
-                          onKeyDown={(e) => handleKeyDownPedido(e, idx, saboresViva, 'pedido_paleta')}
+                          onKeyDown={(e) => handleKeyDownPedido(e, idx, paletasFiltradas, 'pedido_paleta')}
                           onFocus={(e) => e.target.select()}
                           className="w-24 bg-gray-950 border border-amber-800/80 text-amber-300 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-amber-400 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                         />
@@ -714,7 +768,7 @@ export default function VivaPage() {
                       <div key={item} className="bg-gray-900/60 border border-gray-800 p-2 rounded-xl flex justify-between items-center gap-2">
                         <span className="text-xs font-bold text-white truncate">{item}</span>
                         <input 
-                          ref={(el) => (inputsRef.current[`pedido_richi_${item}`] = el)}
+                          ref={(el) => { inputsRef.current[`pedido_richi_${item}`] = el; }}
                           type="number" 
                           placeholder="0" 
                           value={cantidadesRichi[item] ?? ''} 
@@ -735,7 +789,7 @@ export default function VivaPage() {
                       <div key={item} className="bg-gray-900/60 border border-gray-800 p-2 rounded-xl flex justify-between items-center gap-2">
                         <span className="text-xs font-bold text-white truncate">{item}</span>
                         <input 
-                          ref={(el) => (inputsRef.current[`pedido_ins_${item}`] = el)}
+                          ref={(el) => { inputsRef.current[`pedido_ins_${item}`] = el; }}
                           type="number" 
                           placeholder="0" 
                           value={cantidadesInsumos[item] ?? ''} 
@@ -756,7 +810,7 @@ export default function VivaPage() {
                       <div key={item} className="bg-gray-900/60 border border-gray-800 p-2 rounded-xl flex justify-between items-center gap-2">
                         <span className="text-xs font-bold text-white truncate">{item}</span>
                         <input 
-                          ref={(el) => (inputsRef.current[`pedido_aseo_${item}`] = el)}
+                          ref={(el) => { inputsRef.current[`pedido_aseo_${item}`] = el; }}
                           type="number" 
                           placeholder="0" 
                           value={cantidadesAseo[item] ?? ''} 
@@ -780,53 +834,145 @@ export default function VivaPage() {
             )}
           </div>
 
-          {/* CAMBIO DE TURNO O CIERRE FINAL */}
-          <div className="bg-[#0d111a] border border-purple-900/50 p-4 rounded-2xl space-y-3 shadow-md">
+          {/* ARQUEO DE CAJA (SÓLO CIERRE) Y NÓMINA */}
+          <div className="bg-[#0d111a] border border-purple-900/50 p-4 rounded-2xl space-y-4 shadow-md">
             <h2 className="text-xs md:text-sm font-black text-purple-300 border-b border-purple-900/50 pb-2 flex justify-between">
-              <span>{esTurnoCierre ? '🌙 Cierre de Jornada y Nómina' : '👥 Cambio de Turno y Pago Nómina'}</span>
+              <span>{esTurnoCierre ? '🌙 Cierre de Jornada y Arqueo' : '👥 Cambio de Turno / Nómina'}</span>
               <span className="text-[10px] text-purple-400 font-bold">{esTurnoCierre ? 'Fin de Día' : 'Fin de Turno'}</span>
             </h2>
 
-            <div>
-              <label className="text-[11px] text-gray-400 font-bold block mb-1">Tipo de Día:</label>
-              <select value={tipoDia} onChange={(e) => setTipoDia(e.target.value as any)} className="w-full bg-gray-900 border border-gray-800 text-white font-bold text-xs rounded-xl p-2.5 outline-none cursor-pointer">
-                <option value="entre_semana">Entre semana (lunes a sábado)</option>
-                <option value="domingo_festivo">Domingo / Festivo</option>
-              </select>
+            {/* SECCIÓN NÓMINA */}
+            <div className="space-y-2 bg-gray-950/40 p-3 rounded-xl border border-gray-800/80">
+              <span className="text-[10px] font-black text-purple-400 uppercase block">1. Nómina del Operador:</span>
+              
+              <div>
+                <label className="text-[10px] text-gray-400 font-bold block mb-1">Tipo de Día:</label>
+                <select value={tipoDia} onChange={(e) => setTipoDia(e.target.value as any)} className="w-full bg-gray-900 border border-gray-800 text-white font-bold text-xs rounded-xl p-2 outline-none cursor-pointer">
+                  <option value="entre_semana">Entre semana (lunes a sábado)</option>
+                  <option value="domingo_festivo">Domingo / Festivo</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 text-[10px]">
+                <div>
+                  <span className="text-gray-400 block mb-1 font-bold">Horas Día</span>
+                  <input 
+                    ref={(el) => { inputsRef.current['cierre_horas_dia'] = el; }}
+                    type="number" 
+                    placeholder="0" 
+                    value={horasDia} 
+                    onChange={(e) => setHorasDia(e.target.value === '' ? '' : Number(e.target.value))} 
+                    onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_horas_noche')}
+                    onFocus={(e) => e.target.select()} 
+                    className="w-full bg-gray-900 border border-gray-800 text-white font-bold text-center rounded-lg p-2 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                  />
+                </div>
+                <div>
+                  <span className="text-gray-400 block mb-1 font-bold">Horas Noche</span>
+                  <input 
+                    ref={(el) => { inputsRef.current['cierre_horas_noche'] = el; }}
+                    type="number" 
+                    placeholder="0" 
+                    value={horasNoche} 
+                    onChange={(e) => setHorasNoche(e.target.value === '' ? '' : Number(e.target.value))} 
+                    onKeyDown={(e) => handleKeyDownCierre(e, esTurnoCierre ? 'cierre_efectivo' : '')}
+                    onFocus={(e) => e.target.select()} 
+                    className="w-full bg-gray-900 border border-gray-800 text-white font-bold text-center rounded-lg p-2 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-between items-center bg-purple-950/40 p-2 rounded-lg border border-purple-800/50 text-xs font-bold text-rose-300">
+                <span>Total Nómina:</span>
+                <span className="text-sm font-black text-rose-400">$ {totalNomina.toLocaleString('es-CO')}</span>
+              </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 text-[10px]">
-              <div>
-                <span className="text-gray-400 block mb-1 font-bold">Subsidio ($)</span>
-                <input type="text" readOnly value={`$${tarifas.subsidio.toLocaleString()}`} className="w-full bg-gray-900/80 border border-gray-800 text-amber-400 font-bold text-center rounded-lg p-2 outline-none cursor-not-allowed opacity-80" />
-              </div>
-              <div>
-                <span className="text-gray-400 block mb-1 font-bold">Transporte ($)</span>
-                <input type="text" readOnly value={`$${tarifas.transporte.toLocaleString()}`} className="w-full bg-gray-900/80 border border-gray-800 text-amber-400 font-bold text-center rounded-lg p-2 outline-none cursor-not-allowed opacity-80" />
-              </div>
-            </div>
+            {/* SECCIÓN RECAUDO EN CAJA (SOLO SE MUESTRA SI ES TURNO DE CIERRE FINAL) */}
+            {esTurnoCierre && (
+              <div className="space-y-2 bg-gray-950/40 p-3 rounded-xl border border-gray-800/80">
+                <span className="text-[10px] font-black text-emerald-400 uppercase block">2. Arqueo de Caja Final del Día:</span>
+                
+                <div className="grid grid-cols-3 gap-2 text-[10px]">
+                  <div>
+                    <span className="text-emerald-400 block mb-1 font-bold">💵 Efectivo ($)</span>
+                    <input 
+                      ref={(el) => { inputsRef.current['cierre_efectivo'] = el; }}
+                      type="text" 
+                      placeholder="$ 0" 
+                      value={formatearMoneda(efectivoCaja)} 
+                      onChange={(e) => setEfectivoCaja(desformatearMoneda(e.target.value))} 
+                      onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_nequi')}
+                      onFocus={(e) => e.target.select()} 
+                      className="w-full bg-gray-900 border border-gray-800 text-emerald-300 font-bold text-center rounded-lg p-2 outline-none" 
+                    />
+                  </div>
+                  <div>
+                    <span className="text-purple-400 block mb-1 font-bold">📲 Nequi ($)</span>
+                    <input 
+                      ref={(el) => { inputsRef.current['cierre_nequi'] = el; }}
+                      type="text" 
+                      placeholder="$ 0" 
+                      value={formatearMoneda(nequi)} 
+                      onChange={(e) => setNequi(desformatearMoneda(e.target.value))} 
+                      onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_daviplata')}
+                      onFocus={(e) => e.target.select()} 
+                      className="w-full bg-gray-900 border border-gray-800 text-purple-300 font-bold text-center rounded-lg p-2 outline-none" 
+                    />
+                  </div>
+                  <div>
+                    <span className="text-rose-400 block mb-1 font-bold">📱 Daviplata ($)</span>
+                    <input 
+                      ref={(el) => { inputsRef.current['cierre_daviplata'] = el; }}
+                      type="text" 
+                      placeholder="$ 0" 
+                      value={formatearMoneda(daviplata)} 
+                      onChange={(e) => setDaviplata(desformatearMoneda(e.target.value))} 
+                      onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_gastos')}
+                      onFocus={(e) => e.target.select()} 
+                      className="w-full bg-gray-900 border border-gray-800 text-rose-300 font-bold text-center rounded-lg p-2 outline-none" 
+                    />
+                  </div>
+                </div>
 
-            <div className="grid grid-cols-2 gap-2 text-[10px]">
-              <div>
-                <span className="text-gray-400 block mb-1 font-bold">Horas Día</span>
-                <input type="number" placeholder="0" value={horasDia} onChange={(e) => setHorasDia(e.target.value === '' ? '' : Number(e.target.value))} onFocus={(e) => e.target.select()} className="w-full bg-gray-950 border border-gray-800 text-white font-bold text-center rounded-lg p-2 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
-              </div>
-              <div>
-                <span className="text-gray-400 block mb-1 font-bold">Horas Noche</span>
-                <input type="number" placeholder="0" value={horasNoche} onChange={(e) => setHorasNoche(e.target.value === '' ? '' : Number(e.target.value))} onFocus={(e) => e.target.select()} className="w-full bg-gray-950 border border-gray-800 text-white font-bold text-center rounded-lg p-2 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
-              </div>
-            </div>
+                {/* GASTOS Y MOTIVO */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[10px] pt-1">
+                  <div>
+                    <span className="text-amber-400 block mb-1 font-bold">🧾 Total Gastos ($)</span>
+                    <input 
+                      ref={(el) => { inputsRef.current['cierre_gastos'] = el; }}
+                      type="text" 
+                      placeholder="$ 0" 
+                      value={formatearMoneda(gastos)} 
+                      onChange={(e) => setGastos(desformatearMoneda(e.target.value))} 
+                      onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_motivo_gasto')}
+                      onFocus={(e) => e.target.select()} 
+                      className="w-full bg-gray-900 border border-gray-800 text-amber-300 font-bold text-center rounded-lg p-2 outline-none" 
+                    />
+                  </div>
+                  <div>
+                    <span className="text-gray-400 block mb-1 font-bold">📝 Motivo del Gasto</span>
+                    <input 
+                      ref={(el) => { inputsRef.current['cierre_motivo_gasto'] = el; }}
+                      type="text" 
+                      placeholder="Ej. Compra de hielo, bolsas..." 
+                      value={motivoGasto} 
+                      onChange={(e) => setMotivoGasto(e.target.value)} 
+                      onFocus={(e) => e.target.select()} 
+                      className="w-full bg-gray-900 border border-gray-800 text-white text-xs rounded-lg p-2 outline-none" 
+                    />
+                  </div>
+                </div>
 
-            <div className="bg-gray-900/80 p-3 rounded-xl space-y-2 border border-gray-800 text-xs">
-              <div className="flex justify-between items-center text-rose-400 font-bold">
-                <span>Total Pago Operario:</span>
-                <span className="text-sm md:text-base font-black">${totalNomina.toLocaleString()}</span>
+                {/* TOTAL ARQUEADO CALCULADO */}
+                <div className="flex justify-between items-center bg-gray-900 p-2.5 rounded-xl border border-emerald-800/50 text-xs font-bold mt-2">
+                  <span className="text-emerald-400 uppercase font-black">Total Recaudado (Ventas):</span>
+                  <span className="text-base font-black text-emerald-300 bg-gray-950 px-3 py-1 rounded-lg border border-emerald-700">
+                    $ {totalVentasCalculado.toLocaleString('es-CO')}
+                  </span>
+                </div>
               </div>
-              <div className="flex justify-between items-center gap-2 pt-2 border-t border-gray-800">
-                <span className="text-gray-300 font-bold text-[11px]">Efectivo dejado en Caja:</span>
-                <input type="number" placeholder="$ Dejado" value={efectivoDejado} onChange={(e) => setEfectivoDejado(e.target.value === '' ? '' : Number(e.target.value))} onFocus={(e) => e.target.select()} className="w-28 bg-gray-950 border border-gray-800 text-emerald-400 font-black text-center rounded-lg p-1.5 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
-              </div>
-            </div>
+            )}
 
             <button
               onClick={handleGuardarNominaTurno}
@@ -841,9 +987,9 @@ export default function VivaPage() {
                 ? 'Guardando...'
                 : esTurnoCierre
                 ? cierreRealizado
-                  ? '🌙 Registrar Cierre Final y Nómina'
+                  ? '🌙 Registrar Cierre Final, Caja y Nómina'
                   : '⚠️ Haz el Conteo de Cierre Primero'
-                : '💾 Registrar Cambio de Turno / Nómina'}
+                : '💾 Registrar Nómina y Cambio de Turno'}
             </button>
           </div>
 
