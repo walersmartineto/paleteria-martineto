@@ -164,31 +164,39 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#07090e] text-slate-100 flex flex-col items-center justify-center p-4 font-sans">
-      <div className="max-w-md w-full bg-[#0d111a] border border-gray-800 p-6 rounded-3xl space-y-5 shadow-2xl">
-        {/* Header Logo */}
-        <div className="text-center space-y-2">
-          <div className="w-14 h-14 rounded-2xl bg-purple-600 flex items-center justify-center text-3xl mx-auto shadow-lg shadow-purple-900/50">
+    <main className="min-h-screen bg-[#004e8c] text-[#f1f5f9] flex flex-col items-center justify-center p-4 font-sans">
+      <div className="max-w-md w-full bg-[#0b2b48] border border-[#0066b3] p-6 md:p-8 rounded-3xl space-y-6 shadow-2xl relative overflow-hidden">
+        
+        {/* LÍNEA DECORATIVA TIPO WINDOWS */}
+        <div className="absolute top-0 left-0 right-0 h-2 bg-gradient-to-r from-purple-500 via-[#00a4ef] to-emerald-400"></div>
+
+        {/* HEADER CON LOGO */}
+        <div className="text-center space-y-2 pt-2">
+          <div className="w-16 h-16 rounded-2xl bg-[#003d6d] border border-[#0066b3] flex items-center justify-center text-3xl mx-auto shadow-lg">
             🍦
           </div>
-          <h1 className="text-xl font-black text-white tracking-wider">WALERS POS</h1>
-          <p className="text-xs text-gray-400">Ingreso de Personal y Asistencia</p>
+          <h1 className="text-xl md:text-2xl font-black text-white tracking-wider">WALERS POS</h1>
+          <p className="text-xs text-sky-200 font-medium">Ingreso de Personal y Asistencia</p>
         </div>
 
+        {/* MENSAJE DE ERROR */}
         {errorMensaje && (
-          <p className="text-xs text-rose-400 bg-rose-950/60 p-3 rounded-xl border border-rose-800/40 text-center font-bold">
+          <p className="text-xs text-rose-200 bg-rose-950/80 p-3 rounded-xl border border-rose-500/60 text-center font-bold shadow-sm">
             ⚠️ {errorMensaje}
           </p>
         )}
 
         <form onSubmit={handleIngresar} className="space-y-4">
-          {/* Seleccionar Sede */}
+          
+          {/* SELECCIONAR SEDE */}
           <div>
-            <label className="text-xs font-bold text-gray-300 block mb-1">🏢 Selecciona la Sede / Módulo:</label>
+            <label className="text-[11px] font-extrabold text-sky-200 block mb-1 uppercase tracking-wider">
+              🏢 Selecciona la Sede / Módulo:
+            </label>
             <select
               value={sedeSeleccionada}
               onChange={(e) => setSedeSeleccionada(Number(e.target.value))}
-              className="w-full bg-gray-900 border border-gray-800 rounded-xl p-3 text-xs text-white outline-none font-bold"
+              className="w-full bg-[#051829] border border-[#0066b3] rounded-xl p-3 text-xs md:text-sm text-white outline-none font-bold cursor-pointer focus:border-[#00a4ef] transition-colors"
             >
               <option value="">-- Elige Sede o Administración --</option>
               {sedes.map((s) => (
@@ -199,57 +207,73 @@ export default function LoginPage() {
             </select>
           </div>
 
-          {/* Seleccionar Usuario */}
+          {/* SELECCIONAR USUARIO */}
           <div>
-            <label className="text-xs font-bold text-gray-300 block mb-1">👤 Selecciona tu Nombre:</label>
+            <label className="text-[11px] font-extrabold text-sky-200 block mb-1 uppercase tracking-wider">
+              👤 Selecciona tu Nombre:
+            </label>
             <select
               value={usuarioSeleccionado}
               onChange={(e) => setUsuarioSeleccionado(Number(e.target.value))}
-              className="w-full bg-gray-900 border border-gray-800 rounded-xl p-3 text-xs text-white outline-none font-bold"
+              className="w-full bg-[#051829] border border-[#0066b3] rounded-xl p-3 text-xs md:text-sm text-white outline-none font-bold cursor-pointer focus:border-[#00a4ef] transition-colors"
             >
               <option value="">-- Selecciona Usuario --</option>
               {usuarios.map((u) => (
                 <option key={u.id} value={u.id}>
-                  {u.nombre_completo} ({u.tipo_usuario})
+                  {u.nombre_completo} 
                 </option>
               ))}
             </select>
           </div>
 
-          {/* Turno */}
+          {/* TURNO */}
           <div>
-            <label className="text-xs font-bold text-gray-300 block mb-1">⏰ Turno (Solo Operadores):</label>
+            <label className="text-[11px] font-extrabold text-sky-200 block mb-1 uppercase tracking-wider">
+              ⏰ Turno (Solo Operadores):
+            </label>
             <select
               value={tipoTurno}
               onChange={(e) => setTipoTurno(e.target.value)}
-              className="w-full bg-gray-900 border border-gray-800 rounded-xl p-3 text-xs text-white outline-none font-bold"
+              className="w-full bg-[#051829] border border-[#0066b3] rounded-xl p-3 text-xs md:text-sm text-white outline-none font-bold cursor-pointer focus:border-[#00a4ef] transition-colors"
             >
-              <option value="manana_apertura">Mañana / Apertura</option>
-              <option value="tarde_cierre">Tarde / Cierre</option>
-              <option value="dia_completo">Día Completo</option>
+              <option value="manana_apertura">🌅 Mañana / Apertura</option>
+              <option value="tarde_cierre">🌙 Tarde / Cierre</option>
+              <option value="dia_completo">☀️ Día Completo</option>
             </select>
           </div>
 
-          {/* Clave */}
+          {/* CLAVE PERSONAL */}
           <div>
-            <label className="text-xs font-bold text-gray-300 block mb-1">🔐 Código / Clave Personal:</label>
+            <label className="text-[11px] font-extrabold text-sky-200 block mb-1 uppercase tracking-wider">
+              🔐 Código / Clave Personal:
+            </label>
             <input
               type="password"
-              placeholder="Ingresa tu clave"
+              placeholder="••••••"
               value={codigoAcceso}
               onChange={(e) => setCodigoAcceso(e.target.value)}
-              className="w-full bg-gray-900 border border-gray-800 rounded-xl p-3 text-xs text-white outline-none font-bold text-center tracking-widest text-lg"
+              onFocus={(e) => e.target.select()}
+              className="w-full bg-[#051829] border border-[#0066b3] rounded-xl p-3 text-sky-200 outline-none font-black text-center tracking-widest text-lg focus:border-[#00a4ef] transition-colors"
             />
           </div>
 
+          {/* BOTÓN DE ACCESO */}
           <button
             type="submit"
             disabled={cargando}
-            className="w-full bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-black py-3 rounded-xl text-xs transition-all shadow-lg shadow-purple-900/40"
+            className="w-full bg-[#0078d4] hover:bg-[#0086e6] disabled:opacity-50 text-white font-black py-3.5 rounded-xl text-xs md:text-sm uppercase tracking-wider transition-all shadow-lg shadow-[#003d6d] cursor-pointer mt-2"
           >
             {cargando ? 'Validando...' : '🚀 Ingresar al Sistema'}
           </button>
         </form>
+
+        {/* FOOTER INFO */}
+        <div className="pt-2 text-center border-t border-[#0066b3]/40">
+          <p className="text-[10px] text-sky-300 font-semibold">
+            WALERS POS System v2.0 • Punto de Venta e Inventario
+          </p>
+        </div>
+
       </div>
     </main>
   );

@@ -147,7 +147,7 @@ export async function registrarMovimientoViva(
     const { error } = await supabase.from('inventario_diario').insert([payload]);
 
     if (error) {
-      console.error('Error guardando movimiento de inventario:', error);
+      console.error('Error guardando movimiento de inventario (DETALLE):', JSON.stringify(error, null, 2));
       return false;
     }
     return true;

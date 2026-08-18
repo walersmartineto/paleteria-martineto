@@ -127,7 +127,7 @@ export default function VivaPage() {
   const [listaOperarios, setListaOperarios] = useState<any[]>([]);
   const [operarioEntranteId, setOperarioEntranteId] = useState<string>('');
   const [claveOperarioEntrante, setClaveOperarioEntrante] = useState<string>('');
-  const [turnoRecibido, setTurnoRecibido] = useState<string>('tarde_cierre');
+  const [turnoRecibido, setTurnoRecibido] = useState<string>('tarde');
   const [validandoEntrante, setValidandoEntrante] = useState(false);
 
   const [cargando, setCargando] = useState(true);
@@ -508,11 +508,13 @@ export default function VivaPage() {
       operarioEncontrado &&
       String(operarioEncontrado.pin).trim() === String(claveOperarioEntrante).trim()
     ) {
+      const turnoNormalizado = turnoRecibido.includes('tarde') ? 'tarde' : 'manana';
+
       const nuevaSesion = {
         usuario_id: operarioEncontrado.id,
         nombre: operarioEncontrado.nombre,
         sede_id: sesion?.sede_id || SEDE_ID_VIVA,
-        turno: turnoRecibido,
+        turno: turnoNormalizado,
       };
 
       localStorage.setItem('martineto_session', JSON.stringify(nuevaSesion));
@@ -542,8 +544,8 @@ export default function VivaPage() {
 
   if (cargando) {
     return (
-      <main className="min-h-screen bg-[#07090e] flex items-center justify-center text-gray-400 text-xs font-bold font-sans">
-        Cargando Sede Viva...
+      <main className="min-h-screen bg-[#004e8c] flex items-center justify-center text-white text-xs font-bold font-sans">
+        Cargando Sede Viva (Azul Windows Rey)...
       </main>
     );
   }
@@ -551,29 +553,32 @@ export default function VivaPage() {
   const bloqueadoPorApertura = !baseGuardada || !aperturaRealizada;
 
   return (
-    <main className="min-h-screen bg-[#07090e] text-slate-100 p-4 font-sans max-w-6xl mx-auto space-y-4 relative">
-      {/* Header Banner */}
-      <header className="bg-[#0d111a] border border-gray-800 p-4 rounded-2xl flex justify-between items-center shadow-lg">
+    <main className="min-h-screen bg-[#004e8c] text-[#f1f5f9] p-4 font-sans max-w-6xl mx-auto space-y-4 relative">
+      {/* Header Banner - Fondo Azul Rey de Windows */}
+      <header className="bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl flex justify-between items-center shadow-lg">
         <div>
-          <h1 className="text-base md:text-lg font-black text-white tracking-wide">🛍️ WALERS VIVA</h1>
-          <p className="text-xs text-gray-400">
-            Operador en Turno: <b className="text-purple-400">{sesion?.nombre || 'Operador'}</b>
-            <span className="ml-2 text-amber-400 font-bold uppercase">
+          <h1 className="text-base md:text-lg font-black text-white tracking-wide flex items-center gap-2">
+            <span className="w-3 h-3 rounded-full bg-[#00a4ef] inline-block shadow-sm"></span>
+            🛍️ WALERS VIVA
+          </h1>
+          <p className="text-xs text-sky-200 font-medium">
+            Operador en Turno: <b className="text-white font-bold">{sesion?.nombre || 'Operador'}</b>
+            <span className="ml-2 text-sky-100 font-bold uppercase bg-[#003d6d] px-2 py-0.5 rounded-md border border-[#0066b3]">
               ({esTurnoCierre ? 'Día Completo / Cierre' : 'Mañana / Apertura'})
             </span>
           </p>
         </div>
         <button
           onClick={cerrarSesion}
-          className="bg-gray-800 hover:bg-rose-950 text-gray-300 border border-gray-700 px-4 py-2 rounded-xl text-xs font-bold transition-all"
+          className="bg-[#003d6d] hover:bg-rose-900/80 text-white hover:text-rose-200 border border-[#0066b3] hover:border-rose-500 px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm"
         >
           🚪 Salir
         </button>
       </header>
 
       {/* 1. Base Inicial de Caja */}
-      <div className="bg-[#0d111a] border border-emerald-900/50 p-4 rounded-2xl space-y-2 shadow-md">
-        <span className="text-xs md:text-sm font-black text-emerald-400 block">
+      <div className="bg-[#0b2b48] border border-emerald-400/50 p-4 rounded-2xl space-y-2 shadow-md">
+        <span className="text-xs md:text-sm font-black text-emerald-300 block">
           💵 Paso 1: Base Inicial para Empezar el Día (Efectivo en Caja):
         </span>
         <div className="flex gap-3">
@@ -584,14 +589,14 @@ export default function VivaPage() {
             onChange={(e) => setBaseCaja(desformatearMoneda(e.target.value))}
             onFocus={(e) => e.target.select()}
             disabled={baseGuardada}
-            className="w-full bg-gray-900 border border-gray-800 text-emerald-300 font-black text-sm md:text-base rounded-xl p-3 outline-none"
+            className="w-full bg-[#051829] border border-[#0066b3] text-emerald-300 font-black text-sm md:text-base rounded-xl p-3 outline-none focus:border-emerald-400"
           />
           <button
             onClick={handleGuardarBase}
             disabled={baseGuardada}
-            className={`font-bold px-6 rounded-xl text-xs md:text-sm whitespace-nowrap transition-all shadow-md ${
+            className={`font-bold px-6 rounded-xl text-xs md:text-sm whitespace-nowrap transition-all shadow-sm ${
               baseGuardada
-                ? 'bg-emerald-900/80 text-emerald-300 border border-emerald-600 cursor-not-allowed'
+                ? 'bg-emerald-950 text-emerald-300 border border-emerald-600 cursor-not-allowed'
                 : 'bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer'
             }`}
           >
@@ -601,7 +606,7 @@ export default function VivaPage() {
       </div>
 
       {bloqueadoPorApertura && (
-        <div className="bg-amber-950/40 border border-amber-600/50 p-3 rounded-xl text-center text-xs text-amber-300 font-bold">
+        <div className="bg-amber-950/80 border border-amber-400/60 p-3 rounded-xl text-center text-xs text-amber-200 font-bold shadow-sm">
           ⚠️ ATENCIÓN: Debes registrar la Base de Caja y realizar obligatoriamente el <span className="underline">Conteo de Apertura</span> para habilitar el resto de módulos de la sede.
         </div>
       )}
@@ -610,19 +615,19 @@ export default function VivaPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
         
         {/* COLUMNA IZQUIERDA: INVENTARIO POR SABORES Y CAJA MOSTAC */}
-        <div className="bg-[#0d111a] border border-gray-800 p-4 rounded-2xl space-y-4 shadow-md">
-          <div className="flex justify-between items-center border-b border-gray-800 pb-2">
+        <div className="bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-4 shadow-md">
+          <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
             <h2 className="text-xs md:text-sm font-black text-white">🍦 Conteo de Paletas por Sabor</h2>
-            <span className="text-[11px] text-purple-400 font-bold uppercase">{tipoMovimiento}</span>
+            <span className="text-[11px] text-sky-200 font-bold uppercase bg-[#003d6d] px-2 py-0.5 rounded-md border border-[#0066b3]">{tipoMovimiento}</span>
           </div>
 
           <div>
-            <label className="text-[11px] text-gray-400 font-bold block mb-1">Acción a registrar:</label>
+            <label className="text-[11px] text-sky-200 font-bold block mb-1">Acción a registrar:</label>
             <select
               value={tipoMovimiento}
               onChange={(e) => setTipoMovimiento(e.target.value)}
               disabled={!aperturaRealizada && baseGuardada}
-              className="w-full bg-purple-950/60 border border-purple-700 text-white font-black text-xs md:text-sm rounded-xl p-2.5 outline-none cursor-pointer"
+              className="w-full bg-[#051829] border border-[#0066b3] text-white font-black text-xs md:text-sm rounded-xl p-2.5 outline-none cursor-pointer focus:border-[#00a4ef]"
             >
               {!aperturaRealizada && <option value="apertura">🌅 1. Conteo de Apertura (Obligatorio)</option>}
               {aperturaRealizada && (
@@ -637,13 +642,13 @@ export default function VivaPage() {
           </div>
 
           {/* LISTADO DE PALETAS FILTRADAS POR CATEGORÍA */}
-          <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1 border border-gray-800 p-2.5 rounded-xl bg-gray-950/40">
-            <span className="text-[10px] text-purple-400 font-bold uppercase block mb-1">Ingresar Cantidad por Sabor:</span>
+          <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1 border border-[#0066b3]/50 p-2.5 rounded-xl bg-[#051829]">
+            <span className="text-[10px] text-sky-300 font-bold uppercase block mb-1">Ingresar Cantidad por Sabor:</span>
             {paletasFiltradas.map((s, idx) => (
-              <div key={s.id} className="bg-gray-900/60 border border-gray-800 p-2 rounded-xl flex justify-between items-center gap-2">
+              <div key={s.id} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2 shadow-sm">
                 <div className="truncate">
                   <p className="font-bold text-xs text-white truncate">{s.nombre}</p>
-                  <span className="text-[10px] font-semibold text-purple-400 block -mt-0.5 capitalize">
+                  <span className="text-[10px] font-semibold text-sky-300 block -mt-0.5 capitalize">
                     {s.categoria || ''}
                   </span>
                 </div>
@@ -655,27 +660,27 @@ export default function VivaPage() {
                   onChange={(e) => handleSaborCantidadChange(s.id, e.target.value)}
                   onKeyDown={(e) => handleKeyDownSabor(e, idx)}
                   onFocus={(e) => e.target.select()}
-                  className="w-24 bg-gray-950 border border-purple-800/80 text-purple-300 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-purple-400 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                 />
               </div>
             ))}
           </div>
 
           {/* TOTAL CALCULADO AUTOMÁTICAMENTE */}
-          <div className="bg-gray-900/80 p-3 rounded-2xl border border-purple-900/50 flex justify-between items-center shadow-inner">
-            <span className="text-xs font-black text-purple-300 uppercase">
+          <div className="bg-[#0e385e] p-3 rounded-2xl border border-[#0066b3] flex justify-between items-center shadow-inner">
+            <span className="text-xs font-black text-sky-200 uppercase">
               Total Paletas ({tipoMovimiento.toUpperCase()}):
             </span>
-            <span className="text-xl font-black text-purple-400 bg-gray-950 px-4 py-1.5 rounded-xl border border-purple-800 shadow">
+            <span className="text-xl font-black text-white bg-[#051829] px-4 py-1.5 rounded-xl border border-[#0066b3] shadow">
               {totalPaletasSuma}
             </span>
           </div>
 
           {/* CONTEO ÚNICO DE CAJA MOSTAC */}
-          <div className="bg-gray-900/60 p-3 rounded-xl border border-gray-800 space-y-2">
-            <span className="text-[10px] text-amber-400 font-extrabold uppercase block">Conteo de Empaques:</span>
-            <div className="flex justify-between items-center bg-gray-950 p-2.5 rounded-lg border border-gray-800">
-              <span className="text-xs text-gray-300 font-bold">📦 Caja Mostac:</span>
+          <div className="bg-[#0e385e] p-3 rounded-xl border border-[#0066b3]/60 space-y-2">
+            <span className="text-[10px] text-sky-300 font-extrabold uppercase block">Conteo de Empaques:</span>
+            <div className="flex justify-between items-center bg-[#051829] p-2.5 rounded-lg border border-[#0066b3]">
+              <span className="text-xs text-white font-bold">📦 Caja Mostac:</span>
               <input 
                 ref={(el) => { inputsRef.current['caja_mostac'] = el; }}
                 type="number" 
@@ -683,7 +688,7 @@ export default function VivaPage() {
                 value={cajasMostrador} 
                 onChange={(e) => setCajasMostrador(e.target.value === '' ? '' : Number(e.target.value))} 
                 onFocus={(e) => e.target.select()} 
-                className="w-24 bg-gray-900 text-amber-400 font-black text-center text-sm rounded-lg p-2 outline-none focus:border-amber-500 border border-gray-800 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                className="w-24 bg-[#0e385e] text-sky-200 font-black text-center text-sm rounded-lg p-2 outline-none focus:border-[#00a4ef] border border-[#0066b3] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
               />
             </div>
           </div>
@@ -692,16 +697,16 @@ export default function VivaPage() {
             placeholder="Observaciones de inventario..."
             value={observaciones}
             onChange={(e) => setObservaciones(e.target.value)}
-            className="w-full bg-gray-900 border border-gray-800 rounded-xl p-2.5 text-xs text-white outline-none h-16 resize-none"
+            className="w-full bg-[#051829] border border-[#0066b3] rounded-xl p-2.5 text-xs text-white outline-none h-16 resize-none focus:border-[#00a4ef]"
           />
 
           <button
             onClick={handleGuardarInventario}
             disabled={!baseGuardada || guardando}
-            className={`w-full font-black py-3 rounded-xl text-xs md:text-sm transition-all uppercase shadow-lg ${
+            className={`w-full font-black py-3 rounded-xl text-xs md:text-sm transition-all uppercase shadow-md ${
               baseGuardada && !guardando
-                ? 'bg-purple-600 hover:bg-purple-500 text-white shadow-purple-900/60 cursor-pointer opacity-100'
-                : 'bg-gray-800 text-gray-500 cursor-not-allowed opacity-40'
+                ? 'bg-[#0078d4] hover:bg-[#0086e6] text-white shadow-[#003d6d] cursor-pointer opacity-100'
+                : 'bg-[#051829] text-sky-400/40 cursor-not-allowed opacity-50 border border-[#003d6d]'
             }`}
           >
             {guardando ? 'Guardando Inventario...' : `💾 Guardar ${tipoMovimiento}`}
@@ -709,18 +714,18 @@ export default function VivaPage() {
         </div>
 
         {/* COLUMNA DERECHA: PEDIDOS Y CIERRE DE CAJA / NÓMINA */}
-        <div className={`space-y-4 transition-opacity ${bloqueadoPorApertura ? 'opacity-40 pointer-events-none select-none' : 'opacity-100'}`}>
+        <div className={`space-y-4 transition-opacity ${bloqueadoPorApertura ? 'opacity-50 pointer-events-none select-none' : 'opacity-100'}`}>
           
           {/* MÓDULO PEDIDOS */}
-          <div className="bg-[#0d111a] border border-amber-900/50 p-4 rounded-2xl space-y-3 shadow-md">
-            <div className="flex justify-between items-center border-b border-amber-900/50 pb-2">
-              <h2 className="text-xs md:text-sm font-black text-amber-400 flex items-center gap-1.5">
+          <div className="bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md">
+            <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
+              <h2 className="text-xs md:text-sm font-black text-white flex items-center gap-1.5">
                 🚚 Pedidos de Insumos (Requisición)
               </h2>
               <button
                 type="button"
                 onClick={() => setMostrarModuloPedidos(!mostrarModuloPedidos)}
-                className="bg-gray-800 hover:bg-gray-700 text-gray-300 px-3 py-1 rounded-lg text-xs font-bold transition-colors border border-gray-700"
+                className="bg-[#0e385e] hover:bg-[#003d6d] text-white px-3 py-1 rounded-lg text-xs font-bold transition-colors border border-[#0066b3]"
               >
                 {mostrarModuloPedidos ? '👁️ Ocultar Pedidos' : '👁️ Hacer Pedido'}
               </button>
@@ -729,20 +734,20 @@ export default function VivaPage() {
             {mostrarModuloPedidos && (
               <div className="space-y-3 pt-1">
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[10px]">
-                  <button type="button" onClick={() => setCategoriaPedido('paletas')} className={`py-2 px-1 rounded-xl font-bold border text-center transition-all ${categoriaPedido === 'paletas' ? 'bg-amber-600 text-white border-amber-500 shadow' : 'bg-gray-900 text-gray-400 border-gray-800'}`}>🍦 Paletas</button>
-                  <button type="button" onClick={() => setCategoriaPedido('richi')} className={`py-2 px-1 rounded-xl font-bold border text-center transition-all ${categoriaPedido === 'richi' ? 'bg-amber-600 text-white border-amber-500 shadow' : 'bg-gray-900 text-gray-400 border-gray-800'}`}>🛍️ Richi</button>
-                  <button type="button" onClick={() => setCategoriaPedido('insumos')} className={`py-2 px-1 rounded-xl font-bold border text-center transition-all ${categoriaPedido === 'insumos' ? 'bg-amber-600 text-white border-amber-500 shadow' : 'bg-gray-900 text-gray-400 border-gray-800'}`}>🍫 Insumos</button>
-                  <button type="button" onClick={() => setCategoriaPedido('aseo')} className={`py-2 px-1 rounded-xl font-bold border text-center transition-all ${categoriaPedido === 'aseo' ? 'bg-amber-600 text-white border-amber-500 shadow' : 'bg-gray-900 text-gray-400 border-gray-800'}`}>🧹 Aseo</button>
+                  <button type="button" onClick={() => setCategoriaPedido('paletas')} className={`py-2 px-1 rounded-xl font-bold border text-center transition-all ${categoriaPedido === 'paletas' ? 'bg-[#0078d4] text-white border-[#00a4ef] shadow' : 'bg-[#051829] text-sky-200 border-[#0066b3]'}`}>🍦 Paletas</button>
+                  <button type="button" onClick={() => setCategoriaPedido('richi')} className={`py-2 px-1 rounded-xl font-bold border text-center transition-all ${categoriaPedido === 'richi' ? 'bg-[#0078d4] text-white border-[#00a4ef] shadow' : 'bg-[#051829] text-sky-200 border-[#0066b3]'}`}>🛍️ Richi</button>
+                  <button type="button" onClick={() => setCategoriaPedido('insumos')} className={`py-2 px-1 rounded-xl font-bold border text-center transition-all ${categoriaPedido === 'insumos' ? 'bg-[#0078d4] text-white border-[#00a4ef] shadow' : 'bg-[#051829] text-sky-200 border-[#0066b3]'}`}>🍫 Insumos</button>
+                  <button type="button" onClick={() => setCategoriaPedido('aseo')} className={`py-2 px-1 rounded-xl font-bold border text-center transition-all ${categoriaPedido === 'aseo' ? 'bg-[#0078d4] text-white border-[#00a4ef] shadow' : 'bg-[#051829] text-sky-200 border-[#0066b3]'}`}>🧹 Aseo</button>
                 </div>
 
                 {categoriaPedido === 'paletas' && (
-                  <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 border border-gray-800/60 p-2.5 rounded-xl bg-gray-950/40">
-                    <span className="text-[10px] text-amber-400 font-bold uppercase block">Seleccionar Sabores a Solicitar a Bodega:</span>
+                  <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 border border-[#0066b3]/50 p-2.5 rounded-xl bg-[#051829]">
+                    <span className="text-[10px] text-sky-300 font-bold uppercase block">Seleccionar Sabores a Solicitar a Bodega:</span>
                     {paletasFiltradas.map((s, idx) => (
-                      <div key={s.id} className="bg-gray-900/60 border border-gray-800 p-2 rounded-xl flex justify-between items-center gap-2">
+                      <div key={s.id} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2">
                         <div className="truncate">
                           <p className="font-bold text-xs text-white truncate">{s.nombre}</p>
-                          <span className="text-[10px] font-semibold text-amber-500 block -mt-0.5 capitalize">
+                          <span className="text-[10px] font-semibold text-sky-300 block -mt-0.5 capitalize">
                             {s.categoria || ''}
                           </span>
                         </div>
@@ -754,7 +759,7 @@ export default function VivaPage() {
                           onChange={(e) => handleCantidadPedidoChange(s.id, e.target.value)}
                           onKeyDown={(e) => handleKeyDownPedido(e, idx, paletasFiltradas, 'pedido_paleta')}
                           onFocus={(e) => e.target.select()}
-                          className="w-24 bg-gray-950 border border-amber-800/80 text-amber-300 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-amber-400 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                         />
                       </div>
                     ))}
@@ -762,10 +767,10 @@ export default function VivaPage() {
                 )}
 
                 {categoriaPedido === 'richi' && (
-                  <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 border border-gray-800/60 p-2.5 rounded-xl bg-gray-950/40">
-                    <span className="text-[10px] text-amber-400 font-bold uppercase block">Plásticos Richi</span>
+                  <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 border border-[#0066b3]/50 p-2.5 rounded-xl bg-[#051829]">
+                    <span className="text-[10px] text-sky-300 font-bold uppercase block">Plásticos Richi</span>
                     {LISTA_PLASTICOS_RICHI.map((item, idx) => (
-                      <div key={item} className="bg-gray-900/60 border border-gray-800 p-2 rounded-xl flex justify-between items-center gap-2">
+                      <div key={item} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2">
                         <span className="text-xs font-bold text-white truncate">{item}</span>
                         <input 
                           ref={(el) => { inputsRef.current[`pedido_richi_${item}`] = el; }}
@@ -775,7 +780,7 @@ export default function VivaPage() {
                           onChange={(e) => handleItemGenericoChange(item, e.target.value, setCantidadesRichi)} 
                           onKeyDown={(e) => handleKeyDownPedido(e, idx, LISTA_PLASTICOS_RICHI, 'pedido_richi')}
                           onFocus={(e) => e.target.select()} 
-                          className="w-24 bg-gray-950 border border-amber-800/80 text-amber-300 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-amber-400 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                          className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
                         />
                       </div>
                     ))}
@@ -783,10 +788,10 @@ export default function VivaPage() {
                 )}
 
                 {categoriaPedido === 'insumos' && (
-                  <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 border border-gray-800/60 p-2.5 rounded-xl bg-gray-950/40">
-                    <span className="text-[10px] text-amber-400 font-bold uppercase block">Insumos y Toppings</span>
+                  <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 border border-[#0066b3]/50 p-2.5 rounded-xl bg-[#051829]">
+                    <span className="text-[10px] text-sky-300 font-bold uppercase block">Insumos y Toppings</span>
                     {LISTA_INSUMOS_MATERIA.map((item, idx) => (
-                      <div key={item} className="bg-gray-900/60 border border-gray-800 p-2 rounded-xl flex justify-between items-center gap-2">
+                      <div key={item} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2">
                         <span className="text-xs font-bold text-white truncate">{item}</span>
                         <input 
                           ref={(el) => { inputsRef.current[`pedido_ins_${item}`] = el; }}
@@ -796,7 +801,7 @@ export default function VivaPage() {
                           onChange={(e) => handleItemGenericoChange(item, e.target.value, setCantidadesInsumos)} 
                           onKeyDown={(e) => handleKeyDownPedido(e, idx, LISTA_INSUMOS_MATERIA, 'pedido_ins')}
                           onFocus={(e) => e.target.select()} 
-                          className="w-24 bg-gray-950 border border-amber-800/80 text-amber-300 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-amber-400 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                          className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
                         />
                       </div>
                     ))}
@@ -804,10 +809,10 @@ export default function VivaPage() {
                 )}
 
                 {categoriaPedido === 'aseo' && (
-                  <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 border border-gray-800/60 p-2.5 rounded-xl bg-gray-950/40">
-                    <span className="text-[10px] text-amber-400 font-bold uppercase block">Implementos de Aseo</span>
+                  <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 border border-[#0066b3]/50 p-2.5 rounded-xl bg-[#051829]">
+                    <span className="text-[10px] text-sky-300 font-bold uppercase block">Implementos de Aseo</span>
                     {LISTA_ASEO.map((item, idx) => (
-                      <div key={item} className="bg-gray-900/60 border border-gray-800 p-2 rounded-xl flex justify-between items-center gap-2">
+                      <div key={item} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2">
                         <span className="text-xs font-bold text-white truncate">{item}</span>
                         <input 
                           ref={(el) => { inputsRef.current[`pedido_aseo_${item}`] = el; }}
@@ -817,17 +822,17 @@ export default function VivaPage() {
                           onChange={(e) => handleItemGenericoChange(item, e.target.value, setCantidadesAseo)} 
                           onKeyDown={(e) => handleKeyDownPedido(e, idx, LISTA_ASEO, 'pedido_aseo')}
                           onFocus={(e) => e.target.select()} 
-                          className="w-24 bg-gray-950 border border-amber-800/80 text-amber-300 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-amber-400 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                          className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
                         />
                       </div>
                     ))}
                   </div>
                 )}
 
-                <input type="text" placeholder="Otro producto adicional..." value={otroInsumoTexto} onChange={(e) => setOtroInsumoTexto(e.target.value)} className="w-full bg-gray-900 border border-gray-800 text-white p-2.5 rounded-xl outline-none text-xs" />
-                <input type="text" placeholder="Observación general del pedido..." value={obsPedido} onChange={(e) => setObsPedido(e.target.value)} className="w-full bg-gray-900 border border-gray-800 text-white p-2.5 rounded-xl outline-none text-xs" />
+                <input type="text" placeholder="Otro producto adicional..." value={otroInsumoTexto} onChange={(e) => setOtroInsumoTexto(e.target.value)} className="w-full bg-[#051829] border border-[#0066b3] text-white p-2.5 rounded-xl outline-none text-xs focus:border-[#00a4ef]" />
+                <input type="text" placeholder="Observación general del pedido..." value={obsPedido} onChange={(e) => setObsPedido(e.target.value)} className="w-full bg-[#051829] border border-[#0066b3] text-white p-2.5 rounded-xl outline-none text-xs focus:border-[#00a4ef]" />
 
-                <button onClick={handleGuardarPedidoInsumos} disabled={guardando} className="w-full bg-amber-600 hover:bg-amber-500 text-white font-black py-2.5 rounded-xl text-xs uppercase transition-all shadow-md cursor-pointer disabled:opacity-50">
+                <button onClick={handleGuardarPedidoInsumos} disabled={guardando} className="w-full bg-[#0078d4] hover:bg-[#0086e6] text-white font-black py-2.5 rounded-xl text-xs uppercase transition-all shadow-md cursor-pointer disabled:opacity-50">
                   {guardando ? 'Guardando pedido...' : '🚀 Enviar Pedido a Bodega'}
                 </button>
               </div>
@@ -835,19 +840,19 @@ export default function VivaPage() {
           </div>
 
           {/* ARQUEO DE CAJA (SÓLO CIERRE) Y NÓMINA */}
-          <div className="bg-[#0d111a] border border-purple-900/50 p-4 rounded-2xl space-y-4 shadow-md">
-            <h2 className="text-xs md:text-sm font-black text-purple-300 border-b border-purple-900/50 pb-2 flex justify-between">
+          <div className="bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-4 shadow-md">
+            <h2 className="text-xs md:text-sm font-black text-white border-b border-[#0066b3]/50 pb-2 flex justify-between">
               <span>{esTurnoCierre ? '🌙 Cierre de Jornada y Arqueo' : '👥 Cambio de Turno / Nómina'}</span>
-              <span className="text-[10px] text-purple-400 font-bold">{esTurnoCierre ? 'Fin de Día' : 'Fin de Turno'}</span>
+              <span className="text-[10px] text-sky-200 font-bold bg-[#003d6d] px-2 py-0.5 rounded-md border border-[#0066b3]">{esTurnoCierre ? 'Fin de Día' : 'Fin de Turno'}</span>
             </h2>
 
             {/* SECCIÓN NÓMINA */}
-            <div className="space-y-2 bg-gray-950/40 p-3 rounded-xl border border-gray-800/80">
-              <span className="text-[10px] font-black text-purple-400 uppercase block">1. Nómina del Operador:</span>
+            <div className="space-y-2 bg-[#051829] p-3 rounded-xl border border-[#0066b3]">
+              <span className="text-[10px] font-black text-sky-300 uppercase block">1. Nómina del Operador:</span>
               
               <div>
-                <label className="text-[10px] text-gray-400 font-bold block mb-1">Tipo de Día:</label>
-                <select value={tipoDia} onChange={(e) => setTipoDia(e.target.value as any)} className="w-full bg-gray-900 border border-gray-800 text-white font-bold text-xs rounded-xl p-2 outline-none cursor-pointer">
+                <label className="text-[10px] text-sky-200 font-bold block mb-1">Tipo de Día:</label>
+                <select value={tipoDia} onChange={(e) => setTipoDia(e.target.value as any)} className="w-full bg-[#0e385e] border border-[#0066b3] text-white font-bold text-xs rounded-xl p-2 outline-none cursor-pointer focus:border-[#00a4ef]">
                   <option value="entre_semana">Entre semana (lunes a sábado)</option>
                   <option value="domingo_festivo">Domingo / Festivo</option>
                 </select>
@@ -855,7 +860,7 @@ export default function VivaPage() {
 
               <div className="grid grid-cols-2 gap-2 text-[10px]">
                 <div>
-                  <span className="text-gray-400 block mb-1 font-bold">Horas Día</span>
+                  <span className="text-sky-200 block mb-1 font-bold">Horas Día</span>
                   <input 
                     ref={(el) => { inputsRef.current['cierre_horas_dia'] = el; }}
                     type="number" 
@@ -864,11 +869,11 @@ export default function VivaPage() {
                     onChange={(e) => setHorasDia(e.target.value === '' ? '' : Number(e.target.value))} 
                     onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_horas_noche')}
                     onFocus={(e) => e.target.select()} 
-                    className="w-full bg-gray-900 border border-gray-800 text-white font-bold text-center rounded-lg p-2 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                    className="w-full bg-[#0e385e] border border-[#0066b3] text-white font-bold text-center rounded-lg p-2 outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
                   />
                 </div>
                 <div>
-                  <span className="text-gray-400 block mb-1 font-bold">Horas Noche</span>
+                  <span className="text-sky-200 block mb-1 font-bold">Horas Noche</span>
                   <input 
                     ref={(el) => { inputsRef.current['cierre_horas_noche'] = el; }}
                     type="number" 
@@ -877,25 +882,25 @@ export default function VivaPage() {
                     onChange={(e) => setHorasNoche(e.target.value === '' ? '' : Number(e.target.value))} 
                     onKeyDown={(e) => handleKeyDownCierre(e, esTurnoCierre ? 'cierre_efectivo' : '')}
                     onFocus={(e) => e.target.select()} 
-                    className="w-full bg-gray-900 border border-gray-800 text-white font-bold text-center rounded-lg p-2 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                    className="w-full bg-[#0e385e] border border-[#0066b3] text-white font-bold text-center rounded-lg p-2 outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
                   />
                 </div>
               </div>
 
-              <div className="flex justify-between items-center bg-purple-950/40 p-2 rounded-lg border border-purple-800/50 text-xs font-bold text-rose-300">
+              <div className="flex justify-between items-center bg-rose-950/60 p-2 rounded-lg border border-rose-500/50 text-xs font-bold text-rose-200">
                 <span>Total Nómina:</span>
-                <span className="text-sm font-black text-rose-400">$ {totalNomina.toLocaleString('es-CO')}</span>
+                <span className="text-sm font-black text-rose-300">$ {totalNomina.toLocaleString('es-CO')}</span>
               </div>
             </div>
 
             {/* SECCIÓN RECAUDO EN CAJA (SOLO SE MUESTRA SI ES TURNO DE CIERRE FINAL) */}
             {esTurnoCierre && (
-              <div className="space-y-2 bg-gray-950/40 p-3 rounded-xl border border-gray-800/80">
-                <span className="text-[10px] font-black text-emerald-400 uppercase block">2. Arqueo de Caja Final del Día:</span>
+              <div className="space-y-2 bg-[#051829] p-3 rounded-xl border border-[#0066b3]">
+                <span className="text-[10px] font-black text-emerald-300 uppercase block">2. Arqueo de Caja Final del Día:</span>
                 
                 <div className="grid grid-cols-3 gap-2 text-[10px]">
                   <div>
-                    <span className="text-emerald-400 block mb-1 font-bold">💵 Efectivo ($)</span>
+                    <span className="text-emerald-300 block mb-1 font-bold">💵 Efectivo ($)</span>
                     <input 
                       ref={(el) => { inputsRef.current['cierre_efectivo'] = el; }}
                       type="text" 
@@ -904,11 +909,11 @@ export default function VivaPage() {
                       onChange={(e) => setEfectivoCaja(desformatearMoneda(e.target.value))} 
                       onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_nequi')}
                       onFocus={(e) => e.target.select()} 
-                      className="w-full bg-gray-900 border border-gray-800 text-emerald-300 font-bold text-center rounded-lg p-2 outline-none" 
+                      className="w-full bg-[#0e385e] border border-[#0066b3] text-emerald-300 font-bold text-center rounded-lg p-2 outline-none focus:border-emerald-400" 
                     />
                   </div>
                   <div>
-                    <span className="text-purple-400 block mb-1 font-bold">📲 Nequi ($)</span>
+                    <span className="text-sky-200 block mb-1 font-bold">📲 Nequi ($)</span>
                     <input 
                       ref={(el) => { inputsRef.current['cierre_nequi'] = el; }}
                       type="text" 
@@ -917,11 +922,11 @@ export default function VivaPage() {
                       onChange={(e) => setNequi(desformatearMoneda(e.target.value))} 
                       onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_daviplata')}
                       onFocus={(e) => e.target.select()} 
-                      className="w-full bg-gray-900 border border-gray-800 text-purple-300 font-bold text-center rounded-lg p-2 outline-none" 
+                      className="w-full bg-[#0e385e] border border-[#0066b3] text-sky-200 font-bold text-center rounded-lg p-2 outline-none focus:border-[#00a4ef]" 
                     />
                   </div>
                   <div>
-                    <span className="text-rose-400 block mb-1 font-bold">📱 Daviplata ($)</span>
+                    <span className="text-fuchsia-300 block mb-1 font-bold">📱 Daviplata ($)</span>
                     <input 
                       ref={(el) => { inputsRef.current['cierre_daviplata'] = el; }}
                       type="text" 
@@ -930,7 +935,7 @@ export default function VivaPage() {
                       onChange={(e) => setDaviplata(desformatearMoneda(e.target.value))} 
                       onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_gastos')}
                       onFocus={(e) => e.target.select()} 
-                      className="w-full bg-gray-900 border border-gray-800 text-rose-300 font-bold text-center rounded-lg p-2 outline-none" 
+                      className="w-full bg-[#0e385e] border border-[#0066b3] text-fuchsia-200 font-bold text-center rounded-lg p-2 outline-none focus:border-fuchsia-400" 
                     />
                   </div>
                 </div>
@@ -938,7 +943,7 @@ export default function VivaPage() {
                 {/* GASTOS Y MOTIVO */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[10px] pt-1">
                   <div>
-                    <span className="text-amber-400 block mb-1 font-bold">🧾 Total Gastos ($)</span>
+                    <span className="text-amber-300 block mb-1 font-bold">🧾 Total Gastos ($)</span>
                     <input 
                       ref={(el) => { inputsRef.current['cierre_gastos'] = el; }}
                       type="text" 
@@ -947,11 +952,11 @@ export default function VivaPage() {
                       onChange={(e) => setGastos(desformatearMoneda(e.target.value))} 
                       onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_motivo_gasto')}
                       onFocus={(e) => e.target.select()} 
-                      className="w-full bg-gray-900 border border-gray-800 text-amber-300 font-bold text-center rounded-lg p-2 outline-none" 
+                      className="w-full bg-[#0e385e] border border-[#0066b3] text-amber-300 font-bold text-center rounded-lg p-2 outline-none focus:border-amber-400" 
                     />
                   </div>
                   <div>
-                    <span className="text-gray-400 block mb-1 font-bold">📝 Motivo del Gasto</span>
+                    <span className="text-sky-200 block mb-1 font-bold">📝 Motivo del Gasto</span>
                     <input 
                       ref={(el) => { inputsRef.current['cierre_motivo_gasto'] = el; }}
                       type="text" 
@@ -959,15 +964,15 @@ export default function VivaPage() {
                       value={motivoGasto} 
                       onChange={(e) => setMotivoGasto(e.target.value)} 
                       onFocus={(e) => e.target.select()} 
-                      className="w-full bg-gray-900 border border-gray-800 text-white text-xs rounded-lg p-2 outline-none" 
+                      className="w-full bg-[#0e385e] border border-[#0066b3] text-white text-xs rounded-lg p-2 outline-none focus:border-[#00a4ef]" 
                     />
                   </div>
                 </div>
 
                 {/* TOTAL ARQUEADO CALCULADO */}
-                <div className="flex justify-between items-center bg-gray-900 p-2.5 rounded-xl border border-emerald-800/50 text-xs font-bold mt-2">
-                  <span className="text-emerald-400 uppercase font-black">Total Recaudado (Ventas):</span>
-                  <span className="text-base font-black text-emerald-300 bg-gray-950 px-3 py-1 rounded-lg border border-emerald-700">
+                <div className="flex justify-between items-center bg-[#0e385e] p-2.5 rounded-xl border border-emerald-400/50 text-xs font-bold mt-2">
+                  <span className="text-emerald-300 uppercase font-black">Total Recaudado (Ventas):</span>
+                  <span className="text-base font-black text-emerald-300 bg-[#051829] px-3 py-1 rounded-lg border border-emerald-500/50">
                     $ {totalVentasCalculado.toLocaleString('es-CO')}
                   </span>
                 </div>
@@ -979,8 +984,8 @@ export default function VivaPage() {
               disabled={guardando || (esTurnoCierre && !cierreRealizado)}
               className={`w-full font-black py-3 rounded-xl text-xs md:text-sm transition-all shadow-md cursor-pointer ${
                 esTurnoCierre && !cierreRealizado
-                  ? 'bg-gray-800 text-gray-500 cursor-not-allowed border border-gray-700'
-                  : 'bg-purple-600 hover:bg-purple-500 text-white shadow-purple-900/60'
+                  ? 'bg-[#051829] text-sky-400/40 cursor-not-allowed border border-[#003d6d]'
+                  : 'bg-[#0078d4] hover:bg-[#0086e6] text-white shadow-[#003d6d]'
               }`}
             >
               {guardando
@@ -998,44 +1003,44 @@ export default function VivaPage() {
 
       {/* MODAL CAMBIO DE TURNO (SÓLO SI ES TURNO DE MAÑANA) */}
       {mostrarModalCambioTurno && (
-        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
-          <div className="bg-[#0d111a] border border-purple-800/80 p-6 rounded-3xl max-w-sm w-full space-y-5 shadow-2xl text-center">
+        <div className="fixed inset-0 bg-[#051829]/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-[#0b2b48] border border-[#0066b3] p-6 rounded-3xl max-w-sm w-full space-y-5 shadow-2xl text-center">
             
-            <div className="space-y-1 border-b border-gray-800/80 pb-3">
-              <div className="w-12 h-12 bg-purple-950/80 border border-purple-600/50 rounded-2xl flex items-center justify-center mx-auto mb-2 text-xl shadow-lg">
+            <div className="space-y-1 border-b border-[#0066b3]/50 pb-3">
+              <div className="w-12 h-12 bg-[#003d6d] border border-[#0066b3] rounded-2xl flex items-center justify-center mx-auto mb-2 text-xl shadow-lg">
                 🔄
               </div>
               <h3 className="text-lg font-black text-white tracking-wide">
                 Recepción de Turno
               </h3>
-              <p className="text-xs text-gray-400">
+              <p className="text-xs text-sky-200 font-medium">
                 Selecciona al operario entrante e ingresa sus credenciales
               </p>
             </div>
 
             <div className="space-y-3 text-left">
               <div>
-                <label className="text-[11px] font-extrabold text-purple-400 block mb-1 uppercase tracking-wider">
+                <label className="text-[11px] font-extrabold text-sky-200 block mb-1 uppercase tracking-wider">
                   ¿Qué turno recibo?
                 </label>
                 <select
                   value={turnoRecibido}
                   onChange={(e) => setTurnoRecibido(e.target.value)}
-                  className="w-full bg-gray-900 border border-purple-800/60 text-white font-bold text-xs rounded-xl p-3 outline-none cursor-pointer focus:border-purple-500"
+                  className="w-full bg-[#051829] border border-[#0066b3] text-white font-bold text-xs rounded-xl p-3 outline-none cursor-pointer focus:border-[#00a4ef]"
                 >
-                  <option value="tarde_cierre">🌙 Tarde / Cierre</option>
-                  <option value="manana_apertura">🌅 Mañana / Apertura</option>
+                  <option value="tarde">🌙 Tarde / Cierre</option>
+                  <option value="manana">🌅 Mañana / Apertura</option>
                 </select>
               </div>
 
               <div>
-                <label className="text-[11px] font-extrabold text-gray-300 block mb-1 uppercase tracking-wider">
+                <label className="text-[11px] font-extrabold text-sky-200 block mb-1 uppercase tracking-wider">
                   Operario que Recibe:
                 </label>
                 <select
                   value={operarioEntranteId}
                   onChange={(e) => setOperarioEntranteId(e.target.value)}
-                  className="w-full bg-gray-900 border border-gray-800 text-white font-bold text-xs rounded-xl p-3 outline-none cursor-pointer focus:border-purple-500"
+                  className="w-full bg-[#051829] border border-[#0066b3] text-white font-bold text-xs rounded-xl p-3 outline-none cursor-pointer focus:border-[#00a4ef]"
                 >
                   <option value="">-- Seleccionar Operario --</option>
                   {listaOperarios.map((op) => (
@@ -1047,7 +1052,7 @@ export default function VivaPage() {
               </div>
 
               <div>
-                <label className="text-[11px] font-extrabold text-gray-300 block mb-1 uppercase tracking-wider">
+                <label className="text-[11px] font-extrabold text-sky-200 block mb-1 uppercase tracking-wider">
                   Contraseña / PIN:
                 </label>
                 <input
@@ -1056,7 +1061,7 @@ export default function VivaPage() {
                   value={claveOperarioEntrante}
                   onChange={(e) => setClaveOperarioEntrante(e.target.value)}
                   onFocus={(e) => e.target.select()}
-                  className="w-full bg-gray-950 border border-gray-800 text-purple-300 font-black text-center text-lg rounded-xl p-2.5 outline-none tracking-widest focus:border-purple-500"
+                  className="w-full bg-[#051829] border border-[#0066b3] text-sky-200 font-black text-center text-lg rounded-xl p-2.5 outline-none tracking-widest focus:border-[#00a4ef]"
                 />
               </div>
             </div>
@@ -1065,7 +1070,7 @@ export default function VivaPage() {
               <button
                 type="button"
                 onClick={() => setMostrarModalCambioTurno(false)}
-                className="w-1/3 bg-gray-900 hover:bg-gray-800 text-gray-400 font-bold py-3 rounded-xl text-xs transition-colors border border-gray-800"
+                className="w-1/3 bg-[#051829] hover:bg-[#0e385e] text-sky-200 font-bold py-3 rounded-xl text-xs transition-colors border border-[#0066b3]"
               >
                 Cancelar
               </button>
@@ -1073,7 +1078,7 @@ export default function VivaPage() {
                 type="button"
                 onClick={handleConfirmarEntrante}
                 disabled={validandoEntrante}
-                className="w-2/3 bg-purple-600 hover:bg-purple-500 text-white font-black py-3 rounded-xl text-xs transition-all uppercase shadow-lg shadow-purple-900/60 cursor-pointer"
+                className="w-2/3 bg-[#0078d4] hover:bg-[#0086e6] text-white font-black py-3 rounded-xl text-xs transition-all uppercase shadow-lg shadow-[#003d6d] cursor-pointer"
               >
                 {validandoEntrante ? 'Validando...' : '🔑 Iniciar Nuevo Turno'}
               </button>
