@@ -11,7 +11,6 @@ import {
   UsuarioLoginInfo,
 } from '@/lib/loginQueries';
 
-// Lista de sedes por defecto si la base de datos aún no tiene registros
 const SEDES_DEFAULT: SedeInfo[] = [
   { id: 1, nombre: 'Martineto POS', codigo: 'martineto', descripcion: 'Sede Principal Martineto POS' },
   { id: 2, nombre: 'Walers Viva', codigo: 'viva', descripcion: 'Sede CC Viva' },
@@ -79,7 +78,6 @@ export default function LoginPage() {
     setCargando(true);
 
     try {
-      // 1. Validar clave del usuario
       const resValida = await validarAccesoEmpleado(Number(usuarioSeleccionado), codigoAcceso);
 
       if (!resValida || !resValida.exito || !resValida.usuario) {
@@ -88,7 +86,6 @@ export default function LoginPage() {
         return;
       }
 
-      // 2. Extraer información del usuario y sede seleccionada
       const usuario = resValida.usuario;
       const sedeObj = sedes.find((s) => s.id === Number(sedeSeleccionada));
 
@@ -99,7 +96,6 @@ export default function LoginPage() {
       const sedeNombre = sedeObj ? sedeObj.nombre : 'Sede General';
       const sedeCodigo = sedeObj ? sedeObj.codigo : 'viva';
 
-      // 3. Caso Administrador o selección de Administración Global
       if (tipoUsuario === 'administrador' || sedeCodigo === 'admin') {
         if (typeof window !== 'undefined') {
           localStorage.setItem(
@@ -118,7 +114,6 @@ export default function LoginPage() {
         return;
       }
 
-      // 4. Caso Operador: Registrar Turno en la BD
       let turnoId = null;
       try {
         const turnoObj = await registrarInicioTurno(sedeId, usuarioId, tipoTurno);
@@ -127,7 +122,6 @@ export default function LoginPage() {
         console.warn('Registro de turno en modo libre:', errTurno);
       }
 
-      // 5. Guardar sesión en LocalStorage con el valor explícito del turno
       if (typeof window !== 'undefined') {
         localStorage.setItem(
           'martineto_session',
@@ -144,7 +138,6 @@ export default function LoginPage() {
         );
       }
 
-      // 6. Redirección DIRECTA según la sede elegida
       if (sedeCodigo === 'martineto') {
         router.push('/pos');
       } else if (sedeCodigo === 'viva') {
@@ -167,10 +160,8 @@ export default function LoginPage() {
     <main className="min-h-screen bg-[#004e8c] text-[#f1f5f9] flex flex-col items-center justify-center p-4 font-sans">
       <div className="max-w-md w-full bg-[#0b2b48] border border-[#0066b3] p-6 md:p-8 rounded-3xl space-y-6 shadow-2xl relative overflow-hidden">
         
-        {/* LÍNEA DECORATIVA TIPO WINDOWS */}
         <div className="absolute top-0 left-0 right-0 h-2 bg-gradient-to-r from-purple-500 via-[#00a4ef] to-emerald-400"></div>
 
-        {/* HEADER CON LOGO */}
         <div className="text-center space-y-2 pt-2">
           <div className="w-16 h-16 rounded-2xl bg-[#003d6d] border border-[#0066b3] flex items-center justify-center text-3xl mx-auto shadow-lg">
             🍦
@@ -179,7 +170,6 @@ export default function LoginPage() {
           <p className="text-xs text-sky-200 font-medium">Ingreso de Personal y Asistencia</p>
         </div>
 
-        {/* MENSAJE DE ERROR */}
         {errorMensaje && (
           <p className="text-xs text-rose-200 bg-rose-950/80 p-3 rounded-xl border border-rose-500/60 text-center font-bold shadow-sm">
             ⚠️ {errorMensaje}
@@ -187,8 +177,6 @@ export default function LoginPage() {
         )}
 
         <form onSubmit={handleIngresar} className="space-y-4">
-          
-          {/* SELECCIONAR SEDE */}
           <div>
             <label className="text-[11px] font-extrabold text-sky-200 block mb-1 uppercase tracking-wider">
               🏢 Selecciona la Sede / Módulo:
@@ -207,7 +195,6 @@ export default function LoginPage() {
             </select>
           </div>
 
-          {/* SELECCIONAR USUARIO */}
           <div>
             <label className="text-[11px] font-extrabold text-sky-200 block mb-1 uppercase tracking-wider">
               👤 Selecciona tu Nombre:
@@ -220,13 +207,12 @@ export default function LoginPage() {
               <option value="">-- Selecciona Usuario --</option>
               {usuarios.map((u) => (
                 <option key={u.id} value={u.id}>
-                  {u.nombre_completo} 
+                  {u.nombre_completo}
                 </option>
               ))}
             </select>
           </div>
 
-          {/* TURNO */}
           <div>
             <label className="text-[11px] font-extrabold text-sky-200 block mb-1 uppercase tracking-wider">
               ⏰ Turno (Solo Operadores):
@@ -242,7 +228,6 @@ export default function LoginPage() {
             </select>
           </div>
 
-          {/* CLAVE PERSONAL */}
           <div>
             <label className="text-[11px] font-extrabold text-sky-200 block mb-1 uppercase tracking-wider">
               🔐 Código / Clave Personal:
@@ -257,7 +242,6 @@ export default function LoginPage() {
             />
           </div>
 
-          {/* BOTÓN DE ACCESO */}
           <button
             type="submit"
             disabled={cargando}
@@ -267,7 +251,6 @@ export default function LoginPage() {
           </button>
         </form>
 
-        {/* FOOTER INFO */}
         <div className="pt-2 text-center border-t border-[#0066b3]/40">
           <p className="text-[10px] text-sky-300 font-semibold">
             WALERS POS System v2.0 • Punto de Venta e Inventario
