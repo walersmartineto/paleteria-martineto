@@ -9,118 +9,265 @@ export interface TarifasCentro {
   horaNocheFestivo: number;
 }
 
-// 1. Obtener tarifas de nómina (Compartidas)
+// 1. OBTENER TARIFAS DE NÓMINA DE CENTRO (SEDE 3)
 export async function obtenerTarifasCentro(): Promise<TarifasCentro> {
+  const tarifasDefecto: TarifasCentro = {
+    subsidio: 9600,
+    transporte: 8400,
+    horaDiaEntreSemana: 7200,
+    horaNocheEntreSemana: 10700,
+    horaDiaFestivo: 12700,
+    horaNocheFestivo: 15200,
+  };
+
   try {
-    const { data, error } = await supabase.from('configuracion_tarifas').select('*').single();
-    if (error || !data) {
-      return {
-        subsidio: 9600,
-        transporte: 8400,
-        horaDiaEntreSemana: 7200,
-        horaNocheEntreSemana: 10700,
-        horaDiaFestivo: 12700,
-        horaNocheFestivo: 15200,
-      };
-    }
-    return data;
-  } catch {
+    const { data, error } = await supabase
+      .from('configuracion_nomina')
+      .select('*')
+      .eq('sede_id', 3)
+      .single();
+
+    if (error || !data) return tarifasDefecto;
+
     return {
-      subsidio: 9600,
-      transporte: 8400,
-      horaDiaEntreSemana: 7200,
-      horaNocheEntreSemana: 10700,
-      horaDiaFestivo: 12700,
-      horaNocheFestivo: 15200,
+      subsidio: data.subsidio ?? 9600,
+      transporte: data.transporte ?? 8400,
+      horaDiaEntreSemana: data.hora_dia_entre_semana ?? 7200,
+      horaNocheEntreSemana: data.hora_noche_entre_semana ?? 10700,
+      horaDiaFestivo: data.hora_dia_festivo ?? 12700,
+      horaNocheFestivo: data.hora_noche_festivo ?? 15200,
     };
+  } catch (e) {
+    console.error('Error obteniendo tarifas de Centro:', e);
+    return tarifasDefecto;
   }
 }
 
-// 2. Registrar Base Inicial de Caja para Centro
-export async function registrarBaseCajaCentro(sedeId: number, usuarioId: number, monto: number) {
-  const { error } = await supabase.from('caja_base').insert([
-    {
-      sede_id: sedeId,
-      usuario_id: usuarioId,
-      monto_base: monto,
-      fecha: new Date().toISOString(),
-    },
-  ]);
-  return !error;
+// 2. OBTENER LISTA DE SABORES DISPONIBLES PARA CENTRO
+export async function obtenerSaboresCentro(): Promise<any[]> {
+  try {
+    const { data, error } = await supabase
+      .from('producto')
+      .select('id, nombre, precio, es_comun, activo, stock, categoria')
+      .eq('activo', true)
+      .order('nombre', { ascending: true });
+
+    if (error) {
+      console.error('Error cargando sabores para Centro:', error);
+      return [];
+    }
+    return data || [];
+  } catch (err) {
+    console.error('Error en obtenerSaboresCentro:', err);
+    return [];
+  }
 }
 
-// 3. Registrar Movimiento de Inventario Centro (TOTAL PALETAS)
+// 3. OBTENER USUARIOS OPERARIOS
+export async function obtenerUsuariosOperarios(): Promise<any[]> {
+  try {
+    const { data, error } = await supabase
+      .from('usuario')
+      .select('id, nombre_completo, codigo_acceso, tipo_usuario, activo')
+      .eq('activo', true)
+      .order('nombre_completo', { ascending: true });
+
+    if (error) {
+      console.error('Error obteniendo usuarios:', error);
+      return [];
+    }
+
+    return (data || []).map((u) => ({
+      id: u.id,
+      nombre: u.nombre_completo,
+      pin: u.codigo_acceso,
+      rol: u.tipo_usuario,
+    }));
+  } catch (err) {
+    console.error('Error en obtenerUsuariosOperarios:', err);
+    return [];
+  }
+}
+
+// 4. REGISTRAR BASE INICIAL EN LA TABLA CAJA PARA CENTRO
+export async function registrarBaseCajaCentro(
+  sedeId: number,
+  usuarioId: number,
+  montoApertura: number,
+  turnoId?: number
+): Promise<boolean> {
+  try {
+    const { error } = await supabase.from('caja').insert([
+      {
+        sede_id: sedeId,
+        usuario_id: usuarioId,
+        turno_id: turnoId || null,
+        monto_apertura: montoApertura,
+        estado: 'abierta',
+        fecha: new Date().toISOString(),
+      },
+    ]);
+
+    if (error) {
+      console.error('Error insertando base en caja Centro:', error);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error('Error en registrarBaseCajaCentro:', err);
+    return false;
+  }
+}
+
+// 5. REGISTRAR MOVIMIENTO DE INVENTARIO PARA CENTRO
 export async function registrarMovimientoCentro(
   sedeId: number,
   usuarioId: number,
   tipoMovimiento: string,
   totalPaletas: number,
-  cajasMostrador: number,
-  observaciones: string
-) {
-  const { data, error } = await supabase.from('inventario_centro').insert([
-    {
+  detallePaletas: { [key: string]: number },
+  detalleEmpaques: { [key: string]: number },
+  observaciones: string,
+  turnoId?: number
+): Promise<boolean> {
+  try {
+    const payload: any = {
       sede_id: sedeId,
       usuario_id: usuarioId,
       tipo_movimiento: tipoMovimiento,
       total_paletas: totalPaletas,
-      cajas_mostrador: cajasMostrador,
-      observaciones: observaciones,
-    },
-  ]);
+      detalle_paletas: detallePaletas,
+      detalle_empaques: detalleEmpaques,
+      observacion: observaciones || '',
+      fecha_registro: new Date().toISOString(),
+    };
 
-  if (error) {
-    console.error('Error guardando en inventario_centro:', error);
-    return false;
-  }
+    if (turnoId) payload.turno_id = turnoId;
 
-  return true;
-}
-
-// 4. Crear Pedido de Insumos para Centro
-export async function crearPedidoInsumosCentro(
-  sedeId: number,
-  usuarioId: number,
-  categoria: string,
-  detalleItems: any,
-  observacion: string
-) {
-  try {
-    const { data, error } = await supabase
-      .from('pedidos_insumos')
-      .insert([
-        {
-          sede_id: Number(sedeId),
-          usuario_id: Number(usuarioId),
-          categoria: categoria,
-          detalle_items: detalleItems,
-          observacion: observacion || '',
-          estado: 'PENDIENTE',
-        },
-      ])
-      .select();
+    const { error } = await supabase.from('inventario_diario').insert([payload]);
 
     if (error) {
-      console.error('Error enviando pedido a pedidos_insumos:', error.message || error);
+      console.error('Error guardando movimiento de inventario en Centro:', JSON.stringify(error, null, 2));
       return false;
+    }
+    return true;
+  } catch (err) {
+    console.error('Error en registrarMovimientoCentro:', err);
+    return false;
+  }
+}
+
+// 6. CREAR PEDIDO DE INSUMOS Y REQUISICIONES DE CENTRO
+export async function crearPedidoInsumosCentro(datos: {
+  sedeId: number;
+  usuarioId: number;
+  paletas: { [key: string]: number };
+  richi: { [key: string]: number };
+  produccion: { [key: string]: number };
+  insumos: { [key: string]: number };
+  aseo: { [key: string]: number };
+  observaciones: string;
+}): Promise<boolean> {
+  try {
+    const payload = {
+      sede_id: datos.sedeId,
+      usuario_id: datos.usuarioId,
+      pedidos_paletas: datos.paletas,
+      pedidos_richi: datos.richi,
+      pedidos_produccion: datos.produccion, // <-- ¡Aquí estaba faltando mapearlo a la columna!
+      pedidos_insumos: datos.insumos,
+      pedidos_aseo: datos.aseo,
+      observaciones: datos.observaciones || '',
+      estado: 'pendiente',
+      fecha: new Date().toISOString(),
+    };
+
+    const { error } = await supabase.from('pedidos_insumos').insert([payload]);
+
+    if (error) {
+      console.error('Error creando pedido de insumos en Centro:', error);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error('Error en crearPedidoInsumosCentro:', err);
+    return false;
+  }
+}
+
+// 7. REGISTRAR NÓMINA Y ACTUALIZAR ARQUEO COMPLETO EN TABLA CAJA (REUTILIZABLE)
+export async function registrarNominaYCambioTurno(data: {
+  sedeId: number;
+  usuarioId: number;
+  tipoDia: string;
+  horasDia: number;
+  horasNoche: number;
+  subsidio: number;
+  transporte: number;
+  totalPagado: number;
+  efectivoCaja: number;
+  nequi: number;
+  daviplata: number;
+  gastos: number;
+  motivoGasto: string;
+}): Promise<boolean> {
+  try {
+    const fechaHoy = new Date().toISOString().split('T')[0];
+
+    // A. Registrar pago de nómina
+    const { error: errorNomina } = await supabase.from('nomina').insert([
+      {
+        sede_id: data.sedeId,
+        usuario_id: data.usuarioId,
+        tipo_dia: data.tipoDia,
+        horas_dia: data.horasDia,
+        horas_noche: data.horasNoche,
+        subsidio_transporte: data.subsidio + data.transporte,
+        monto: data.totalPagado,
+        concepto: 'Pago de turno',
+        fecha_pago: fechaHoy,
+      },
+    ]);
+
+    if (errorNomina) {
+      console.error('Error guardando nómina en Centro:', errorNomina);
+      return false;
+    }
+
+    // B. Si es cierre de caja, actualizar la caja abierta más reciente
+    if (data.efectivoCaja > 0 || data.nequi > 0 || data.daviplata > 0) {
+      const { data: cajaAbierta } = await supabase
+        .from('caja')
+        .select('id')
+        .eq('sede_id', data.sedeId)
+        .eq('estado', 'abierta')
+        .order('id', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (cajaAbierta) {
+        const { error: errCaja } = await supabase
+          .from('caja')
+          .update({
+            efectivo_cierre: data.efectivoCaja,
+            nequi: data.nequi,
+            daviplata: data.daviplata,
+            monto_gasto: data.gastos,
+            motivo_gasto: data.motivoGasto,
+            estado: 'cerrada',
+          })
+          .eq('id', cajaAbierta.id);
+
+        if (errCaja) {
+          console.error('Error actualizando la caja en Centro:', errCaja);
+          return false;
+        }
+      }
     }
 
     return true;
   } catch (err) {
-    console.error('Excepción en crearPedidoInsumosCentro:', err);
+    console.error('Error en registrarNominaYCambioTurno Centro:', err);
     return false;
   }
-}
-
-// 5. Obtener Historial de Pedidos de la Sede
-export async function obtenerPedidosInsumosCentro(sedeId: number) {
-  const { data, error } = await supabase
-    .from('pedidos_insumos')
-    .select('*')
-    .eq('sede_id', sedeId)
-    .order('fecha', { ascending: false })
-    .limit(10);
-
-  if (error) return [];
-  return data || [];
 }

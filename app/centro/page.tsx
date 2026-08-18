@@ -1,9 +1,1136 @@
 'use client';
 
+import { useEffect, useState, useRef } from 'react';
+import { useRouter } from 'next/navigation';
+import {
+  obtenerTarifasCentro,
+  registrarMovimientoCentro,
+  registrarBaseCajaCentro,
+  crearPedidoInsumosCentro,
+  obtenerUsuariosOperarios,
+  registrarNominaYCambioTurno,
+  obtenerSaboresCentro,
+  TarifasCentro,
+} from '@/lib/centroQueries';
+
+// LISTA DE EMPAQUES / APERTURA
+const LISTA_EMPAQUES_CENTRO = [
+  'Caja Mostac',
+  'Muñeco Gold',
+  'Muñeco Lego',
+  'Vaso Soft',
+  'Vaso Croyurth',
+  'Vaso Malteada',
+];
+
+// PLÁSTICOS RICHI
+const LISTA_PLASTICOS_RICHI = [
+  'Cucharitas',
+  'Bolsas para llevar',
+  'Bolsas de papel',
+  'Tapas vaso malteada',
+  'Tapas helado 8 oz',
+  'Vaso agua',
+  'Vasos de helado',
+  'Vaso Lego',
+  'Vaso malteada',
+  'Vaso soft',
+];
+
+// PRODUCCIÓN
+const LISTA_PRODUCCION = [
+  'Helado malteada',
+  'Mezcla',
+  'Sirope',
+];
+
+// INSUMOS Y MATERIA
+const LISTA_INSUMOS_MATERIA = [
+  'Arequipe',
+  'Barquillos',
+  'Bocadillo Beleño',
+  'Bulbos',
+  'Capacillos',
+  'Chantilly',
+  'Chocolate de cobertura',
+  'Chocolatina',
+  'Chocorramo',
+  'Cocoa',
+  'Flips',
+  'Gansitos',
+  'Gomitas',
+  'Grajeas',
+  'Grasa',
+  'Jalea de fresa',
+  'Leche – 32 bolsas',
+  'Leche – 8 bolsas',
+  'Leche – 1 bolsa',
+  'Legos',
+  'Lluvia de chocolate',
+  'Marmut',
+  'Merengón',
+  'Nerds',
+  'Pingüinos',
+  'Plato Mostacilla',
+  'Quipitos',
+  'Sal limón',
+  'Salsa de chocolate',
+  'Salsa de mora',
+  'Semillas de girasol',
+  'Tajín',
+  'Yogo Yogo de fresa',
+  'Zumo de limón',
+];
+
+// ASEO
+const LISTA_ASEO = [
+  'Bolsas de basura',
+  'Clorox',
+  'Escoba',
+  'Esponjillas',
+  'Guantes para aseo',
+  'Guantes de nitrilo',
+  'Jabón de manos',
+  'Jabón loza',
+  'Jabón en polvo',
+  'Limpia pisos',
+  'Líquido verde',
+  'Papel higiénico',
+  'Tapabocas',
+  'Toallas de papel',
+  'Trapero',
+  'Trapitos',
+];
+
+// FUNCIONES DE FORMATO DE MONEDA
+const formatearMoneda = (val: number | string): string => {
+  if (val === '' || val === null || val === undefined) return '';
+  const num = typeof val === 'string' ? Number(val.replace(/\D/g, '')) : val;
+  if (isNaN(num) || num === 0) return '';
+  return `$ ${num.toLocaleString('es-CO')}`;
+};
+
+const desformatearMoneda = (val: string): number | '' => {
+  const soloNumeros = val.replace(/\D/g, '');
+  return soloNumeros === '' ? '' : Number(soloNumeros);
+};
+
 export default function CentroPage() {
+  const router = useRouter();
+  const [sesion, setSesion] = useState<any>(null);
+
+  const [tarifas, setTarifas] = useState<TarifasCentro>({
+    subsidio: 9600,
+    transporte: 8400,
+    horaDiaEntreSemana: 7200,
+    horaNocheEntreSemana: 10700,
+    horaDiaFestivo: 12700,
+    horaNocheFestivo: 15200,
+  });
+
+  const [baseCaja, setBaseCaja] = useState<number | ''>('');
+  const [baseGuardada, setBaseGuardada] = useState(false);
+  const [aperturaRealizada, setAperturaRealizada] = useState(false);
+  const [cierreRealizado, setCierreRealizado] = useState(false);
+
+  // INVENTARIO
+  const [tipoMovimiento, setTipoMovimiento] = useState<string>('apertura');
+  const [totalPaletasInventario, setTotalPaletasInventario] = useState<number | ''>('');
+  const [saboresCentro, setSaboresCentro] = useState<any[]>([]);
+  const [cantidadesEmpaques, setCantidadesEmpaques] = useState<{ [item: string]: number | '' }>({});
+  const [observaciones, setObservaciones] = useState<string>('');
+
+  // REQUISICIÓN DE PEDIDOS (ESTE SÍ MANTIENE LOS SABORES)
+  const [mostrarModuloPedidos, setMostrarModuloPedidos] = useState(false);
+  const [categoriaPedido, setCategoriaPedido] = useState<'paletas' | 'richi' | 'produccion' | 'insumos' | 'aseo'>('paletas');
+  const [cantidadesPedidoPaletas, setCantidadesPedidoPaletas] = useState<{ [saborId: number]: number | '' }>({});
+  const [cantidadesRichi, setCantidadesRichi] = useState<{ [item: string]: number | '' }>({});
+  const [cantidadesProduccion, setCantidadesProduccion] = useState<{ [item: string]: number | '' }>({});
+  const [cantidadesInsumos, setCantidadesInsumos] = useState<{ [item: string]: number | '' }>({});
+  const [cantidadesAseo, setCantidadesAseo] = useState<{ [item: string]: number | '' }>({});
+  const [otroInsumoTexto, setOtroInsumoTexto] = useState('');
+  const [obsPedido, setObsPedido] = useState('');
+
+  // NÓMINA Y ARQUEO DE CAJA
+  const [tipoDia, setTipoDia] = useState<'entre_semana' | 'domingo_festivo'>('entre_semana');
+  const [horasDia, setHorasDia] = useState<number | ''>('');
+  const [horasNoche, setHorasNoche] = useState<number | ''>('');
+  const [efectivoCaja, setEfectivoCaja] = useState<number | ''>('');
+  const [nequi, setNequi] = useState<number | ''>('');
+  const [daviplata, setDaviplata] = useState<number | ''>('');
+  const [gastos, setGastos] = useState<number | ''>('');
+  const [motivoGasto, setMotivoGasto] = useState<string>('');
+
+  // MODAL CAMBIO DE TURNO
+  const [mostrarModalCambioTurno, setMostrarModalCambioTurno] = useState(false);
+  const [listaOperarios, setListaOperarios] = useState<any[]>([]);
+  const [operarioEntranteId, setOperarioEntranteId] = useState<string>('');
+  const [claveOperarioEntrante, setClaveOperarioEntrante] = useState<string>('');
+  const [turnoRecibido, setTurnoRecibido] = useState<string>('tarde');
+  const [validandoEntrante, setValidandoEntrante] = useState(false);
+
+  const [cargando, setCargando] = useState(true);
+  const [guardando, setGuardando] = useState(false);
+
+  const inputsRef = useRef<{ [key: string]: HTMLInputElement | HTMLTextAreaElement | null }>({});
+
+  const hDia = Number(horasDia) || 0;
+  const hNoche = Number(horasNoche) || 0;
+  const valorHoraDia = tipoDia === 'domingo_festivo' ? tarifas.horaDiaFestivo : tarifas.horaDiaEntreSemana;
+  const valorHoraNoche = tipoDia === 'domingo_festivo' ? tarifas.horaNocheFestivo : tarifas.horaNocheEntreSemana;
+  const totalNomina = tarifas.subsidio + tarifas.transporte + hDia * valorHoraDia + hNoche * valorHoraNoche;
+
+  const totalVentasCalculado = (Number(efectivoCaja) || 0) + (Number(nequi) || 0) + (Number(daviplata) || 0);
+
+  const SEDE_ID_CENTRO = 3;
+
+  const paletasFiltradas = saboresCentro.filter((p) => {
+    const cat = (p.categoria || '').toLowerCase();
+    const nom = (p.nombre || '').toLowerCase();
+    return (
+      !cat.includes('aseo') &&
+      !cat.includes('insumo') &&
+      !cat.includes('materia') &&
+      !cat.includes('empaque') &&
+      !cat.includes('richi') &&
+      !nom.includes('antibacterial') &&
+      !nom.includes('servilleta') &&
+      !nom.includes('sal limón') &&
+      !nom.includes('girasol')
+    );
+  });
+
+  const totalPaletasSuma = Number(totalPaletasInventario) || 0;
+
+  const esTurnoCierre = (() => {
+    if (!sesion) return false;
+    const str = JSON.stringify(sesion).toLowerCase();
+    return str.includes('completo') || str.includes('cierre') || str.includes('tarde');
+  })();
+
+  useEffect(() => {
+    const sesionLocal = localStorage.getItem('martineto_session');
+    if (!sesionLocal) {
+      router.replace('/login');
+      return;
+    }
+    const ses = JSON.parse(sesionLocal);
+    setSesion(ses);
+
+    const str = JSON.stringify(ses).toLowerCase();
+    if (str.includes('cierre') || str.includes('tarde')) {
+      setBaseGuardada(true);
+      setAperturaRealizada(true);
+      setTipoMovimiento('nuevas');
+    }
+
+    cargarInicial();
+  }, [router]);
+
+  async function cargarInicial() {
+    setCargando(true);
+    const [configTarifas, operarios, listaSabores] = await Promise.all([
+      obtenerTarifasCentro(),
+      obtenerUsuariosOperarios(),
+      obtenerSaboresCentro(),
+    ]);
+
+    setTarifas(configTarifas);
+    setListaOperarios(operarios);
+    setSaboresCentro(listaSabores);
+
+    const inicialesPedido: { [saborId: number]: number | '' } = {};
+    listaSabores.forEach((s) => (inicialesPedido[s.id] = ''));
+    setCantidadesPedidoPaletas(inicialesPedido);
+
+    setCargando(false);
+  }
+
+  function handleEmpaqueCantidadChange(item: string, rawVal: string) {
+    const val = rawVal === '' ? '' : Math.max(0, Number(rawVal));
+    setCantidadesEmpaques((prev) => ({ ...prev, [item]: val }));
+  }
+
+  function handleKeyDownTotal(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      inputsRef.current[`empaque_${LISTA_EMPAQUES_CENTRO[0]}`]?.focus();
+    }
+  }
+
+  function handleKeyDownPedido(e: React.KeyboardEvent<HTMLInputElement>, index: number, lista: any[], prefijo: string) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (index < lista.length - 1) {
+        const siguienteItem = lista[index + 1];
+        const key = typeof siguienteItem === 'object' ? siguienteItem.id : siguienteItem;
+        inputsRef.current[`${prefijo}_${key}`]?.focus();
+      }
+    }
+  }
+
+  function handleKeyDownCierre(e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>, siguienteInputKey: string) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      inputsRef.current[siguienteInputKey]?.focus();
+    }
+  }
+
+  function handleCantidadPedidoChange(saborId: number, rawVal: string) {
+    const val = rawVal === '' ? '' : Math.max(0, Number(rawVal));
+    setCantidadesPedidoPaletas((prev) => ({ ...prev, [saborId]: val }));
+  }
+
+  function handleItemGenericoChange(item: string, rawVal: string, setter: React.Dispatch<React.SetStateAction<{ [key: string]: number | '' }>>) {
+    const val = rawVal === '' ? '' : Math.max(0, Number(rawVal));
+    setter((prev) => ({ ...prev, [item]: val }));
+  }
+
+  async function handleGuardarBase() {
+    const monto = baseCaja === '' ? 0 : Number(baseCaja);
+    if (monto < 0) {
+      alert('Ingresa un valor válido para la base inicial.');
+      return;
+    }
+
+    const sesionActual = sesion || JSON.parse(localStorage.getItem('martineto_session') || '{}');
+    const usuarioId = sesionActual?.usuario_id || sesionActual?.id;
+    const sedeId = sesionActual?.sede_id || SEDE_ID_CENTRO;
+    const turnoId = sesionActual?.turno_id || sesionActual?.turnoId;
+
+    if (!usuarioId) {
+      alert('⚠️ No hay una sesión de usuario activa. Vuelve a iniciar sesión.');
+      return;
+    }
+
+    setGuardando(true);
+    try {
+      const exito = await registrarBaseCajaCentro(sedeId, usuarioId, monto, turnoId);
+      if (exito) {
+        setBaseGuardada(true);
+        alert('¡Base inicial guardada con éxito en la tabla CAJA!');
+      } else {
+        alert('⚠️ Hubo un error al guardar la base en la base de datos.');
+      }
+    } catch (e) {
+      console.error('Error al guardar la base:', e);
+      alert('⚠️ Error de conexión al guardar la base.');
+    } finally {
+      setGuardando(false);
+    }
+  }
+
+  async function handleGuardarInventario() {
+    if (!sesion) return;
+
+    if (!baseGuardada) {
+      alert('⚠️ Primero debes guardar la Base Inicial de Caja.');
+      return;
+    }
+
+    if (totalPaletasSuma < 0) {
+      alert('Ingresa una cantidad total de paletas válida.');
+      return;
+    }
+
+    const detallePaletasObj: { [key: string]: number } = {};
+
+    const detalleEmpaquesObj: { [itemNombre: string]: number } = {};
+    Object.entries(cantidadesEmpaques).forEach(([item, cant]) => {
+      if (Number(cant) > 0) {
+        detalleEmpaquesObj[item] = Number(cant);
+      }
+    });
+
+    const usuarioId = sesion?.usuario_id || sesion?.id;
+    const sedeId = sesion?.sede_id || SEDE_ID_CENTRO;
+
+    setGuardando(true);
+    try {
+      const exito = await registrarMovimientoCentro(
+        sedeId,
+        usuarioId,
+        tipoMovimiento,
+        totalPaletasSuma,
+        detallePaletasObj,
+        detalleEmpaquesObj,
+        observaciones,
+        sesion?.turno_id
+      );
+      setGuardando(false);
+
+      if (exito) {
+        alert(`¡Registro de [${tipoMovimiento.toUpperCase()}] guardado con éxito! (Total: ${totalPaletasSuma} paletas)`);
+        
+        if (tipoMovimiento === 'apertura') {
+          setAperturaRealizada(true);
+          setTipoMovimiento('nuevas');
+        } else if (tipoMovimiento === 'cierre') {
+          setCierreRealizado(true);
+        }
+
+        setTotalPaletasInventario('');
+        setCantidadesEmpaques({});
+        setObservaciones('');
+      } else {
+        alert('⚠️ Error al registrar el inventario en la base de datos.');
+      }
+    } catch (err) {
+      setGuardando(false);
+      console.error('Error guardando inventario:', err);
+    }
+  }
+
+  async function handleGuardarPedidoInsumos() {
+    setGuardando(true);
+
+    const paletasObj: { [key: string]: number } = {};
+    Object.entries(cantidadesPedidoPaletas).forEach(([saborId, cant]) => {
+      const num = Number(cant) || 0;
+      if (num > 0) {
+        const saborObj = saboresCentro.find((s) => s.id === Number(saborId));
+        if (saborObj) paletasObj[saborObj.nombre] = num;
+      }
+    });
+
+    const richiObj: { [key: string]: number } = {};
+    Object.entries(cantidadesRichi).forEach(([item, cant]) => {
+      if (Number(cant) > 0) richiObj[item] = Number(cant);
+    });
+
+    const produccionObj: { [key: string]: number } = {};
+    Object.entries(cantidadesProduccion).forEach(([item, cant]) => {
+      if (Number(cant) > 0) produccionObj[item] = Number(cant);
+    });
+
+    const insumosObj: { [key: string]: number } = {};
+    Object.entries(cantidadesInsumos).forEach(([item, cant]) => {
+      if (Number(cant) > 0) insumosObj[item] = Number(cant);
+    });
+
+    const aseoObj: { [key: string]: number } = {};
+    Object.entries(cantidadesAseo).forEach(([item, cant]) => {
+      if (Number(cant) > 0) aseoObj[item] = Number(cant);
+    });
+
+    if (otroInsumoTexto.trim()) {
+      insumosObj[`Otro: ${otroInsumoTexto.trim()}`] = 1;
+    }
+
+    const totalItemsCount = 
+      Object.keys(paletasObj).length + 
+      Object.keys(richiObj).length + 
+      Object.keys(produccionObj).length + 
+      Object.keys(insumosObj).length + 
+      Object.keys(aseoObj).length;
+
+    if (totalItemsCount === 0) {
+      alert('Ingresa al menos una cantidad para realizar el pedido.');
+      setGuardando(false);
+      return;
+    }
+
+    const usuarioId = sesion?.usuario_id || sesion?.id;
+    const sedeId = sesion?.sede_id || SEDE_ID_CENTRO;
+
+    try {
+      const ok = await crearPedidoInsumosCentro({
+        sedeId,
+        usuarioId,
+        paletas: paletasObj,
+        richi: richiObj,
+        produccion: produccionObj,
+        insumos: insumosObj,
+        aseo: aseoObj,
+        observaciones: obsPedido,
+      });
+
+      if (ok) {
+        alert('¡Pedido de Centro registrado correctamente!');
+        setCantidadesRichi({});
+        setCantidadesProduccion({});
+        setCantidadesInsumos({});
+        setCantidadesAseo({});
+        const limpiasPaletas: { [saborId: number]: number | '' } = {};
+        saboresCentro.forEach((s) => (limpiasPaletas[s.id] = ''));
+        setCantidadesPedidoPaletas(limpiasPaletas);
+        setOtroInsumoTexto('');
+        setObsPedido('');
+      } else {
+        alert('Error al registrar en la base de datos.');
+      }
+    } catch (err: any) {
+      console.error('Error enviando pedido:', err);
+      alert(`Error al registrar la solicitud: ${err?.message || 'Error de conexión'}`);
+    } finally {
+      setGuardando(false);
+    }
+  }
+
+  async function handleGuardarNominaTurno() {
+    if (totalNomina <= 0) {
+      alert('Ingresa las horas trabajadas.');
+      return;
+    }
+
+    if (esTurnoCierre && !cierreRealizado) {
+      alert('⚠️ ATENCIÓN: Debes seleccionar "Conteo de Cierre" en la sección de inventario y guardar el conteo antes de cerrar la jornada.');
+      return;
+    }
+
+    setGuardando(true);
+    const efCaja = Number(efectivoCaja) || 0;
+    const neq = Number(nequi) || 0;
+    const dav = Number(daviplata) || 0;
+    const gst = Number(gastos) || 0;
+
+    const usuarioId = sesion?.usuario_id || sesion?.id;
+    const sedeId = sesion?.sede_id || SEDE_ID_CENTRO;
+
+    const datosPayload: any = {
+      sedeId,
+      usuarioId,
+      tipoDia,
+      horasDia: hDia,
+      horasNoche: hNoche,
+      subsidio: tarifas.subsidio,
+      transporte: tarifas.transporte,
+      totalPagado: totalNomina,
+      efectivoCaja: esTurnoCierre ? efCaja : 0,
+      nequi: esTurnoCierre ? neq : 0,
+      daviplata: esTurnoCierre ? dav : 0,
+      gastos: esTurnoCierre ? gst : 0,
+      motivoGasto: esTurnoCierre ? motivoGasto : '',
+    };
+
+    const ok = await registrarNominaYCambioTurno(datosPayload);
+    setGuardando(false);
+
+    if (ok) {
+      if (esTurnoCierre) {
+        alert(`¡Cierre de jornada completado con éxito!\n\nNómina: $ ${totalNomina.toLocaleString('es-CO')}\nTotal Recaudado: $ ${totalVentasCalculado.toLocaleString('es-CO')}\nGastos: $ ${gst.toLocaleString('es-CO')}\n\n¡Hasta mañana!`);
+        cerrarSesion();
+      } else {
+        alert(`¡Nómina del operador saliente registrada con éxito!\nTotal Pagado: $ ${totalNomina.toLocaleString('es-CO')}\n\nA continuación, ingresa el operario que recibe el turno.`);
+        setHorasDia('');
+        setHorasNoche('');
+        setMostrarModalCambioTurno(true);
+      }
+    } else {
+      alert('Error al registrar.');
+    }
+  }
+
+  async function handleConfirmarEntrante() {
+    if (!operarioEntranteId) {
+      alert('Selecciona al operario que recibe el turno.');
+      return;
+    }
+    if (!claveOperarioEntrante) {
+      alert('Ingresa la contraseña/PIN del operario.');
+      return;
+    }
+
+    setValidandoEntrante(true);
+
+    const operarioEncontrado = listaOperarios.find(
+      (u) => String(u.id) === String(operarioEntranteId)
+    );
+
+    if (
+      operarioEncontrado &&
+      String(operarioEncontrado.pin).trim() === String(claveOperarioEntrante).trim()
+    ) {
+      const turnoNormalizado = turnoRecibido.includes('tarde') ? 'tarde' : 'manana';
+
+      const nuevaSesion = {
+        usuario_id: operarioEncontrado.id,
+        nombre: operarioEncontrado.nombre,
+        sede_id: sesion?.sede_id || SEDE_ID_CENTRO,
+        turno: turnoNormalizado,
+      };
+
+      localStorage.setItem('martineto_session', JSON.stringify(nuevaSesion));
+      setSesion(nuevaSesion);
+
+      setMostrarModalCambioTurno(false);
+      setClaveOperarioEntrante('');
+      setOperarioEntranteId('');
+
+      setBaseGuardada(true);
+      setAperturaRealizada(true);
+      setCierreRealizado(false);
+      setTipoMovimiento('nuevas');
+
+      setValidandoEntrante(false);
+      alert(`✅ ¡Turno entregado con éxito!\nBienvenido(a) ${nuevaSesion.nombre}. Puedes continuar con la atención y operación normal de la sede.`);
+    } else {
+      setValidandoEntrante(false);
+      alert('❌ Código de acceso / PIN incorrecto para este operario.');
+    }
+  }
+
+  function cerrarSesion() {
+    localStorage.removeItem('martineto_session');
+    router.push('/login');
+  }
+
+  if (cargando) {
+    return (
+      <main className="min-h-screen bg-[#004e8c] flex items-center justify-center text-white text-xs font-bold font-sans">
+        Cargando Sede Centro...
+      </main>
+    );
+  }
+
+  const bloqueadoPorApertura = !baseGuardada || !aperturaRealizada;
+
   return (
-    <div className="min-h-screen bg-[#004e8c] text-white flex items-center justify-center font-bold">
-      Sede Centro — En mantenimiento
-    </div>
+    <main className="min-h-screen bg-[#004e8c] text-[#f1f5f9] p-4 font-sans max-w-6xl mx-auto space-y-4 relative">
+      {/* Header Banner */}
+      <header className="bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl flex justify-between items-center shadow-lg">
+        <div>
+          <h1 className="text-base md:text-lg font-black text-white tracking-wide flex items-center gap-2">
+            <span className="w-3 h-3 rounded-full bg-[#00a4ef] inline-block shadow-sm"></span>
+            🏛️ WALERS CENTRO
+          </h1>
+          <p className="text-xs text-sky-200 font-medium">
+            Operador en Turno: <b className="text-white font-bold">{sesion?.nombre || 'Operador'}</b>
+            <span className="ml-2 text-sky-100 font-bold uppercase bg-[#003d6d] px-2 py-0.5 rounded-md border border-[#0066b3]">
+              ({esTurnoCierre ? 'Día Completo / Cierre' : 'Mañana / Apertura'})
+            </span>
+          </p>
+        </div>
+        <button
+          onClick={cerrarSesion}
+          className="bg-[#003d6d] hover:bg-rose-900/80 text-white hover:text-rose-200 border border-[#0066b3] hover:border-rose-500 px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm"
+        >
+          🚪 Salir
+        </button>
+      </header>
+
+      {/* 1. Base Inicial de Caja */}
+      <div className="bg-[#0b2b48] border border-emerald-400/50 p-4 rounded-2xl space-y-2 shadow-md">
+        <span className="text-xs md:text-sm font-black text-emerald-300 block">
+          💵 Paso 1: Base Inicial para Empezar el Día (Efectivo en Caja):
+        </span>
+        <div className="flex gap-3">
+          <input
+            type="text"
+            placeholder="Monto en efectivo $"
+            value={formatearMoneda(baseCaja)}
+            onChange={(e) => setBaseCaja(desformatearMoneda(e.target.value))}
+            onFocus={(e) => e.target.select()}
+            disabled={baseGuardada}
+            className="w-full bg-[#051829] border border-[#0066b3] text-emerald-300 font-black text-sm md:text-base rounded-xl p-3 outline-none focus:border-emerald-400"
+          />
+          <button
+            onClick={handleGuardarBase}
+            disabled={baseGuardada}
+            className={`font-bold px-6 rounded-xl text-xs md:text-sm whitespace-nowrap transition-all shadow-sm ${
+              baseGuardada
+                ? 'bg-emerald-950 text-emerald-300 border border-emerald-600 cursor-not-allowed'
+                : 'bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer'
+            }`}
+          >
+            {baseGuardada ? '✓ Base Guardada' : 'Guardar Base'}
+          </button>
+        </div>
+      </div>
+
+      {bloqueadoPorApertura && (
+        <div className="bg-amber-950/80 border border-amber-400/60 p-3 rounded-xl text-center text-xs text-amber-200 font-bold shadow-sm">
+          ⚠️ ATENCIÓN: Debes registrar la Base de Caja y realizar obligatoriamente el <span className="underline">Conteo de Apertura</span> para habilitar el resto de módulos de la sede.
+        </div>
+      )}
+
+      {/* GRID DOS COLUMNAS */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+        
+        {/* COLUMNA IZQUIERDA: INVENTARIO */}
+        <div className="bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-4 shadow-md">
+          <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
+            <h2 className="text-xs md:text-sm font-black text-white">🍦 Conteo de Inventario</h2>
+            <span className="text-[11px] text-sky-200 font-bold uppercase bg-[#003d6d] px-2 py-0.5 rounded-md border border-[#0066b3]">{tipoMovimiento}</span>
+          </div>
+
+          <div>
+            <label className="text-[11px] text-sky-200 font-bold block mb-1">Acción a registrar:</label>
+            <select
+              value={tipoMovimiento}
+              onChange={(e) => setTipoMovimiento(e.target.value)}
+              disabled={!aperturaRealizada && baseGuardada}
+              className="w-full bg-[#051829] border border-[#0066b3] text-white font-black text-xs md:text-sm rounded-xl p-2.5 outline-none cursor-pointer focus:border-[#00a4ef]"
+            >
+              {!aperturaRealizada && <option value="apertura">🌅 1. Conteo de Apertura (Obligatorio)</option>}
+              {aperturaRealizada && (
+                <>
+                  <option value="nuevas">📦 Paletas Nuevas (Ingreso)</option>
+                  <option value="compras">🛒 Compras Directas</option>
+                  <option value="debaja">⚠️ De Baja / Mermas</option>
+                  <option value="cierre">🌙 Conteo de Cierre</option>
+                </>
+              )}
+            </select>
+          </div>
+
+          {/* CAJITA DEDICADA DE TOTAL PALETAS PARA CUALQUIER MOVIMIENTO */}
+          <div className="bg-[#0e385e] p-3 rounded-xl border border-[#0066b3]/60 space-y-2">
+            <span className="text-[10px] text-sky-300 font-extrabold uppercase block">
+              Cantidad Total para [{tipoMovimiento.toUpperCase()}]:
+            </span>
+            <div className="flex justify-between items-center bg-[#051829] p-2.5 rounded-lg border border-[#0066b3]">
+              <span className="text-xs text-white font-bold">🍦 Total Paletas:</span>
+              <input 
+                type="number" 
+                placeholder="0" 
+                value={totalPaletasInventario} 
+                onChange={(e) => setTotalPaletasInventario(e.target.value === '' ? '' : Math.max(0, Number(e.target.value)))} 
+                onKeyDown={handleKeyDownTotal}
+                onFocus={(e) => e.target.select()} 
+                className="w-24 bg-[#0e385e] text-sky-200 font-black text-center text-sm rounded-lg p-2 outline-none focus:border-[#00a4ef] border border-[#0066b3] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+              />
+            </div>
+          </div>
+
+          {/* CONTEO DE EMPAQUES Y VASOS */}
+          <div className="bg-[#0e385e] p-3 rounded-xl border border-[#0066b3]/60 space-y-2">
+            <span className="text-[10px] text-sky-300 font-extrabold uppercase block">Conteo de Empaques y Vasos:</span>
+            <div className="space-y-1.5 max-h-[220px] overflow-y-auto pr-1">
+              {LISTA_EMPAQUES_CENTRO.map((item, idx) => (
+                <div key={item} className="flex justify-between items-center bg-[#051829] p-2 rounded-lg border border-[#0066b3]">
+                  <span className="text-xs text-white font-bold">📦 {item}:</span>
+                  <input 
+                    ref={(el) => { inputsRef.current[`empaque_${item}`] = el; }}
+                    type="number" 
+                    placeholder="0" 
+                    value={cantidadesEmpaques[item] ?? ''} 
+                    onChange={(e) => handleEmpaqueCantidadChange(item, e.target.value)} 
+                    onKeyDown={(e) => handleKeyDownPedido(e, idx, LISTA_EMPAQUES_CENTRO, 'empaque')}
+                    onFocus={(e) => e.target.select()} 
+                    className="w-24 bg-[#0e385e] text-sky-200 font-black text-center text-sm rounded-lg p-1.5 outline-none focus:border-[#00a4ef] border border-[#0066b3] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <textarea
+            placeholder="Observaciones de inventario..."
+            value={observaciones}
+            onChange={(e) => setObservaciones(e.target.value)}
+            className="w-full bg-[#051829] border border-[#0066b3] rounded-xl p-2.5 text-xs text-white outline-none h-16 resize-none focus:border-[#00a4ef]"
+          />
+
+          <button
+            onClick={handleGuardarInventario}
+            disabled={!baseGuardada || guardando}
+            className={`w-full font-black py-3 rounded-xl text-xs md:text-sm transition-all uppercase shadow-md ${
+              baseGuardada && !guardando
+                ? 'bg-[#0078d4] hover:bg-[#0086e6] text-white shadow-[#003d6d] cursor-pointer opacity-100'
+                : 'bg-[#051829] text-sky-400/40 cursor-not-allowed opacity-50 border border-[#003d6d]'
+            }`}
+          >
+            {guardando ? 'Guardando Inventario...' : `💾 Guardar ${tipoMovimiento}`}
+          </button>
+        </div>
+
+        {/* COLUMNA DERECHA: PEDIDOS Y CIERRE DE CAJA / NÓMINA */}
+        <div className={`space-y-4 transition-opacity ${bloqueadoPorApertura ? 'opacity-50 pointer-events-none select-none' : 'opacity-100'}`}>
+          
+          {/* MÓDULO PEDIDOS (MANTIENE LOS SABORES) */}
+          <div className="bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md">
+            <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
+              <h2 className="text-xs md:text-sm font-black text-white flex items-center gap-1.5">
+                🚚 Pedidos de Insumos (Requisición)
+              </h2>
+              <button
+                type="button"
+                onClick={() => setMostrarModuloPedidos(!mostrarModuloPedidos)}
+                className="bg-[#0e385e] hover:bg-[#003d6d] text-white px-3 py-1 rounded-lg text-xs font-bold transition-colors border border-[#0066b3]"
+              >
+                {mostrarModuloPedidos ? '👁️ Ocultar Pedidos' : '👁️ Hacer Pedido'}
+              </button>
+            </div>
+
+            {mostrarModuloPedidos && (
+              <div className="space-y-3 pt-1">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-1 text-[10px]">
+                  <button type="button" onClick={() => setCategoriaPedido('paletas')} className={`py-2 px-1 rounded-xl font-bold border text-center transition-all ${categoriaPedido === 'paletas' ? 'bg-[#0078d4] text-white border-[#00a4ef] shadow' : 'bg-[#051829] text-sky-200 border-[#0066b3]'}`}>🍦 Paletas</button>
+                  <button type="button" onClick={() => setCategoriaPedido('richi')} className={`py-2 px-1 rounded-xl font-bold border text-center transition-all ${categoriaPedido === 'richi' ? 'bg-[#0078d4] text-white border-[#00a4ef] shadow' : 'bg-[#051829] text-sky-200 border-[#0066b3]'}`}>🛍️ Richi</button>
+                  <button type="button" onClick={() => setCategoriaPedido('produccion')} className={`py-2 px-1 rounded-xl font-bold border text-center transition-all ${categoriaPedido === 'produccion' ? 'bg-[#0078d4] text-white border-[#00a4ef] shadow' : 'bg-[#051829] text-sky-200 border-[#0066b3]'}`}>⚙️ Prod</button>
+                  <button type="button" onClick={() => setCategoriaPedido('insumos')} className={`py-2 px-1 rounded-xl font-bold border text-center transition-all ${categoriaPedido === 'insumos' ? 'bg-[#0078d4] text-white border-[#00a4ef] shadow' : 'bg-[#051829] text-sky-200 border-[#0066b3]'}`}>🍫 Insumos</button>
+                  <button type="button" onClick={() => setCategoriaPedido('aseo')} className={`py-2 px-1 rounded-xl font-bold border text-center transition-all ${categoriaPedido === 'aseo' ? 'bg-[#0078d4] text-white border-[#00a4ef] shadow' : 'bg-[#051829] text-sky-200 border-[#0066b3]'}`}>🧹 Aseo</button>
+                </div>
+
+                {categoriaPedido === 'paletas' && (
+                  <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 border border-[#0066b3]/50 p-2.5 rounded-xl bg-[#051829]">
+                    <span className="text-[10px] text-sky-300 font-bold uppercase block">Seleccionar Sabores a Solicitar a Bodega:</span>
+                    {paletasFiltradas.map((s, idx) => (
+                      <div key={s.id} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2">
+                        <div className="truncate">
+                          <p className="font-bold text-xs text-white truncate">{s.nombre}</p>
+                          <span className="text-[10px] font-semibold text-sky-300 block -mt-0.5 capitalize">
+                            {s.categoria || ''}
+                          </span>
+                        </div>
+                        <input
+                          ref={(el) => { inputsRef.current[`pedido_paleta_${s.id}`] = el; }}
+                          type="number"
+                          placeholder="0"
+                          value={cantidadesPedidoPaletas[s.id] ?? ''}
+                          onChange={(e) => handleCantidadPedidoChange(s.id, e.target.value)}
+                          onKeyDown={(e) => handleKeyDownPedido(e, idx, paletasFiltradas, 'pedido_paleta')}
+                          onFocus={(e) => e.target.select()}
+                          className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {categoriaPedido === 'richi' && (
+                  <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 border border-[#0066b3]/50 p-2.5 rounded-xl bg-[#051829]">
+                    <span className="text-[10px] text-sky-300 font-bold uppercase block">Plásticos Richi / Empaques</span>
+                    {LISTA_PLASTICOS_RICHI.map((item, idx) => (
+                      <div key={item} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2">
+                        <span className="text-xs font-bold text-white truncate">{item}</span>
+                        <input 
+                          ref={(el) => { inputsRef.current[`pedido_richi_${item}`] = el; }}
+                          type="number" 
+                          placeholder="0" 
+                          value={cantidadesRichi[item] ?? ''} 
+                          onChange={(e) => handleItemGenericoChange(item, e.target.value, setCantidadesRichi)} 
+                          onKeyDown={(e) => handleKeyDownPedido(e, idx, LISTA_PLASTICOS_RICHI, 'pedido_richi')}
+                          onFocus={(e) => e.target.select()} 
+                          className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {categoriaPedido === 'produccion' && (
+                  <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 border border-[#0066b3]/50 p-2.5 rounded-xl bg-[#051829]">
+                    <span className="text-[10px] text-sky-300 font-bold uppercase block">Producción</span>
+                    {LISTA_PRODUCCION.map((item, idx) => (
+                      <div key={item} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2">
+                        <span className="text-xs font-bold text-white truncate">{item}</span>
+                        <input 
+                          ref={(el) => { inputsRef.current[`pedido_prod_${item}`] = el; }}
+                          type="number" 
+                          placeholder="0" 
+                          value={cantidadesProduccion[item] ?? ''} 
+                          onChange={(e) => handleItemGenericoChange(item, e.target.value, setCantidadesProduccion)} 
+                          onKeyDown={(e) => handleKeyDownPedido(e, idx, LISTA_PRODUCCION, 'pedido_prod')}
+                          onFocus={(e) => e.target.select()} 
+                          className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {categoriaPedido === 'insumos' && (
+                  <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 border border-[#0066b3]/50 p-2.5 rounded-xl bg-[#051829]">
+                    <span className="text-[10px] text-sky-300 font-bold uppercase block">Insumos y Producción</span>
+                    {LISTA_INSUMOS_MATERIA.map((item, idx) => (
+                      <div key={item} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2">
+                        <span className="text-xs font-bold text-white truncate">{item}</span>
+                        <input 
+                          ref={(el) => { inputsRef.current[`pedido_ins_${item}`] = el; }}
+                          type="number" 
+                          placeholder="0" 
+                          value={cantidadesInsumos[item] ?? ''} 
+                          onChange={(e) => handleItemGenericoChange(item, e.target.value, setCantidadesInsumos)} 
+                          onKeyDown={(e) => handleKeyDownPedido(e, idx, LISTA_INSUMOS_MATERIA, 'pedido_ins')}
+                          onFocus={(e) => e.target.select()} 
+                          className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {categoriaPedido === 'aseo' && (
+                  <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 border border-[#0066b3]/50 p-2.5 rounded-xl bg-[#051829]">
+                    <span className="text-[10px] text-sky-300 font-bold uppercase block">Implementos de Aseo</span>
+                    {LISTA_ASEO.map((item, idx) => (
+                      <div key={item} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2">
+                        <span className="text-xs font-bold text-white truncate">{item}</span>
+                        <input 
+                          ref={(el) => { inputsRef.current[`pedido_aseo_${item}`] = el; }}
+                          type="number" 
+                          placeholder="0" 
+                          value={cantidadesAseo[item] ?? ''} 
+                          onChange={(e) => handleItemGenericoChange(item, e.target.value, setCantidadesAseo)} 
+                          onKeyDown={(e) => handleKeyDownPedido(e, idx, LISTA_ASEO, 'pedido_aseo')}
+                          onFocus={(e) => e.target.select()} 
+                          className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <input type="text" placeholder="Otro producto adicional..." value={otroInsumoTexto} onChange={(e) => setOtroInsumoTexto(e.target.value)} className="w-full bg-[#051829] border border-[#0066b3] text-white p-2.5 rounded-xl outline-none text-xs focus:border-[#00a4ef]" />
+                <input type="text" placeholder="Observación general del pedido..." value={obsPedido} onChange={(e) => setObsPedido(e.target.value)} className="w-full bg-[#051829] border border-[#0066b3] text-white p-2.5 rounded-xl outline-none text-xs focus:border-[#00a4ef]" />
+
+                <button onClick={handleGuardarPedidoInsumos} disabled={guardando} className="w-full bg-[#0078d4] hover:bg-[#0086e6] text-white font-black py-2.5 rounded-xl text-xs uppercase transition-all shadow-md cursor-pointer disabled:opacity-50">
+                  {guardando ? 'Guardando pedido...' : '🚀 Enviar Pedido a Bodega'}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* ARQUEO DE CAJA Y NÓMINA */}
+          <div className="bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-4 shadow-md">
+            <h2 className="text-xs md:text-sm font-black text-white border-b border-[#0066b3]/50 pb-2 flex justify-between">
+              <span>{esTurnoCierre ? '🌙 Cierre de Jornada y Arqueo' : '👥 Cambio de Turno / Nómina'}</span>
+              <span className="text-[10px] text-sky-200 font-bold bg-[#003d6d] px-2 py-0.5 rounded-md border border-[#0066b3]">{esTurnoCierre ? 'Fin de Día' : 'Fin de Turno'}</span>
+            </h2>
+
+            {/* SECCIÓN NÓMINA */}
+            <div className="space-y-2 bg-[#051829] p-3 rounded-xl border border-[#0066b3]">
+              <span className="text-[10px] font-black text-sky-300 uppercase block">1. Nómina del Operador:</span>
+              
+              <div>
+                <label className="text-[10px] text-sky-200 font-bold block mb-1">Tipo de Día:</label>
+                <select value={tipoDia} onChange={(e) => setTipoDia(e.target.value as any)} className="w-full bg-[#0e385e] border border-[#0066b3] text-white font-bold text-xs rounded-xl p-2 outline-none cursor-pointer focus:border-[#00a4ef]">
+                  <option value="entre_semana">Entre semana (lunes a sábado)</option>
+                  <option value="domingo_festivo">Domingo / Festivo</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 text-[10px]">
+                <div>
+                  <span className="text-sky-200 block mb-1 font-bold">Horas Día</span>
+                  <input 
+                    ref={(el) => { inputsRef.current['cierre_horas_dia'] = el; }}
+                    type="number" 
+                    placeholder="0" 
+                    value={horasDia} 
+                    onChange={(e) => setHorasDia(e.target.value === '' ? '' : Number(e.target.value))} 
+                    onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_horas_noche')}
+                    onFocus={(e) => e.target.select()} 
+                    className="w-full bg-[#0e385e] border border-[#0066b3] text-white font-bold text-center rounded-lg p-2 outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                  />
+                </div>
+                <div>
+                  <span className="text-sky-200 block mb-1 font-bold">Horas Noche</span>
+                  <input 
+                    ref={(el) => { inputsRef.current['cierre_horas_noche'] = el; }}
+                    type="number" 
+                    placeholder="0" 
+                    value={horasNoche} 
+                    onChange={(e) => setHorasNoche(e.target.value === '' ? '' : Number(e.target.value))} 
+                    onKeyDown={(e) => handleKeyDownCierre(e, esTurnoCierre ? 'cierre_efectivo' : '')}
+                    onFocus={(e) => e.target.select()} 
+                    className="w-full bg-[#0e385e] border border-[#0066b3] text-white font-bold text-center rounded-lg p-2 outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-between items-center bg-rose-950/60 p-2 rounded-lg border border-rose-500/50 text-xs font-bold text-rose-200">
+                <span>Total Nómina:</span>
+                <span className="text-sm font-black text-rose-300">$ {totalNomina.toLocaleString('es-CO')}</span>
+              </div>
+            </div>
+
+            {/* SECCIÓN RECAUDO EN CAJA */}
+            {esTurnoCierre && (
+              <div className="space-y-2 bg-[#051829] p-3 rounded-xl border border-[#0066b3]">
+                <span className="text-[10px] font-black text-emerald-300 uppercase block">2. Arqueo de Caja Final del Día:</span>
+                
+                <div className="grid grid-cols-3 gap-2 text-[10px]">
+                  <div>
+                    <span className="text-emerald-300 block mb-1 font-bold">💵 Efectivo ($)</span>
+                    <input 
+                      ref={(el) => { inputsRef.current['cierre_efectivo'] = el; }}
+                      type="text" 
+                      placeholder="$ 0" 
+                      value={formatearMoneda(efectivoCaja)} 
+                      onChange={(e) => setEfectivoCaja(desformatearMoneda(e.target.value))} 
+                      onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_nequi')}
+                      onFocus={(e) => e.target.select()} 
+                      className="w-full bg-[#0e385e] border border-[#0066b3] text-emerald-300 font-bold text-center rounded-lg p-2 outline-none focus:border-emerald-400" 
+                    />
+                  </div>
+                  <div>
+                    <span className="text-sky-200 block mb-1 font-bold">📲 Nequi ($)</span>
+                    <input 
+                      ref={(el) => { inputsRef.current['cierre_nequi'] = el; }}
+                      type="text" 
+                      placeholder="$ 0" 
+                      value={formatearMoneda(nequi)} 
+                      onChange={(e) => setNequi(desformatearMoneda(e.target.value))} 
+                      onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_daviplata')}
+                      onFocus={(e) => e.target.select()} 
+                      className="w-full bg-[#0e385e] border border-[#0066b3] text-sky-200 font-bold text-center rounded-lg p-2 outline-none focus:border-[#00a4ef]" 
+                    />
+                  </div>
+                  <div>
+                    <span className="text-fuchsia-300 block mb-1 font-bold">📱 Daviplata ($)</span>
+                    <input 
+                      ref={(el) => { inputsRef.current['cierre_daviplata'] = el; }}
+                      type="text" 
+                      placeholder="$ 0" 
+                      value={formatearMoneda(daviplata)} 
+                      onChange={(e) => setDaviplata(desformatearMoneda(e.target.value))} 
+                      onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_gastos')}
+                      onFocus={(e) => e.target.select()} 
+                      className="w-full bg-[#0e385e] border border-[#0066b3] text-fuchsia-200 font-bold text-center rounded-lg p-2 outline-none focus:border-fuchsia-400" 
+                    />
+                  </div>
+                </div>
+
+                {/* GASTOS Y MOTIVO */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[10px] pt-1">
+                  <div>
+                    <span className="text-amber-300 block mb-1 font-bold">🧾 Total Gastos ($)</span>
+                    <input 
+                      ref={(el) => { inputsRef.current['cierre_gastos'] = el; }}
+                      type="text" 
+                      placeholder="$ 0" 
+                      value={formatearMoneda(gastos)} 
+                      onChange={(e) => setGastos(desformatearMoneda(e.target.value))} 
+                      onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_motivo_gasto')}
+                      onFocus={(e) => e.target.select()} 
+                      className="w-full bg-[#0e385e] border border-[#0066b3] text-amber-300 font-bold text-center rounded-lg p-2 outline-none focus:border-amber-400" 
+                    />
+                  </div>
+                  <div>
+                    <span className="text-sky-200 block mb-1 font-bold">📝 Motivo del Gasto</span>
+                    <input 
+                      ref={(el) => { inputsRef.current['cierre_motivo_gasto'] = el; }}
+                      type="text" 
+                      placeholder="Ej. Compra de hielo, bolsas..." 
+                      value={motivoGasto} 
+                      onChange={(e) => setMotivoGasto(e.target.value)} 
+                      onFocus={(e) => e.target.select()} 
+                      className="w-full bg-[#0e385e] border border-[#0066b3] text-white text-xs rounded-lg p-2 outline-none focus:border-[#00a4ef]" 
+                    />
+                  </div>
+                </div>
+
+                {/* TOTAL ARQUEADO CALCULADO */}
+                <div className="flex justify-between items-center bg-[#0e385e] p-2.5 rounded-xl border border-emerald-400/50 text-xs font-bold mt-2">
+                  <span className="text-emerald-300 uppercase font-black">Total Recaudado (Ventas):</span>
+                  <span className="text-base font-black text-emerald-300 bg-[#051829] px-3 py-1 rounded-lg border border-emerald-500/50">
+                    $ {totalVentasCalculado.toLocaleString('es-CO')}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            <button
+              onClick={handleGuardarNominaTurno}
+              disabled={guardando || (esTurnoCierre && !cierreRealizado)}
+              className={`w-full font-black py-3 rounded-xl text-xs md:text-sm transition-all shadow-md cursor-pointer ${
+                esTurnoCierre && !cierreRealizado
+                  ? 'bg-[#051829] text-sky-400/40 cursor-not-allowed border border-[#003d6d]'
+                  : 'bg-[#0078d4] hover:bg-[#0086e6] text-white shadow-[#003d6d]'
+              }`}
+            >
+              {guardando
+                ? 'Guardando...'
+                : esTurnoCierre
+                ? cierreRealizado
+                  ? '🌙 Registrar Cierre Final, Caja y Nómina'
+                  : '⚠️ Haz el Conteo de Cierre Primero'
+                : '💾 Registrar Nómina y Cambio de Turno'}
+            </button>
+          </div>
+
+        </div>
+      </div>
+
+      {/* MODAL CAMBIO DE TURNO */}
+      {mostrarModalCambioTurno && (
+        <div className="fixed inset-0 bg-[#051829]/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-[#0b2b48] border border-[#0066b3] p-6 rounded-3xl max-w-sm w-full space-y-5 shadow-2xl text-center">
+            
+            <div className="space-y-1 border-b border-[#0066b3]/50 pb-3">
+              <div className="w-12 h-12 bg-[#003d6d] border border-[#0066b3] rounded-2xl flex items-center justify-center mx-auto mb-2 text-xl shadow-lg">
+                🔄
+              </div>
+              <h3 className="text-lg font-black text-white tracking-wide">
+                Recepción de Turno — Sede Centro
+              </h3>
+              <p className="text-xs text-sky-200 font-medium">
+                Selecciona al operario entrante e ingresa sus credenciales
+              </p>
+            </div>
+
+            <div className="space-y-3 text-left">
+              <div>
+                <label className="text-[11px] font-extrabold text-sky-200 block mb-1 uppercase tracking-wider">
+                  ¿Qué turno recibo?
+                </label>
+                <select
+                  value={turnoRecibido}
+                  onChange={(e) => setTurnoRecibido(e.target.value)}
+                  className="w-full bg-[#051829] border border-[#0066b3] text-white font-bold text-xs rounded-xl p-3 outline-none cursor-pointer focus:border-[#00a4ef]"
+                >
+                  <option value="tarde">🌙 Tarde / Cierre</option>
+                  <option value="manana">🌅 Mañana / Apertura</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-extrabold text-sky-200 block mb-1 uppercase tracking-wider">
+                  Operario que Recibe:
+                </label>
+                <select
+                  value={operarioEntranteId}
+                  onChange={(e) => setOperarioEntranteId(e.target.value)}
+                  className="w-full bg-[#051829] border border-[#0066b3] text-white font-bold text-xs rounded-xl p-3 outline-none cursor-pointer focus:border-[#00a4ef]"
+                >
+                  <option value="">-- Seleccionar Operario --</option>
+                  {listaOperarios.map((op) => (
+                    <option key={op.id} value={op.id}>
+                      👤 {op.nombre}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-extrabold text-sky-200 block mb-1 uppercase tracking-wider">
+                  Contraseña / PIN:
+                </label>
+                <input
+                  type="password"
+                  placeholder="••••••"
+                  value={claveOperarioEntrante}
+                  onChange={(e) => setClaveOperarioEntrante(e.target.value)}
+                  onFocus={(e) => e.target.select()}
+                  className="w-full bg-[#051829] border border-[#0066b3] text-sky-200 font-black text-center text-lg rounded-xl p-2.5 outline-none tracking-widest focus:border-[#00a4ef]"
+                />
+              </div>
+            </div>
+
+            <div className="pt-2 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setMostrarModalCambioTurno(false)}
+                className="w-1/3 bg-[#051829] hover:bg-[#0e385e] text-sky-200 font-bold py-3 rounded-xl text-xs transition-colors border border-[#0066b3]"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmarEntrante}
+                disabled={validandoEntrante}
+                className="w-2/3 bg-[#0078d4] hover:bg-[#0086e6] text-white font-black py-3 rounded-xl text-xs transition-all uppercase shadow-lg shadow-[#003d6d] cursor-pointer"
+              >
+                {validandoEntrante ? 'Validando...' : '🔑 Iniciar Nuevo Turno'}
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+    </main>
   );
 }
