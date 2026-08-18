@@ -29,7 +29,7 @@ export default function LoginPage() {
   const [sedeSeleccionada, setSedeSeleccionada] = useState<number | ''>('');
   const [usuarioSeleccionado, setUsuarioSeleccionado] = useState<number | ''>('');
   const [codigoAcceso, setCodigoAcceso] = useState('');
-  const [tipoTurno, setTipoTurno] = useState('manana');
+  const [tipoTurno, setTipoTurno] = useState('manana_apertura');
 
   const [errorMensaje, setErrorMensaje] = useState('');
   const [cargando, setCargando] = useState(false);
@@ -110,6 +110,7 @@ export default function LoginPage() {
               rol: 'administrador',
               sede_id: sedeId,
               sede_codigo: 'admin',
+              turno: tipoTurno,
             })
           );
         }
@@ -126,7 +127,7 @@ export default function LoginPage() {
         console.warn('Registro de turno en modo libre:', errTurno);
       }
 
-      // 5. Guardar sesión en LocalStorage
+      // 5. Guardar sesión en LocalStorage con el valor explícito del turno
       if (typeof window !== 'undefined') {
         localStorage.setItem(
           'martineto_session',
@@ -138,6 +139,7 @@ export default function LoginPage() {
             sede_nombre: sedeNombre,
             sede_codigo: sedeCodigo,
             turno_id: turnoId,
+            turno: tipoTurno,
           })
         );
       }
@@ -222,9 +224,9 @@ export default function LoginPage() {
               onChange={(e) => setTipoTurno(e.target.value)}
               className="w-full bg-gray-900 border border-gray-800 rounded-xl p-3 text-xs text-white outline-none font-bold"
             >
-              <option value="manana">Mañana / Apertura</option>
-              <option value="tarde">Tarde / Cierre</option>
-              <option value="completo">Día Completo</option>
+              <option value="manana_apertura">Mañana / Apertura</option>
+              <option value="tarde_cierre">Tarde / Cierre</option>
+              <option value="dia_completo">Día Completo</option>
             </select>
           </div>
 

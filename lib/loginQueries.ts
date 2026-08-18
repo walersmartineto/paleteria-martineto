@@ -15,66 +15,104 @@ export interface UsuarioLoginInfo {
 
 // 1. Obtener la lista de sedes activas
 export async function obtenerSedes(): Promise<SedeInfo[]> {
-  const { data, error } = await supabase
-    .from('sede')
-    .select('id, nombre, codigo, descripcion')
-    .eq('activo', true)
-    .order('id', { ascending: true });
+  try {
+    const { data, error } = await supabase
+      .from('sede')
+      .select('id, nombre, codigo, descripcion')
+      .eq('activo', true)
+      .order('id', { ascending: true });
 
-  if (error || !data) return [];
-  return data;
+    if (error || !data) return [];
+    return data;
+  } catch (err) {
+    console.error('Error al obtener sedes:', err);
+    return [];
+  }
 }
 
 // 2. Obtener la lista de usuarios/empleados activos
 export async function obtenerUsuariosOperadores(): Promise<UsuarioLoginInfo[]> {
-  const { data, error } = await supabase
-    .from('usuario')
-    .select('id, nombre_completo, tipo_usuario')
-    .eq('activo', true)
-    .order('nombre_completo', { ascending: true });
+  try {
+    const { data, error } = await supabase
+      .from('usuario')
+      .select('id, nombre_completo, tipo_usuario')
+      .eq('activo', true)
+      .order('nombre_completo', { ascending: true });
 
-  if (error || !data) return [];
-  return data;
+    if (error || !data) return [];
+    return data;
+  } catch (err) {
+    console.error('Error al obtener usuarios:', err);
+    return [];
+  }
 }
 
 // 3. Validar código de acceso del empleado
 export async function validarAccesoEmpleado(usuarioId: number, codigoAcceso: string) {
-  const { data, error } = await supabase
-    .from('usuario')
-    .select('id, nombre_completo, codigo_acceso, tipo_usuario')
-    .eq('id', usuarioId)
-    .single();
+  try {
+    const { data, error } = await supabase
+      .from('usuario')
+      .select('id, nombre_completo, codigo_acceso, tipo_usuario')
+      .eq('id', usuarioId)
+      .single();
 
-  if (error || !data) {
-    return { exito: false, mensaje: 'Usuario no encontrado' };
-  }
+    if (error || !data) {
+      return { exito: false, mensaje: 'Usuario no encontrado' };
+    }
 
-  if (data.codigo_acceso.trim() === codigoAcceso.trim()) {
-    return { exito: true, usuario: data };
-  } else {
-    return { exito: false, mensaje: 'Código de acceso incorrecto' };
+    if (String(data.codigo_acceso || '').trim() === String(codigoAcceso || '').trim()) {
+      return { exito: true, usuario: data };
+    } else {
+      return { exito: false, mensaje: 'Código de acceso incorrecto' };
+    }
+  } catch (err: any) {
+    return { exito: false, mensaje: err?.message || 'Error al validar acceso' };
   }
 }
 
-// 4. Iniciar turno de trabajo en la sede
-export async function registrarInicioTurno(sedeId: number, usuarioId: number, tipoTurno: string) {
-  const { data, error } = await supabase
-    .from('turno_trabajo')
-    .insert([
-      {
-        sede_id: sedeId,
-        usuario_id: usuarioId,
-        tipo_turno: tipoTurno,
-        hora_entrada: new Date().toISOString(),
-      },
-    ])
-    .select()
-    .single();
+// 4. Iniciar turno de trabajo en la sede (Soporta ambos órdenes de parámetros)
+export async function registrarInicioTurno(
+  arg1: number,
+  arg2: number | string,
+  arg3?: string
+) {
+  try {
+    let sedeId: number;
+    let usuarioId: number;
+    let tipoTurno: string;
 
-  if (error) {
-    console.error('Error al registrar inicio de turno:', error);
+    // Adaptador para compatibilidad de orden de parámetros (sedeId, usuarioId, tipoTurno) o (usuarioId, sedeId, tipoTurno)
+    if (typeof arg2 === 'string') {
+      usuarioId = arg1;
+      tipoTurno = arg2;
+      sedeId = Number(arg3) || 2;
+    } else {
+      sedeId = arg1;
+      usuarioId = arg2;
+      tipoTurno = arg3 || 'manana_apertura';
+    }
+
+    const { data, error } = await supabase
+      .from('turno_trabajo')
+      .insert([
+        {
+          sede_id: sedeId,
+          usuario_id: usuarioId,
+          tipo_turno: tipoTurno,
+          hora_entrada: new Date().toISOString(),
+        },
+      ])
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error en Supabase al registrar inicio de turno:', error.message || error);
+      return null;
+    }
+
+    return data;
+  } catch (err: any) {
+    console.error('Excepción al registrar inicio de turno:', err?.message || err);
     return null;
   }
-
-  return data;
 }

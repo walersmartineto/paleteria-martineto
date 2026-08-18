@@ -51,7 +51,6 @@ export async function obtenerSaboresViva(): Promise<SaborPaletaViva[]> {
   const { data: productos, error } = await supabase
     .from('producto')
     .select('id, nombre, precio, categoria')
-    // Excluye explícitamente las categorías de insumos
     .not('categoria', 'in', '("Aseo","Plásticos Richi","Insumos")')
     .order('nombre', { ascending: true });
 
@@ -65,18 +64,46 @@ export async function obtenerSaboresViva(): Promise<SaborPaletaViva[]> {
   }));
 }
 
-// 3. Registrar Base de Caja
-export async function registrarBaseCajaViva(sedeId: number, usuarioId: number, montoBase: number) {
-  const payload: any = {
-    sede_id: sedeId || 2,
-    monto_apertura: montoBase,
-    fecha: new Date().toISOString().split('T')[0],
-    estado: 'abierta',
-  };
-  if (usuarioId && !isNaN(Number(usuarioId))) payload.usuario_id = Number(usuarioId);
+// 3. Registrar Base de Caja directamente en la tabla 'caja'
+export async function registrarBaseCajaViva(sedeId: number, usuarioId: number, montoBase: number, turnoId?: number) {
+  const idSede = Number(sedeId) || 2;
+  const idUsuario = Number(usuarioId);
 
-  const { error } = await supabase.from('caja').insert([payload]);
-  return !error;
+  if (!idUsuario || isNaN(idUsuario)) {
+    console.error('❌ Error: usuarioId no es válido o está ausente.');
+    return false;
+  }
+
+  // Mapeo exacto de todas las columnas visibles en Supabase
+  const payload: any = {
+    sede_id: idSede,
+    usuario_id: idUsuario,
+    monto_apertura: montoBase,
+    estado: 'abierta',
+    fecha: new Date().toISOString(),
+  };
+
+  // Si se cuenta con turno_id lo asignamos, de lo contrario enviamos 1 o el ID activo
+  if (turnoId && !isNaN(Number(turnoId))) {
+    payload.turno_id = Number(turnoId);
+  }
+
+  const { data, error } = await supabase
+    .from('caja')
+    .insert([payload])
+    .select();
+
+  if (error) {
+    console.error('❌ Error al insertar en caja:', {
+      mensaje: error.message,
+      detalles: error.details,
+      pista: error.hint,
+      codigo: error.code,
+    });
+    return false;
+  }
+
+  return true;
 }
 
 // 4. Registrar Cambio de Turno y Nómina
@@ -132,87 +159,81 @@ export async function registrarNominaYCambioTurno(datos: {
 }
 
 // 5. Registrar Movimientos de Inventario
+// REGISTRO DE INVENTARIO DIARIO EN TABLA UNIFICADA
 export async function registrarMovimientoViva(
   sedeId: number,
   usuarioId: number,
-  tipoMovimiento: TipoMovimientoViva,
-  cantidades: { [saborId: number]: number },
-  cajasMostrador: number,
-  observaciones: string
+  tipoMovimiento: string,
+  totalPaletas: number,
+  detallePaletasObj: { [saborNombre: string]: number },
+  detalleEmpaquesObj: { [itemNombre: string]: number },
+  observacion: string,
+  turnoId?: number
 ) {
-  const fechaHoy = new Date().toISOString().split('T')[0];
-
-  for (const [saborIdStr, cantidad] of Object.entries(cantidades)) {
-    const saborId = Number(saborIdStr);
-    if (cantidad <= 0) continue;
-
-    let stockApertura = 0;
-    let entradas = 0;
-    let stockCierre = 0;
-
-    if (tipoMovimiento === 'apertura') stockApertura = cantidad;
-    if (tipoMovimiento === 'nuevas' || tipoMovimiento === 'compras') entradas = cantidad;
-    if (tipoMovimiento === 'cierre') stockCierre = cantidad;
-
-    const payloadInv: any = {
-      sede_id: sedeId || 2,
-      producto_id: saborId,
-      fecha: fechaHoy,
-      stock_apertura: stockApertura,
-      entradas: entradas,
-      stock_cierre: stockCierre,
-      cajas_mostrador: cajasMostrador,
-    };
-    if (usuarioId && !isNaN(Number(usuarioId))) payloadInv.usuario_id = Number(usuarioId);
-
-    await supabase.from('inventario_diario').insert([payloadInv]);
-  }
-
-  if (observaciones.trim() || tipoMovimiento === 'debaja') {
-    const payloadGasto: any = {
-      sede_id: sedeId || 2,
-      concepto: `[Viva - ${tipoMovimiento.toUpperCase()}] Cajas: ${cajasMostrador}. Obs: ${observaciones}`,
-      monto: 0,
-    };
-    if (usuarioId && !isNaN(Number(usuarioId))) payloadGasto.usuario_id = Number(usuarioId);
-
-    await supabase.from('gasto').insert([payloadGasto]);
-  }
-
-  return true;
-}
-
-// 6. Crear y Obtener Pedidos de Insumos Categorizados
-export async function crearPedidoInsumosViva(
-  sedeId: number,
-  usuarioId: any,
-  categoria: string,
-  detalleItems: Record<string, number>,
-  observaciones: string
-) {
-  // Aseguramos que usuarioId sea numérico o string según tu estructura
-  const parsedUsuarioId = isNaN(Number(usuarioId)) ? usuarioId : Number(usuarioId);
-
-  const { data, error } = await supabase
-    .from('pedidos_insumos_viva') // ⚠️ VERIFICA QUE ESTE SEA EL NOMBRE EXACTO DE TU TABLA
-    .insert([
+  try {
+    const { error } = await supabase.from('inventario_diario').insert([
       {
-        sede_id: Number(sedeId),
-        usuario_id: parsedUsuarioId,
-        categoria: categoria,
-        detalle_items: detalleItems,
-        observaciones: observaciones || '',
-        estado: 'pendiente'
-      }
+        sede_id: sedeId,
+        usuario_id: usuarioId,
+        turno_id: turnoId || null,
+        tipo_movimiento: tipoMovimiento,
+        total_paletas: totalPaletas,
+        detalle_paletas: detallePaletasObj,
+        detalle_empaques: detalleEmpaquesObj,
+        observacion: observacion,
+        fecha_registro: new Date().toISOString(),
+      },
     ]);
 
-  if (error) {
-    console.error('❌ ERROR EXACTO DE SUPABASE:', error.message, error.details, error.hint);
+    if (error) {
+      console.error('Error guardando en inventario_diario:', error);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error('Excepción guardando inventario_diario:', err);
     return false;
   }
-
-  return true;
 }
+// 6. Crear y Obtener Pedidos de Insumos Categorizados
+export async function crearPedidoInsumosViva(datos: {
+  sedeId: number;
+  usuarioId: number;
+  paletas?: { [key: string]: number };
+  richi?: { [key: string]: number };
+  insumos?: { [key: string]: number };
+  aseo?: { [key: string]: number };
+  observaciones?: string;
+}) {
+  try {
+    const payload: Record<string, any> = {
+      sede_id: datos.sedeId,
+      usuario_id: datos.usuarioId,
+      pedidos_paletas: datos.paletas || {},
+      pedidos_richi: datos.richi || {},
+      pedidos_insumos: datos.insumos || {},
+      pedidos_aseo: datos.aseo || {},
+      observaciones: datos.observaciones || '',
+      estado: 'pendiente',
+    };
+
+    // TABLA ÚNICA Y GENERAL PARA TODAS LAS SEDES:
+    const { error } = await supabase
+      .from('pedidos_insumos')
+      .insert([payload]);
+
+    if (error) {
+      console.error('Error guardando en pedidos_insumos:', error.message || error);
+      return false;
+    }
+    return true;
+  } catch (err: any) {
+    console.error('Excepción al guardar pedido:', err?.message || err);
+    return false;
+  }
+}
+
+
 
 export async function obtenerPedidosInsumosViva(sedeId: number) {
   const { data, error } = await supabase
@@ -233,14 +254,13 @@ export async function obtenerUsuariosOperarios() {
       .from('usuario')
       .select('id, nombre_completo, codigo_acceso, tipo_usuario, activo')
       .eq('activo', true)
-      .neq('tipo_usuario', 'administrador'); // Excluye al Administrador Principal
+      .neq('tipo_usuario', 'administrador');
 
     if (error) {
       console.error('Error obteniendo usuarios de Supabase:', error);
       return [];
     }
 
-    // Mapeamos los campos exactos de tu base de datos
     return (data || []).map((u: any) => ({
       id: u.id,
       nombre: u.nombre_completo,

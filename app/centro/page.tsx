@@ -1,75 +1,124 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  obtenerTarifasViva,
-  registrarMovimientoViva,
-  registrarBaseCajaViva,
-  crearPedidoInsumosViva,
-  obtenerUsuariosOperarios,
-  registrarNominaYCambioTurno,
-  obtenerSaboresViva,
-  TarifasViva,
-} from '@/lib/vivaQueries';
+  obtenerTarifasCentro,
+  registrarMovimientoCentro,
+  registrarBaseCajaCentro,
+  crearPedidoInsumosCentro,
+  TarifasCentro,
+} from '@/lib/centroQueries';
+import { obtenerUsuariosOperarios, registrarNominaYCambioTurno, obtenerSaboresViva } from '@/lib/vivaQueries';
 
-// LISTAS EXACTAS DE PEDIDOS VIVA SEGÚN FORMULARIO
+// LISTAS EXTRAÍDAS FIELMENTE DEL FORMULARIO DE PEDIDOS CENTRO
 const LISTA_PLASTICOS_RICHI = [
-  'Bolsa Blanca',
-  'Bolsa de Papel',
   'Cucharitas',
+  'Bolsas Para Levar',
+  'Bolsas de Papel',
+  'Tapas vaso malteada',
+  'Tapas Helado 8 Oz',
   'Vaso agua',
+  'Vasos de Helado',
+  'Vaso lego',
+  'Vaso malteada',
+  'Vaso soft',
+];
+
+const LISTA_PRODUCCION = [
+  'Helado Malteada',
+  'Mezcla',
+  'Sirope',
 ];
 
 const LISTA_INSUMOS_MATERIA = [
+  'Arequipe',
+  'Banderitas Acidas',
+  'Barquillos',
+  'Biscolata',
+  'Bocadillo Beleño',
+  'Brownies',
+  'Bulbols',
+  'Café instantáneo',
   'Capacillos',
   'Chamoy',
+  'Chantilly',
   'Chip chocolate',
-  'Chocolate cobertura Blanco',
+  'Chocolate Cobertura Blanco',
   'Chocolate Cobertura Negro',
+  'Chocolatina',
+  'Choquis',
+  'Chocorramo',
+  'Coco',
+  'Cocoa',
+  'Ducales',
   'Flips',
   'Galleta oreo',
+  'Gansitos',
+  'Gold',
   'Gomitas',
+  'Gomitas Bloque Mania',
+  'Grajeas',
+  'Granola',
   'Grasa',
+  'Hanutas',
+  'Jalea de Fresa',
+  'Jalea de Mora',
+  'Leche 32 bolsas',
+  'Leche 16 bolsas',
+  'Leche 8 bolsas',
+  'Leche 4 bolsas',
+  'Leche 1 bolsas',
   'Leche condensada',
+  'Legos',
+  'Limoncitas',
+  'Lluvia de chocolate',
+  'Milkyway',
+  'Mamut',
   'Mani',
+  'Merengon',
+  'Muñecos Gol',
   'Nerds',
-  'Nutella',
   'Pepitas colores',
-  'Pistacho',
+  'Pinguinos',
+  'Pitillos',
   'Plato Mostac',
+  'Queso',
   'Quipitos',
+  'Quimbaya',
   'Sal limón',
+  'Salsa chicle',
+  'Salsa chocolate',
+  'Salsa maracuyá',
+  'Salsa mora',
+  'Salsa fresa',
   'Semillas de girasol',
   'Servilletas',
   'Tajín',
+  'Tubos de Sandia Acidos',
+  'Yogo Yogo de Fresa',
+  'Zucaritas',
   'Zumo de Limon',
 ];
 
 const LISTA_ASEO = [
-  'Antibacterial',
   'Bolsas de basura',
   'Clorox',
   'Escoba',
   'Esponjillas',
+  'Guantes para aseo',
   'Guantes de Nitrilo',
   'Jabon de Manos',
   'Jabón loza',
   'Jabón en polvo',
   'Limpia Pisos',
-  'Liquido Verde',
-  'Papel higiénico',
-  'Tapabocas',
-  'Toallas de papel',
-  'Trapero',
-  'Trapitos',
 ];
 
-export default function VivaPage() {
+export default function CentroPage() {
   const router = useRouter();
   const [sesion, setSesion] = useState<any>(null);
 
-  const [tarifas, setTarifas] = useState<TarifasViva>({
+  const [tarifas, setTarifas] = useState<TarifasCentro>({
     subsidio: 9600,
     transporte: 8400,
     horaDiaEntreSemana: 7200,
@@ -83,17 +132,23 @@ export default function VivaPage() {
   const [aperturaRealizada, setAperturaRealizada] = useState(false);
   const [cierreRealizado, setCierreRealizado] = useState(false);
 
-  // INVENTARIO POR SABORES Y CAJA MOSTAC
+  // INVENTARIO CENTRO: TOTAL DE PALETAS Y EMPAQUES/VASOS
   const [tipoMovimiento, setTipoMovimiento] = useState<string>('apertura');
-  const [saboresViva, setSaboresViva] = useState<any[]>([]);
-  const [cantidadesSabores, setCantidadesSabores] = useState<{ [saborId: number]: number | '' }>({});
+  const [totalPaletas, setTotalPaletas] = useState<number | ''>('');
   const [cajasMostrador, setCajasMostrador] = useState<number | ''>('');
+  const [munecoGold, setMunecoGold] = useState<number | ''>('');
+  const [munecoLego, setMunecoLego] = useState<number | ''>('');
+  const [vasoSoft, setVasoSoft] = useState<number | ''>('');
+  const [vasoCroyurth, setVasoCroyurth] = useState<number | ''>('');
+  const [vasoMalteada, setVasoMalteada] = useState<number | ''>('');
   const [observaciones, setObservaciones] = useState<string>('');
 
-  // REQUISICIÓN DE PEDIDOS (SOLO 4 CATEGORÍAS)
+  // REQUISICIÓN DE PEDIDOS
   const [mostrarModuloPedidos, setMostrarModuloPedidos] = useState(false);
-  const [categoriaPedido, setCategoriaPedido] = useState<'paletas' | 'richi' | 'insumos' | 'aseo'>('paletas');
+  const [categoriaPedido, setCategoriaPedido] = useState<'paletas' | 'produccion' | 'richi' | 'insumos' | 'aseo'>('paletas');
+  const [saboresPaletas, setSaboresPaletas] = useState<any[]>([]);
   const [cantidadesPedidoPaletas, setCantidadesPedidoPaletas] = useState<{ [saborId: number]: number | '' }>({});
+  const [cantidadesProduccion, setCantidadesProduccion] = useState<{ [item: string]: number | '' }>({});
   const [cantidadesRichi, setCantidadesRichi] = useState<{ [item: string]: number | '' }>({});
   const [cantidadesInsumos, setCantidadesInsumos] = useState<{ [item: string]: number | '' }>({});
   const [cantidadesAseo, setCantidadesAseo] = useState<{ [item: string]: number | '' }>({});
@@ -117,22 +172,15 @@ export default function VivaPage() {
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
 
-  // REFERENCIAS PARA NAVEGACIÓN CON ENTER
-  const inputsRef = useRef<{ [key: string]: HTMLInputElement | null }>({});
-
   const hDia = Number(horasDia) || 0;
   const hNoche = Number(horasNoche) || 0;
   const valorHoraDia = tipoDia === 'domingo_festivo' ? tarifas.horaDiaFestivo : tarifas.horaDiaEntreSemana;
   const valorHoraNoche = tipoDia === 'domingo_festivo' ? tarifas.horaNocheFestivo : tarifas.horaNocheEntreSemana;
   const totalNomina = tarifas.subsidio + tarifas.transporte + hDia * valorHoraDia + hNoche * valorHoraNoche;
 
-  const SEDE_ID_VIVA = 2;
+  const SEDE_ID_CENTRO = 1;
 
-  const totalPaletasSuma = Object.values(cantidadesSabores).reduce(
-    (acc: number, val) => acc + (Number(val) || 0),
-    0
-  );
-
+  // FUNCIÓN DIRECTA DE EVALUACIÓN DE TURNO COMPLETO / CIERRE
   const esTurnoCierre = (() => {
     if (!sesion) return false;
     const str = JSON.stringify(sesion).toLowerCase();
@@ -161,49 +209,20 @@ export default function VivaPage() {
   async function cargarInicial() {
     setCargando(true);
     const [configTarifas, operarios, listaSabores] = await Promise.all([
-      obtenerTarifasViva(),
+      obtenerTarifasCentro(),
       obtenerUsuariosOperarios(),
       obtenerSaboresViva(),
     ]);
 
     setTarifas(configTarifas);
     setListaOperarios(operarios);
-    setSaboresViva(listaSabores);
+    setSaboresPaletas(listaSabores);
 
-    const iniciales: { [saborId: number]: number | '' } = {};
-    listaSabores.forEach((s) => (iniciales[s.id] = ''));
-    setCantidadesSabores(iniciales);
-    setCantidadesPedidoPaletas({ ...iniciales });
+    const inicialPaletas: { [saborId: number]: number | '' } = {};
+    listaSabores.forEach((s) => (inicialPaletas[s.id] = ''));
+    setCantidadesPedidoPaletas(inicialPaletas);
 
     setCargando(false);
-  }
-
-  function handleSaborCantidadChange(saborId: number, rawVal: string) {
-    const val = rawVal === '' ? '' : Math.max(0, Number(rawVal));
-    setCantidadesSabores((prev) => ({ ...prev, [saborId]: val }));
-  }
-
-  function handleKeyDownSabor(e: React.KeyboardEvent<HTMLInputElement>, index: number) {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      if (index < saboresViva.length - 1) {
-        const siguienteSabor = saboresViva[index + 1];
-        inputsRef.current[`sabor_${siguienteSabor.id}`]?.focus();
-      } else {
-        inputsRef.current['caja_mostac']?.focus();
-      }
-    }
-  }
-
-  function handleKeyDownPedido(e: React.KeyboardEvent<HTMLInputElement>, index: number, lista: any[], prefijo: string) {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      if (index < lista.length - 1) {
-        const siguienteItem = lista[index + 1];
-        const key = typeof siguienteItem === 'object' ? siguienteItem.id : siguienteItem;
-        inputsRef.current[`${prefijo}_${key}`]?.focus();
-      }
-    }
   }
 
   function handleCantidadPedidoChange(saborId: number, rawVal: string) {
@@ -223,22 +242,12 @@ export default function VivaPage() {
       return;
     }
 
-    const sesionActual = sesion || JSON.parse(localStorage.getItem('martineto_session') || '{}');
-    const usuarioId = sesionActual?.usuario_id || sesionActual?.id;
-    const sedeId = sesionActual?.sede_id || SEDE_ID_VIVA;
-    const turnoId = sesionActual?.turno_id || sesionActual?.turnoId;
-
-    if (!usuarioId) {
-      alert('⚠️ No hay una sesión de usuario activa. Vuelve a iniciar sesión.');
-      return;
-    }
-
     setGuardando(true);
     try {
-      const exito = await registrarBaseCajaViva(sedeId, usuarioId, monto, turnoId);
+      const exito = await registrarBaseCajaCentro(sesion?.sede_id || SEDE_ID_CENTRO, sesion?.usuario_id, monto);
       if (exito) {
         setBaseGuardada(true);
-        alert('¡Base inicial guardada con éxito en la tabla CAJA!');
+        alert('¡Base de caja guardada con éxito!');
       } else {
         alert('⚠️ Hubo un error al guardar la base en la base de datos.');
       }
@@ -258,127 +267,112 @@ export default function VivaPage() {
       return;
     }
 
-    const detallePaletasObj: { [saborNombre: string]: number } = {};
-    Object.entries(cantidadesSabores).forEach(([saborId, cant]) => {
-      const num = Number(cant) || 0;
-      if (num > 0) {
-        const saborObj = saboresViva.find((s) => s.id === Number(saborId));
-        if (saborObj) {
-          detallePaletasObj[saborObj.nombre] = num;
-        }
-      }
-    });
+    const cantTotal = Number(totalPaletas) || 0;
 
-    const detalleEmpaquesObj: { [itemNombre: string]: number } = {};
-    if (Number(cajasMostrador) > 0) {
-      detalleEmpaquesObj['Caja Mostac'] = Number(cajasMostrador);
-    }
-
-    const usuarioId = sesion?.usuario_id || sesion?.id;
-    const sedeId = sesion?.sede_id || SEDE_ID_VIVA;
+    const detalleConteoExtra = [
+      `Cajas Mostac: ${cajasMostrador || 0}`,
+      `Muñeco Gold: ${munecoGold || 0}`,
+      `Muñeco Lego: ${munecoLego || 0}`,
+      `Vaso Soft: ${vasoSoft || 0}`,
+      `Vaso Croyurth: ${vasoCroyurth || 0}`,
+      `Vaso Malteada: ${vasoMalteada || 0}`,
+      observaciones ? `Notas: ${observaciones}` : '',
+    ].filter(Boolean).join(' | ');
 
     setGuardando(true);
     try {
-      const exito = await registrarMovimientoViva(
-        sedeId,
-        usuarioId,
+      const exito = await registrarMovimientoCentro(
+        sesion.sede_id || SEDE_ID_CENTRO,
+        sesion.usuario_id,
         tipoMovimiento,
-        totalPaletasSuma,
-        detallePaletasObj,
-        detalleEmpaquesObj,
-        observaciones,
-        sesion?.turno_id
+        cantTotal,
+        Number(cajasMostrador) || 0,
+        detalleConteoExtra
       );
       setGuardando(false);
 
       if (exito) {
-        alert(`¡Registro de [${tipoMovimiento.toUpperCase()}] guardado con éxito! (Total: ${totalPaletasSuma} paletas)`);
-        
-        if (tipoMovimiento === 'apertura') {
-          setAperturaRealizada(true);
-          setTipoMovimiento('nuevas');
-        } else if (tipoMovimiento === 'cierre') {
-          setCierreRealizado(true);
-        }
-
-        const limpias: { [saborId: number]: number | '' } = {};
-        saboresViva.forEach((s) => (limpias[s.id] = ''));
-        setCantidadesSabores(limpias);
-        setCajasMostrador('');
-        setObservaciones('');
-      } else {
-        alert('⚠️ Error al registrar el inventario en la base de datos.');
+        alert(`¡Registro de [${tipoMovimiento.toUpperCase()}] guardado con éxito!`);
       }
     } catch (err) {
       setGuardando(false);
       console.error('Error guardando inventario:', err);
+    } finally {
+      if (tipoMovimiento === 'apertura') {
+        setAperturaRealizada(true);
+        setTipoMovimiento('nuevas');
+      } else if (tipoMovimiento === 'cierre') {
+        setCierreRealizado(true);
+      }
+
+      setTotalPaletas('');
+      setCajasMostrador('');
+      setMunecoGold('');
+      setMunecoLego('');
+      setVasoSoft('');
+      setVasoCroyurth('');
+      setVasoMalteada('');
+      setObservaciones('');
     }
   }
 
   async function handleGuardarPedidoInsumos() {
     setGuardando(true);
+    let detalleItems: { [key: string]: number } = {};
 
-    const paletasObj: { [key: string]: number } = {};
-    Object.entries(cantidadesPedidoPaletas).forEach(([saborId, cant]) => {
-      const num = Number(cant) || 0;
-      if (num > 0) {
-        const saborObj = saboresViva.find((s) => s.id === Number(saborId));
-        if (saborObj) paletasObj[saborObj.nombre] = num;
-      }
-    });
-
-    const richiObj: { [key: string]: number } = {};
-    Object.entries(cantidadesRichi).forEach(([item, cant]) => {
-      if (Number(cant) > 0) richiObj[item] = Number(cant);
-    });
-
-    const insumosObj: { [key: string]: number } = {};
-    Object.entries(cantidadesInsumos).forEach(([item, cant]) => {
-      if (Number(cant) > 0) insumosObj[item] = Number(cant);
-    });
-
-    const aseoObj: { [key: string]: number } = {};
-    Object.entries(cantidadesAseo).forEach(([item, cant]) => {
-      if (Number(cant) > 0) aseoObj[item] = Number(cant);
-    });
-
-    if (otroInsumoTexto.trim()) {
-      insumosObj[`Otro: ${otroInsumoTexto.trim()}`] = 1;
+    if (categoriaPedido === 'paletas') {
+      Object.entries(cantidadesPedidoPaletas).forEach(([saborId, cant]) => {
+        const num = Number(cant) || 0;
+        if (num > 0) {
+          const saborObj = saboresPaletas.find((s) => s.id === Number(saborId));
+          if (saborObj) detalleItems[saborObj.nombre] = num;
+        }
+      });
+    } else if (categoriaPedido === 'produccion') {
+      Object.entries(cantidadesProduccion).forEach(([item, cant]) => {
+        if (Number(cant) > 0) detalleItems[item] = Number(cant);
+      });
+    } else if (categoriaPedido === 'richi') {
+      Object.entries(cantidadesRichi).forEach(([item, cant]) => {
+        if (Number(cant) > 0) detalleItems[item] = Number(cant);
+      });
+    } else if (categoriaPedido === 'insumos') {
+      Object.entries(cantidadesInsumos).forEach(([item, cant]) => {
+        if (Number(cant) > 0) detalleItems[item] = Number(cant);
+      });
+    } else if (categoriaPedido === 'aseo') {
+      Object.entries(cantidadesAseo).forEach(([item, cant]) => {
+        if (Number(cant) > 0) detalleItems[item] = Number(cant);
+      });
     }
 
-    const totalItemsCount = 
-      Object.keys(paletasObj).length + 
-      Object.keys(richiObj).length + 
-      Object.keys(insumosObj).length + 
-      Object.keys(aseoObj).length;
+    if (otroInsumoTexto.trim()) {
+      detalleItems[`Otro: ${otroInsumoTexto.trim()}`] = 1;
+    }
 
-    if (totalItemsCount === 0) {
+    if (Object.keys(detalleItems).length === 0) {
       alert('Ingresa al menos una cantidad para realizar el pedido.');
       setGuardando(false);
       return;
     }
 
-    const usuarioId = sesion?.usuario_id || sesion?.id;
-    const sedeId = sesion?.sede_id || SEDE_ID_VIVA;
-
     try {
-      const ok = await crearPedidoInsumosViva({
-        sedeId,
-        usuarioId,
-        paletas: paletasObj,
-        richi: richiObj,
-        insumos: insumosObj,
-        aseo: aseoObj,
-        observaciones: obsPedido,
-      });
+      const ok = await crearPedidoInsumosCentro(
+        sesion?.sede_id || SEDE_ID_CENTRO,
+        sesion?.usuario_id,
+        categoriaPedido,
+        detalleItems,
+        obsPedido
+      );
 
       if (ok) {
-        alert('¡Pedido de Viva registrado correctamente!');
+        alert('¡Pedido de insumos registrado correctamente!');
+        setCantidadesProduccion({});
         setCantidadesRichi({});
         setCantidadesInsumos({});
         setCantidadesAseo({});
         const limpiasPaletas: { [saborId: number]: number | '' } = {};
-        saboresViva.forEach((s) => (limpiasPaletas[s.id] = ''));
+        saboresPaletas.forEach((s) => (limpiasPaletas[s.id] = ''));
         setCantidadesPedidoPaletas(limpiasPaletas);
         setOtroInsumoTexto('');
         setObsPedido('');
@@ -406,12 +400,10 @@ export default function VivaPage() {
 
     setGuardando(true);
     const efDejado = Number(efectivoDejado) || 0;
-    const usuarioId = sesion?.usuario_id || sesion?.id;
-    const sedeId = sesion?.sede_id || SEDE_ID_VIVA;
 
     const ok = await registrarNominaYCambioTurno({
-      sedeId,
-      usuarioId,
+      sedeId: sesion?.sede_id || SEDE_ID_CENTRO,
+      usuarioId: sesion?.usuario_id,
       tipoDia,
       horasDia: hDia,
       horasNoche: hNoche,
@@ -461,7 +453,7 @@ export default function VivaPage() {
       const nuevaSesion = {
         usuario_id: operarioEncontrado.id,
         nombre: operarioEncontrado.nombre,
-        sede_id: sesion?.sede_id || SEDE_ID_VIVA,
+        sede_id: sesion?.sede_id || SEDE_ID_CENTRO,
         turno: turnoRecibido,
       };
 
@@ -493,7 +485,7 @@ export default function VivaPage() {
   if (cargando) {
     return (
       <main className="min-h-screen bg-[#07090e] flex items-center justify-center text-gray-400 text-xs font-bold font-sans">
-        Cargando Sede Viva...
+        Cargando Sede Centro...
       </main>
     );
   }
@@ -505,7 +497,7 @@ export default function VivaPage() {
       {/* Header Banner */}
       <header className="bg-[#0d111a] border border-gray-800 p-4 rounded-2xl flex justify-between items-center shadow-lg">
         <div>
-          <h1 className="text-base md:text-lg font-black text-white tracking-wide">🛍️ WALERS VIVA</h1>
+          <h1 className="text-base md:text-lg font-black text-white tracking-wide">🏪 WALERS CENTRO</h1>
           <p className="text-xs text-gray-400">
             Operador en Turno: <b className="text-purple-400">{sesion?.nombre || 'Operador'}</b>
             <span className="ml-2 text-amber-400 font-bold uppercase">
@@ -559,10 +551,10 @@ export default function VivaPage() {
       {/* GRID DOS COLUMNAS */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
         
-        {/* COLUMNA IZQUIERDA: INVENTARIO POR SABORES Y CAJA MOSTAC */}
+        {/* COLUMNA IZQUIERDA: INVENTARIO GLOBAL Y CONTEO DE EMPAQUES */}
         <div className="bg-[#0d111a] border border-gray-800 p-4 rounded-2xl space-y-4 shadow-md">
           <div className="flex justify-between items-center border-b border-gray-800 pb-2">
-            <h2 className="text-xs md:text-sm font-black text-white">🍦 Conteo de Paletas por Sabor</h2>
+            <h2 className="text-xs md:text-sm font-black text-white">🍦 Conteo Global de Paletas y Empaques</h2>
             <span className="text-[11px] text-purple-400 font-bold uppercase">{tipoMovimiento}</span>
           </div>
 
@@ -586,55 +578,55 @@ export default function VivaPage() {
             </select>
           </div>
 
-          {/* LISTADO DE PALETAS CON CATEGORÍA DESDE LA TABLA PRODUCTO */}
-          <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1 border border-gray-800 p-2.5 rounded-xl bg-gray-950/40">
-            <span className="text-[10px] text-purple-400 font-bold uppercase block mb-1">Ingresar Cantidad por Sabor:</span>
-            {saboresViva.map((s, idx) => (
-              <div key={s.id} className="bg-gray-900/60 border border-gray-800 p-2 rounded-xl flex justify-between items-center gap-2">
-                <div className="truncate">
-                  <p className="font-bold text-xs text-white truncate">{s.nombre}</p>
-                  <span className="text-[10px] font-semibold text-purple-400 block -mt-0.5 capitalize">
-                    {s.categoria || s.tipo || ''}
-                  </span>
-                </div>
-                <input
-                  ref={(el) => (inputsRef.current[`sabor_${s.id}`] = el)}
-                  type="number"
-                  placeholder="0"
-                  value={cantidadesSabores[s.id] ?? ''}
-                  onChange={(e) => handleSaborCantidadChange(s.id, e.target.value)}
-                  onKeyDown={(e) => handleKeyDownSabor(e, idx)}
-                  onFocus={(e) => e.target.select()}
-                  className="w-24 bg-gray-950 border border-purple-800/80 text-purple-300 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-purple-400 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                />
-              </div>
-            ))}
-          </div>
-
-          {/* TOTAL CALCULADO AUTOMÁTICAMENTE */}
-          <div className="bg-gray-900/80 p-3 rounded-2xl border border-purple-900/50 flex justify-between items-center shadow-inner">
-            <span className="text-xs font-black text-purple-300 uppercase">
+          {/* CAMPO DE TOTAL DE PALETAS */}
+          <div className="bg-gray-900/80 p-4 rounded-2xl border border-purple-900/40 space-y-2">
+            <label className="text-xs font-black text-purple-300 block uppercase">
               Total Paletas ({tipoMovimiento.toUpperCase()}):
-            </span>
-            <span className="text-xl font-black text-purple-400 bg-gray-950 px-4 py-1.5 rounded-xl border border-purple-800 shadow">
-              {totalPaletasSuma}
-            </span>
+            </label>
+            <input
+              type="number"
+              placeholder="Ingresa la cantidad total..."
+              value={totalPaletas}
+              onChange={(e) => setTotalPaletas(e.target.value === '' ? '' : Number(e.target.value))}
+              onFocus={(e) => e.target.select()}
+              className="w-full bg-gray-950 border border-gray-800 text-purple-400 font-black text-center rounded-xl p-3 text-lg outline-none focus:border-purple-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            />
           </div>
 
-          {/* CONTEO ÚNICO DE CAJA MOSTAC */}
+          {/* LISTADO DE ITEMS A CONTAR EN CENTRO */}
           <div className="bg-gray-900/60 p-3 rounded-xl border border-gray-800 space-y-2">
-            <span className="text-[10px] text-amber-400 font-extrabold uppercase block">Conteo de Empaques:</span>
-            <div className="flex justify-between items-center bg-gray-950 p-2.5 rounded-lg border border-gray-800">
-              <span className="text-xs text-gray-300 font-bold">📦 Caja Mostac:</span>
-              <input 
-                ref={(el) => (inputsRef.current['caja_mostac'] = el)}
-                type="number" 
-                placeholder="0" 
-                value={cajasMostrador} 
-                onChange={(e) => setCajasMostrador(e.target.value === '' ? '' : Number(e.target.value))} 
-                onFocus={(e) => e.target.select()} 
-                className="w-24 bg-gray-900 text-amber-400 font-black text-center text-sm rounded-lg p-2 outline-none focus:border-amber-500 border border-gray-800 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
-              />
+            <span className="text-[10px] text-amber-400 font-extrabold uppercase block">Conteo de Empaques y Vasos:</span>
+            
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="flex justify-between items-center bg-gray-950 p-2 rounded-lg border border-gray-800">
+                <span className="text-gray-300 font-bold">📦 Caja Mostac:</span>
+                <input type="number" placeholder="0" value={cajasMostrador} onChange={(e) => setCajasMostrador(e.target.value === '' ? '' : Number(e.target.value))} onFocus={(e) => e.target.select()} className="w-16 bg-gray-900 text-amber-400 font-bold text-center rounded p-1 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+              </div>
+
+              <div className="flex justify-between items-center bg-gray-950 p-2 rounded-lg border border-gray-800">
+                <span className="text-gray-300 font-bold">🧸 Muñeco Gold:</span>
+                <input type="number" placeholder="0" value={munecoGold} onChange={(e) => setMunecoGold(e.target.value === '' ? '' : Number(e.target.value))} onFocus={(e) => e.target.select()} className="w-16 bg-gray-900 text-amber-400 font-bold text-center rounded p-1 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+              </div>
+
+              <div className="flex justify-between items-center bg-gray-950 p-2 rounded-lg border border-gray-800">
+                <span className="text-gray-300 font-bold">🧱 Muñeco Lego:</span>
+                <input type="number" placeholder="0" value={munecoLego} onChange={(e) => setMunecoLego(e.target.value === '' ? '' : Number(e.target.value))} onFocus={(e) => e.target.select()} className="w-16 bg-gray-900 text-amber-400 font-bold text-center rounded p-1 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+              </div>
+
+              <div className="flex justify-between items-center bg-gray-950 p-2 rounded-lg border border-gray-800">
+                <span className="text-gray-300 font-bold">🥤 Vaso Soft:</span>
+                <input type="number" placeholder="0" value={vasoSoft} onChange={(e) => setVasoSoft(e.target.value === '' ? '' : Number(e.target.value))} onFocus={(e) => e.target.select()} className="w-16 bg-gray-900 text-amber-400 font-bold text-center rounded p-1 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+              </div>
+
+              <div className="flex justify-between items-center bg-gray-950 p-2 rounded-lg border border-gray-800">
+                <span className="text-gray-300 font-bold">🍧 Vaso Croyurth:</span>
+                <input type="number" placeholder="0" value={vasoCroyurth} onChange={(e) => setVasoCroyurth(e.target.value === '' ? '' : Number(e.target.value))} onFocus={(e) => e.target.select()} className="w-16 bg-gray-900 text-amber-400 font-bold text-center rounded p-1 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+              </div>
+
+              <div className="flex justify-between items-center bg-gray-950 p-2 rounded-lg border border-gray-800">
+                <span className="text-gray-300 font-bold">🥤 Vaso Malteada:</span>
+                <input type="number" placeholder="0" value={vasoMalteada} onChange={(e) => setVasoMalteada(e.target.value === '' ? '' : Number(e.target.value))} onFocus={(e) => e.target.select()} className="w-16 bg-gray-900 text-amber-400 font-bold text-center rounded p-1 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+              </div>
             </div>
           </div>
 
@@ -647,14 +639,14 @@ export default function VivaPage() {
 
           <button
             onClick={handleGuardarInventario}
-            disabled={!baseGuardada || guardando}
+            disabled={!baseGuardada}
             className={`w-full font-black py-3 rounded-xl text-xs md:text-sm transition-all uppercase shadow-lg ${
-              baseGuardada && !guardando
+              baseGuardada
                 ? 'bg-purple-600 hover:bg-purple-500 text-white shadow-purple-900/60 cursor-pointer opacity-100'
                 : 'bg-gray-800 text-gray-500 cursor-not-allowed opacity-40'
             }`}
           >
-            {guardando ? 'Guardando Inventario...' : `💾 Guardar ${tipoMovimiento}`}
+            💾 Guardar {tipoMovimiento}
           </button>
         </div>
 
@@ -678,93 +670,82 @@ export default function VivaPage() {
 
             {mostrarModuloPedidos && (
               <div className="space-y-3 pt-1">
-                {/* 4 BOTONES DE CATEGORÍA SEGÚN FORMULARIO */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[10px]">
+                {/* BOTONES DE CATEGORÍA DEL FORMULARIO CENTRO */}
+                <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5 text-[10px]">
                   <button type="button" onClick={() => setCategoriaPedido('paletas')} className={`py-2 px-1 rounded-xl font-bold border text-center transition-all ${categoriaPedido === 'paletas' ? 'bg-amber-600 text-white border-amber-500 shadow' : 'bg-gray-900 text-gray-400 border-gray-800'}`}>🍦 Paletas</button>
+                  <button type="button" onClick={() => setCategoriaPedido('produccion')} className={`py-2 px-1 rounded-xl font-bold border text-center transition-all ${categoriaPedido === 'produccion' ? 'bg-amber-600 text-white border-amber-500 shadow' : 'bg-gray-900 text-gray-400 border-gray-800'}`}>🧪 Producción</button>
                   <button type="button" onClick={() => setCategoriaPedido('richi')} className={`py-2 px-1 rounded-xl font-bold border text-center transition-all ${categoriaPedido === 'richi' ? 'bg-amber-600 text-white border-amber-500 shadow' : 'bg-gray-900 text-gray-400 border-gray-800'}`}>🛍️ Richi</button>
                   <button type="button" onClick={() => setCategoriaPedido('insumos')} className={`py-2 px-1 rounded-xl font-bold border text-center transition-all ${categoriaPedido === 'insumos' ? 'bg-amber-600 text-white border-amber-500 shadow' : 'bg-gray-900 text-gray-400 border-gray-800'}`}>🍫 Insumos</button>
                   <button type="button" onClick={() => setCategoriaPedido('aseo')} className={`py-2 px-1 rounded-xl font-bold border text-center transition-all ${categoriaPedido === 'aseo' ? 'bg-amber-600 text-white border-amber-500 shadow' : 'bg-gray-900 text-gray-400 border-gray-800'}`}>🧹 Aseo</button>
                 </div>
 
+                {/* 1. PALETAS POR SABOR */}
                 {categoriaPedido === 'paletas' && (
                   <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 border border-gray-800/60 p-2.5 rounded-xl bg-gray-950/40">
                     <span className="text-[10px] text-amber-400 font-bold uppercase block">Seleccionar Sabores a Solicitar a Bodega:</span>
-                    {saboresViva.map((s, idx) => (
+                    {saboresPaletas.map((s) => (
                       <div key={s.id} className="bg-gray-900/60 border border-gray-800 p-2 rounded-xl flex justify-between items-center gap-2">
                         <p className="font-bold text-xs text-white truncate">{s.nombre}</p>
                         <input
-                          ref={(el) => (inputsRef.current[`pedido_paleta_${s.id}`] = el)}
                           type="number"
                           placeholder="0"
                           value={cantidadesPedidoPaletas[s.id] ?? ''}
                           onChange={(e) => handleCantidadPedidoChange(s.id, e.target.value)}
-                          onKeyDown={(e) => handleKeyDownPedido(e, idx, saboresViva, 'pedido_paleta')}
                           onFocus={(e) => e.target.select()}
-                          className="w-24 bg-gray-950 border border-amber-800/80 text-amber-300 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-amber-400 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          className="w-14 bg-gray-950 border border-gray-800 text-amber-400 font-bold text-center rounded-lg p-1 text-xs outline-none focus:border-amber-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                         />
                       </div>
                     ))}
                   </div>
                 )}
 
+                {/* 2. PRODUCCIÓN */}
+                {categoriaPedido === 'produccion' && (
+                  <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 border border-gray-800/60 p-2.5 rounded-xl bg-gray-950/40">
+                    <span className="text-[10px] text-amber-400 font-bold uppercase block">Items de Producción</span>
+                    {LISTA_PRODUCCION.map((item) => (
+                      <div key={item} className="bg-gray-900/60 border border-gray-800 p-2 rounded-xl flex justify-between items-center gap-2">
+                        <span className="text-xs font-bold text-white truncate">{item}</span>
+                        <input type="number" placeholder="0" value={cantidadesProduccion[item] ?? ''} onChange={(e) => handleItemGenericoChange(item, e.target.value, setCantidadesProduccion)} onFocus={(e) => e.target.select()} className="w-16 bg-gray-950 border border-gray-800 text-amber-400 font-bold text-center rounded-lg p-1 text-xs outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* 3. PLÁSTICOS RICHI */}
                 {categoriaPedido === 'richi' && (
                   <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 border border-gray-800/60 p-2.5 rounded-xl bg-gray-950/40">
                     <span className="text-[10px] text-amber-400 font-bold uppercase block">Plásticos Richi</span>
-                    {LISTA_PLASTICOS_RICHI.map((item, idx) => (
+                    {LISTA_PLASTICOS_RICHI.map((item) => (
                       <div key={item} className="bg-gray-900/60 border border-gray-800 p-2 rounded-xl flex justify-between items-center gap-2">
                         <span className="text-xs font-bold text-white truncate">{item}</span>
-                        <input 
-                          ref={(el) => (inputsRef.current[`pedido_richi_${item}`] = el)}
-                          type="number" 
-                          placeholder="0" 
-                          value={cantidadesRichi[item] ?? ''} 
-                          onChange={(e) => handleItemGenericoChange(item, e.target.value, setCantidadesRichi)} 
-                          onKeyDown={(e) => handleKeyDownPedido(e, idx, LISTA_PLASTICOS_RICHI, 'pedido_richi')}
-                          onFocus={(e) => e.target.select()} 
-                          className="w-24 bg-gray-950 border border-amber-800/80 text-amber-300 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-amber-400 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
-                        />
+                        <input type="number" placeholder="0" value={cantidadesRichi[item] ?? ''} onChange={(e) => handleItemGenericoChange(item, e.target.value, setCantidadesRichi)} onFocus={(e) => e.target.select()} className="w-16 bg-gray-950 border border-gray-800 text-amber-400 font-bold text-center rounded-lg p-1 text-xs outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
                       </div>
                     ))}
                   </div>
                 )}
 
+                {/* 4. INSUMOS Y TOPPINGS */}
                 {categoriaPedido === 'insumos' && (
                   <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 border border-gray-800/60 p-2.5 rounded-xl bg-gray-950/40">
                     <span className="text-[10px] text-amber-400 font-bold uppercase block">Insumos y Toppings</span>
-                    {LISTA_INSUMOS_MATERIA.map((item, idx) => (
+                    {LISTA_INSUMOS_MATERIA.map((item) => (
                       <div key={item} className="bg-gray-900/60 border border-gray-800 p-2 rounded-xl flex justify-between items-center gap-2">
                         <span className="text-xs font-bold text-white truncate">{item}</span>
-                        <input 
-                          ref={(el) => (inputsRef.current[`pedido_ins_${item}`] = el)}
-                          type="number" 
-                          placeholder="0" 
-                          value={cantidadesInsumos[item] ?? ''} 
-                          onChange={(e) => handleItemGenericoChange(item, e.target.value, setCantidadesInsumos)} 
-                          onKeyDown={(e) => handleKeyDownPedido(e, idx, LISTA_INSUMOS_MATERIA, 'pedido_ins')}
-                          onFocus={(e) => e.target.select()} 
-                          className="w-24 bg-gray-950 border border-amber-800/80 text-amber-300 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-amber-400 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
-                        />
+                        <input type="number" placeholder="0" value={cantidadesInsumos[item] ?? ''} onChange={(e) => handleItemGenericoChange(item, e.target.value, setCantidadesInsumos)} onFocus={(e) => e.target.select()} className="w-14 bg-gray-950 border border-gray-800 text-amber-400 font-bold text-center rounded-lg p-1 text-xs outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
                       </div>
                     ))}
                   </div>
                 )}
 
+                {/* 5. ASEO */}
                 {categoriaPedido === 'aseo' && (
                   <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 border border-gray-800/60 p-2.5 rounded-xl bg-gray-950/40">
                     <span className="text-[10px] text-amber-400 font-bold uppercase block">Implementos de Aseo</span>
-                    {LISTA_ASEO.map((item, idx) => (
+                    {LISTA_ASEO.map((item) => (
                       <div key={item} className="bg-gray-900/60 border border-gray-800 p-2 rounded-xl flex justify-between items-center gap-2">
                         <span className="text-xs font-bold text-white truncate">{item}</span>
-                        <input 
-                          ref={(el) => (inputsRef.current[`pedido_aseo_${item}`] = el)}
-                          type="number" 
-                          placeholder="0" 
-                          value={cantidadesAseo[item] ?? ''} 
-                          onChange={(e) => handleItemGenericoChange(item, e.target.value, setCantidadesAseo)} 
-                          onKeyDown={(e) => handleKeyDownPedido(e, idx, LISTA_ASEO, 'pedido_aseo')}
-                          onFocus={(e) => e.target.select()} 
-                          className="w-24 bg-gray-950 border border-amber-800/80 text-amber-300 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-amber-400 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
-                        />
+                        <input type="number" placeholder="0" value={cantidadesAseo[item] ?? ''} onChange={(e) => handleItemGenericoChange(item, e.target.value, setCantidadesAseo)} onFocus={(e) => e.target.select()} className="w-14 bg-gray-950 border border-gray-800 text-amber-400 font-bold text-center rounded-lg p-1 text-xs outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
                       </div>
                     ))}
                   </div>
@@ -774,7 +755,7 @@ export default function VivaPage() {
                 <input type="text" placeholder="Observación general del pedido..." value={obsPedido} onChange={(e) => setObsPedido(e.target.value)} className="w-full bg-gray-900 border border-gray-800 text-white p-2.5 rounded-xl outline-none text-xs" />
 
                 <button onClick={handleGuardarPedidoInsumos} disabled={guardando} className="w-full bg-amber-600 hover:bg-amber-500 text-white font-black py-2.5 rounded-xl text-xs uppercase transition-all shadow-md cursor-pointer disabled:opacity-50">
-                  {guardando ? 'Guardando pedido...' : '🚀 Enviar Pedido a Bodega'}
+                  {guardando ? 'Guardando pedido...' : '🚀 Enviar Pedido a Producción / Bodega'}
                 </button>
               </div>
             )}
