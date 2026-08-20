@@ -20,6 +20,17 @@ const LISTA_EMPAQUES_MARTINETO = [
   'Vaso 12 onzas',
 ];
 
+const LUGARES_COMPRA_INICIALES = [
+  'Avicampo',
+  'Carnaval del Dulce',
+  'Chispazo',
+  'D1',
+  'Flesman',
+  'Makro',
+  'Plaza de Mercado',
+  'Plasticos Richi',
+];
+
 const formatearMoneda = (val: number | string): string => {
   if (val === '' || val === null || val === undefined) return '';
   const num = typeof val === 'string' ? Number(val.replace(/\D/g, '')) : val;
@@ -32,7 +43,7 @@ const desformatearMoneda = (val: string): number | '' => {
   return soloNumeros === '' ? '' : Number(soloNumeros);
 };
 
-type CategoriaTab = 'paletas' | 'richi' | 'prod' | 'insumos' | 'aseo';
+type CategoriaTab = 'paletas' | 'richi' | 'produccion' | 'insumos' | 'aseo';
 
 export default function MartinetoPOSPage() {
   const router = useRouter();
@@ -55,7 +66,7 @@ export default function MartinetoPOSPage() {
   const [categoriaVentaSel, setCategoriaVentaSel] = useState<string>('TODAS');
   const [errorLecturaBD, setErrorLecturaBD] = useState<string | null>(null);
 
-  // LISTA DE PEDIDOS RAPPI INDEPENDIENTES Y PERSISTENTES
+  // RAPPI ACTIVOS
   const [pedidosRappi, setPedidosRappi] = useState<any[]>([]);
 
   // MODAL DE COBRO / PAGO MIXTO
@@ -65,26 +76,36 @@ export default function MartinetoPOSPage() {
   const [pagoDaviplata, setPagoDaviplata] = useState<number | ''>('');
   const [procesandoPago, setProcesandoPago] = useState(false);
 
-  // REQUISICIONES / PEDIDOS A BODEGA
+  // REQUISICIONES / PEDIDOS A BODEGA (DESDE TABLA "producto")
   const [productosInsumosBD, setProductosInsumosBD] = useState<any[]>([]);
   const [mostrarPedidos, setMostrarPedidos] = useState(false);
   const [tabPedido, setTabPedido] = useState<CategoriaTab>('paletas');
-  
+
   const [pedidosCategorias, setPedidosCategorias] = useState<{
     paletas: { [key: string]: number };
     richi: { [key: string]: number };
-    prod: { [key: string]: number };
+    produccion: { [key: string]: number };
     insumos: { [key: string]: number };
     aseo: { [key: string]: number };
   }>({
     paletas: {},
     richi: {},
-    prod: {},
+    produccion: {},
     insumos: {},
     aseo: {},
   });
 
   const [observacionPedido, setObservacionPedido] = useState<string>('');
+
+  // MODAL CREAR NUEVO PRODUCTO EN BD
+  const [mostrarModalNuevoProd, setMostrarModalNuevoProd] = useState(false);
+  const [nuevoProdNombre, setNuevoProdNombre] = useState('');
+  const [nuevoProdCategoria, setNuevoProdCategoria] = useState('Paleta');
+  const [nuevoProdGrupo, setNuevoProdGrupo] = useState('');
+  const [nuevoProdDondeComprar, setNuevoProdDondeComprar] = useState('Plaza de Mercado');
+  const [dondeComprarPersonalizado, setDondeComprarPersonalizado] = useState('');
+  const [esProductoGlobal, setEsProductoGlobal] = useState(true);
+  const [guardandoProducto, setGuardandoProducto] = useState(false);
 
   // NÓMINA
   const [tipoDia, setTipoDia] = useState<string>('entre_semana');
@@ -96,9 +117,16 @@ export default function MartinetoPOSPage() {
   const SEDE_ID_MARTINETO = 1;
 
   const inputRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
-  const pedidosRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
-
   const bloqueadoPorApertura = !baseGuardada || !aperturaRealizada;
+
+  const listaLugaresCompraUnica = Array.from(
+    new Set([
+      ...LUGARES_COMPRA_INICIALES,
+      ...productosInsumosBD
+        .map((p) => p.donde_comprar)
+        .filter((lugar): lugar is string => Boolean(lugar && lugar.trim() !== '')),
+    ])
+  ).sort();
 
   useEffect(() => {
     const sesionLocal = localStorage.getItem('martineto_session');
@@ -116,6 +144,7 @@ export default function MartinetoPOSPage() {
     setErrorLecturaBD(null);
 
     try {
+      // 1. Cargar Mesas
       const mesasRes = await supabase
         .from('mesa')
         .select('*')
@@ -144,6 +173,7 @@ export default function MartinetoPOSPage() {
         }))
       );
 
+      // 2. Cargar Productos de Venta POS
       const { data: prodsVentaBD, error: errVenta } = await supabase
         .from('produc_ven_martineto')
         .select('*');
@@ -172,20 +202,26 @@ export default function MartinetoPOSPage() {
           if (p.categoriaMostrar) catsSet.add(p.categoriaMostrar);
         });
 
-        const catsUnicasBD = Array.from(catsSet);
-        setListaCategoriasVenta(catsUnicasBD);
+        setListaCategoriasVenta(Array.from(catsSet));
         setCategoriaVentaSel('TODAS');
       } else {
         setErrorLecturaBD('La tabla produc_ven_martineto no devolvió registros.');
       }
 
-      const { data: prodsInsumosBD } = await supabase.from('producto').select('*');
+      // 3. Cargar Insumos desde "producto"
+      const { data: prodsInsumosBD } = await supabase
+        .from('producto')
+        .select('*')
+        .or(`sede_id.eq.${SEDE_ID_MARTINETO},sede_id.eq.0,sede_id.is.null`);
+
       if (prodsInsumosBD) {
         setProductosInsumosBD(
           prodsInsumosBD.map((p: any) => ({
             ...p,
             nombre: p.nombre || p.Nombre || '',
             categoriaLimpia: String(p.categoria || p.Categoria || 'general').trim().toLowerCase(),
+            grupoLimpio: String(p.grupo || p.Grupo || '').trim().toLowerCase(),
+            donde_comprar: p.donde_comprar || '',
           }))
         );
       }
@@ -194,6 +230,69 @@ export default function MartinetoPOSPage() {
     } finally {
       setCargando(false);
     }
+  }
+
+  async function crearNuevoProductoBD() {
+    const nombreLimpio = nuevoProdNombre.trim();
+
+    const dondeComprarFinal =
+      nuevoProdDondeComprar === 'Otro'
+        ? dondeComprarPersonalizado.trim()
+        : nuevoProdDondeComprar.trim();
+
+    if (!nombreLimpio) {
+      alert('⚠️ El nombre del producto es obligatorio.');
+      return;
+    }
+
+    if (!dondeComprarFinal) {
+      alert('⚠️ Debe especificar el lugar de compra o proveedor.');
+      return;
+    }
+
+    setGuardandoProducto(true);
+
+    const grupoAInsertar =
+      nuevoProdCategoria === 'Paleta'
+        ? nuevoProdGrupo.trim() || 'Paleta'
+        : nuevoProdCategoria;
+
+    const payload = {
+      nombre: nombreLimpio,
+      categoria: nuevoProdCategoria,
+      grupo: grupoAInsertar,
+      donde_comprar: dondeComprarFinal,
+      sede_id: esProductoGlobal ? 0 : SEDE_ID_MARTINETO,
+      activo: true,
+    };
+
+    const { data, error } = await supabase.from('producto').insert([payload]).select();
+
+    if (error) {
+      alert('Error guardando en la base de datos: ' + error.message);
+      setGuardandoProducto(false);
+      return;
+    }
+
+    alert(`✅ ¡Producto "${nombreLimpio}" creado con éxito!`);
+
+    if (data && data.length > 0) {
+      const nuevoObj = {
+        ...data[0],
+        nombre: data[0].nombre,
+        categoriaLimpia: String(data[0].categoria || '').trim().toLowerCase(),
+        grupoLimpio: String(data[0].grupo || '').trim().toLowerCase(),
+        donde_comprar: data[0].donde_comprar || '',
+      };
+      setProductosInsumosBD((prev) => [...prev, nuevoObj]);
+    }
+
+    setNuevoProdNombre('');
+    setNuevoProdGrupo('');
+    setNuevoProdDondeComprar(LUGARES_COMPRA_INICIALES[0]);
+    setDondeComprarPersonalizado('');
+    setMostrarModalNuevoProd(false);
+    setGuardandoProducto(false);
   }
 
   const esRappiActivo = typeof mesaActivaId === 'string' && mesaActivaId.startsWith('rappi_');
@@ -207,14 +306,14 @@ export default function MartinetoPOSPage() {
   });
 
   const insumosFiltrados = productosInsumosBD.filter((prod) => {
-    const cat = prod.categoriaLimpia;
-    const nom = String(prod.nombre || '').toLowerCase();
+    const cat = String(prod?.categoriaLimpia || '');
 
-    if (tabPedido === 'paletas') return cat.includes('light') || cat.includes('frutal') || cat.includes('crema') || cat.includes('paleta') || nom.includes('paleta');
-    if (tabPedido === 'richi') return cat.includes('richi') || cat.includes('empaque') || cat.includes('vaso') || nom.includes('vaso') || nom.includes('cuchar') || nom.includes('bolsa');
-    if (tabPedido === 'prod') return cat.includes('prod') || cat.includes('produccion') || cat.includes('materia') || nom.includes('mezcla') || nom.includes('helado');
-    if (tabPedido === 'insumos') return cat.includes('insumo') || cat.includes('topping') || nom.includes('chamoy') || nom.includes('nerds') || nom.includes('arequipe');
-    if (tabPedido === 'aseo') return cat.includes('aseo') || cat.includes('limpieza') || nom.includes('clorox') || nom.includes('escoba');
+    if (tabPedido === 'paletas') return cat.includes('paleta');
+    if (tabPedido === 'richi') return cat.includes('richi') || cat.includes('empaque') || cat.includes('plástico');
+    if (tabPedido === 'produccion') return cat.includes('produccion') || cat.includes('prod');
+    if (tabPedido === 'insumos') return cat.includes('insumo') || cat.includes('topping');
+    if (tabPedido === 'aseo') return cat.includes('aseo') || cat.includes('limpieza');
+
     return true;
   });
 
@@ -222,20 +321,9 @@ export default function MartinetoPOSPage() {
     if (e.key === 'Enter') {
       e.preventDefault();
       const nextKey = keysList[currentIndex + 1];
-      if (nextKey && inputRefs.current[nextKey]) {
+      if (nextKey && inputRefs.current?.[nextKey]) {
         inputRefs.current[nextKey]?.focus();
         inputRefs.current[nextKey]?.select();
-      }
-    }
-  }
-
-  function handleKeyDownPedidos(e: React.KeyboardEvent<HTMLInputElement>, idx: number) {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      const siguienteProd = insumosFiltrados[idx + 1];
-      if (siguienteProd && pedidosRefs.current[siguienteProd.nombre]) {
-        pedidosRefs.current[siguienteProd.nombre]?.focus();
-        pedidosRefs.current[siguienteProd.nombre]?.select();
       }
     }
   }
@@ -304,14 +392,14 @@ export default function MartinetoPOSPage() {
 
     const paletasLimpias = limpiarCategoria(pedidosCategorias.paletas);
     const richiLimpias = limpiarCategoria(pedidosCategorias.richi);
-    const prodLimpias = limpiarCategoria(pedidosCategorias.prod);
+    const produccionLimpias = limpiarCategoria(pedidosCategorias.produccion);
     const insumosLimpias = limpiarCategoria(pedidosCategorias.insumos);
     const aseoLimpias = limpiarCategoria(pedidosCategorias.aseo);
 
     const totalItems =
       Object.keys(paletasLimpias).length +
       Object.keys(richiLimpias).length +
-      Object.keys(prodLimpias).length +
+      Object.keys(produccionLimpias).length +
       Object.keys(insumosLimpias).length +
       Object.keys(aseoLimpias).length;
 
@@ -327,7 +415,7 @@ export default function MartinetoPOSPage() {
       observaciones: observacionPedido || '',
       pedidos_paletas: paletasLimpias,
       pedidos_richi: richiLimpias,
-      pedidos_produccion: prodLimpias,
+      pedidos_produccion: produccionLimpias,
       pedidos_insumos: insumosLimpias,
       pedidos_aseo: aseoLimpias,
     };
@@ -339,7 +427,7 @@ export default function MartinetoPOSPage() {
       setPedidosCategorias({
         paletas: {},
         richi: {},
-        prod: {},
+        produccion: {},
         insumos: {},
         aseo: {},
       });
@@ -349,7 +437,6 @@ export default function MartinetoPOSPage() {
     }
   }
 
-  // CREAR NUEVO RAPPI CON SECUENCIA DINÁMICA (Rappi 1, Rappi 2...)
   function agregarNuevoRappi() {
     const nuevoId = `rappi_${Date.now()}`;
     const numeroRappi = pedidosRappi.length + 1;
@@ -364,18 +451,51 @@ export default function MartinetoPOSPage() {
     setMesaActivaId(nuevoId);
   }
 
-  async function agregarProductoAMesa(producto: any) {
+  function moverMesaA(destinoId: number) {
+    if (!mesaActiva || mesaActiva.items.length === 0) {
+      alert('⚠️ No hay ítems en esta mesa para mover.');
+      return;
+    }
+
+    const mesaDestino = mesas.find((m) => m.id === destinoId);
+
+    if (!mesaDestino) return;
+
+    if (mesaDestino.estado !== 'Libre') {
+      alert(`⚠️ La mesa ${mesaDestino.nombre} ya está ocupada o pagada.`);
+      return;
+    }
+
+    setMesas((prev) =>
+      prev.map((m) => {
+        if (m.id === mesaActivaId) {
+          return { ...m, items: [], total: 0, estado: 'Libre' };
+        }
+        if (m.id === destinoId) {
+          return {
+            ...m,
+            items: mesaActiva.items,
+            total: mesaActiva.total,
+            estado: 'Ocupada',
+          };
+        }
+        return m;
+      })
+    );
+
+    setMesaActivaId(destinoId);
+    alert(`🚚 Pedido trasladado con éxito de ${mesaActiva.nombre} a ${mesaDestino.nombre}.`);
+  }
+
+  async function agregarProductoAMesa(producto: any, esParaLlevar: boolean = false) {
     if (!mesaActivaId) {
       alert('⚠️ Selecciona una mesa o un pedido Rappi primero en la columna izquierda.');
       return;
     }
 
-    if (!esRappiActivo && mesaActiva?.estado === 'Pagada') {
-      alert('⚠️ Esta mesa ya fue pagada. Libérela antes de agregar nuevos productos.');
-      return;
-    }
-
     const nombreProd = (producto.nombre || '').toLowerCase();
+
+    // LÓGICA Vaso 12oz
     const usaVaso12 =
       nombreProd.includes('yogurneto') ||
       nombreProd.includes('malteada') ||
@@ -390,20 +510,91 @@ export default function MartinetoPOSPage() {
       });
     }
 
+    // LÓGICA Corralito / Waffle
+    const usaCorralito = nombreProd.includes('corralito') || nombreProd.includes('waffle');
+    if (usaCorralito) {
+      const esParaLlevarAuto = esRappiActivo || esParaLlevar;
+      const descuentoCorralito = esParaLlevarAuto ? 2 : 1;
+
+      setCantidadesInventario((prev) => {
+        const actual = Number(prev['Corralito']) || 0;
+        return { ...prev, Corralito: Math.max(0, actual - descuentoCorralito) };
+      });
+    }
+
+    const precioNumerico = Number(producto.precio || producto.Precio || 0);
+    const etiquetaLlevar = esRappiActivo || esParaLlevar ? ' (LLEVAR)' : '';
+    const nombreFinalItem = `${producto.nombre}${etiquetaLlevar}`;
+
+    // MANEJO DE ADICIONES MÚLTIPLES EN MESA YA PAGADA
+    if (!esRappiActivo && mesaActiva?.estado === 'Pagada') {
+      setMesas((prevMesas) =>
+        prevMesas.map((m) => {
+          if (m.id !== mesaActivaId) return m;
+
+          const existe = m.items.some(
+            (i: any) => i.id === producto.id && i.nombre === nombreFinalItem
+          );
+
+          let nuevosItems;
+          if (existe) {
+            nuevosItems = m.items.map((i: any) =>
+              i.id === producto.id && i.nombre === nombreFinalItem
+                ? { ...i, cantidad: i.cantidad + 1 }
+                : i
+            );
+          } else {
+            nuevosItems = [
+              ...m.items,
+              { ...producto, nombre: nombreFinalItem, precio: precioNumerico, cantidad: 1 },
+            ];
+          }
+
+          const nuevoTotal = nuevosItems.reduce(
+            (acc: number, i: any) => acc + Number(i.precio || 0) * Number(i.cantidad || 0),
+            0
+          );
+
+          return {
+            ...m,
+            items: nuevosItems,
+            total: nuevoTotal,
+            estado: 'Ocupada',
+          };
+        })
+      );
+      return;
+    }
+
+    // MESA EN CURSO O RAPPI
     if (esRappiActivo) {
       setPedidosRappi((prev) =>
         prev.map((r) => {
           if (r.id !== mesaActivaId) return r;
-          const existe = r.items.some((i: any) => i.id === producto.id);
+
+          const existe = r.items.some(
+            (i: any) => i.id === producto.id && i.nombre === nombreFinalItem
+          );
+
           let nuevosItems;
           if (existe) {
             nuevosItems = r.items.map((i: any) =>
-              i.id === producto.id ? { ...i, cantidad: i.cantidad + 1 } : i
+              i.id === producto.id && i.nombre === nombreFinalItem
+                ? { ...i, cantidad: i.cantidad + 1 }
+                : i
             );
           } else {
-            nuevosItems = [...r.items, { ...producto, cantidad: 1 }];
+            nuevosItems = [
+              ...r.items,
+              { ...producto, nombre: nombreFinalItem, precio: precioNumerico, cantidad: 1 },
+            ];
           }
-          const nuevoTotal = nuevosItems.reduce((acc: number, i: any) => acc + (Number(i.precio) || 0) * i.cantidad, 0);
+
+          const nuevoTotal = nuevosItems.reduce(
+            (acc: number, i: any) => acc + Number(i.precio || 0) * Number(i.cantidad || 0),
+            0
+          );
+
           return { ...r, items: nuevosItems, total: nuevoTotal };
         })
       );
@@ -412,19 +603,26 @@ export default function MartinetoPOSPage() {
         prevMesas.map((m) => {
           if (m.id !== mesaActivaId) return m;
 
-          const existe = m.items.some((i: any) => i.id === producto.id);
+          const existe = m.items.some(
+            (i: any) => i.id === producto.id && i.nombre === nombreFinalItem
+          );
 
           let nuevosItems;
           if (existe) {
             nuevosItems = m.items.map((i: any) =>
-              i.id === producto.id ? { ...i, cantidad: i.cantidad + 1 } : i
+              i.id === producto.id && i.nombre === nombreFinalItem
+                ? { ...i, cantidad: i.cantidad + 1 }
+                : i
             );
           } else {
-            nuevosItems = [...m.items, { ...producto, cantidad: 1 }];
+            nuevosItems = [
+              ...m.items,
+              { ...producto, nombre: nombreFinalItem, precio: precioNumerico, cantidad: 1 },
+            ];
           }
 
           const nuevoTotal = nuevosItems.reduce(
-            (acc: number, i: any) => acc + (Number(i.precio) || 0) * i.cantidad,
+            (acc: number, i: any) => acc + Number(i.precio || 0) * Number(i.cantidad || 0),
             0
           );
 
@@ -455,17 +653,19 @@ export default function MartinetoPOSPage() {
               itemsActuales.splice(index, 1);
             }
           }
-          const nuevoTotal = itemsActuales.reduce((acc: number, i: any) => acc + (Number(i.precio) || 0) * i.cantidad, 0);
+          const nuevoTotal = itemsActuales.reduce(
+            (acc: number, i: any) => acc + Number(i.precio || 0) * Number(i.cantidad || 0),
+            0
+          );
           return { ...r, items: itemsActuales, total: nuevoTotal };
         })
       );
     } else {
-      if (mesaActiva?.estado === 'Pagada') return;
       setMesas((prev) =>
         prev.map((m) => {
           if (m.id === mesaActivaId) {
             const itemsActuales = [...m.items];
-            const index = itemsActuales.findIndex((i: any) => i.id === productoId);
+            const index = itemsActuales.findIndex((i) => i.id === productoId);
             if (index >= 0) {
               if (itemsActuales[index].cantidad > 1) {
                 itemsActuales[index].cantidad -= 1;
@@ -473,7 +673,10 @@ export default function MartinetoPOSPage() {
                 itemsActuales.splice(index, 1);
               }
             }
-            const nuevoTotal = itemsActuales.reduce((acc: number, i: any) => acc + (Number(i.precio) || 0) * i.cantidad, 0);
+            const nuevoTotal = itemsActuales.reduce(
+              (acc: number, i: any) => acc + Number(i.precio || 0) * Number(i.cantidad || 0),
+              0
+            );
             const nuevoEstado = itemsActuales.length === 0 ? 'Libre' : m.estado;
 
             return { ...m, items: itemsActuales, total: nuevoTotal, estado: nuevoEstado };
@@ -484,7 +687,6 @@ export default function MartinetoPOSPage() {
     }
   }
 
-  // MARCAR RAPPI COMO PREPARADO (QUEDA EN ESPERA DE ENTREGA)
   function marcarRappiPreparado() {
     if (!rappiActivo || rappiActivo.items.length === 0) {
       alert('⚠️ El pedido Rappi está vacío.');
@@ -493,10 +695,9 @@ export default function MartinetoPOSPage() {
     setPedidosRappi((prev) =>
       prev.map((r) => (r.id === mesaActivaId ? { ...r, estado: 'Preparado' } : r))
     );
-    alert('🍳 Pedido marcado como PREPARADO (En espera de que llegue el rappitendero).');
+    alert('🍳 Pedido marcado como PREPARADO.');
   }
 
-  // ENTREGAR RAPPI (GUARDA EN SUPABASE, DESCUENTA Y ELIMINA DE PENDIENTES)
   async function entregarRappi() {
     if (!rappiActivo || rappiActivo.items.length === 0) {
       alert('⚠️ No hay productos en este pedido Rappi.');
@@ -526,7 +727,7 @@ export default function MartinetoPOSPage() {
 
     setPedidosRappi((prev) => prev.filter((r) => r.id !== mesaActivaId));
     setMesaActivaId(null);
-    alert('🚀 ¡Pedido Rappi entregado, guardado en la base de datos y liberado con éxito!');
+    alert('🚀 ¡Pedido Rappi entregado y liberado!');
   }
 
   function marcarEntregado() {
@@ -562,7 +763,7 @@ export default function MartinetoPOSPage() {
     const sumaPagos = efec + neq + dav;
 
     if (sumaPagos < mesaActiva.total) {
-      alert(`⚠️ La suma abonada ($ ${sumaPagos.toLocaleString('es-CO')}) es menor al total de la orden ($ {mesaActiva.total.toLocaleString('es-CO')}).`);
+      alert(`⚠️ La suma abonada ($ ${sumaPagos.toLocaleString('es-CO')}) es menor al total de la orden.`);
       return;
     }
 
@@ -584,7 +785,7 @@ export default function MartinetoPOSPage() {
     const { error } = await supabase.from('venta').insert([payloadVenta]);
 
     if (error) {
-      alert('Error registrando la venta en la tabla "venta": ' + error.message);
+      alert('Error registrando la venta: ' + error.message);
       setProcesandoPago(false);
       return;
     }
@@ -599,7 +800,7 @@ export default function MartinetoPOSPage() {
 
     setProcesandoPago(false);
     setMostrarModalCobro(false);
-    alert('✅ ¡Pago registrado con éxito! La mesa queda en estado Pagada.');
+    alert('✅ ¡Pago registrado con éxito!');
   }
 
   function liberarMesa() {
@@ -675,8 +876,9 @@ export default function MartinetoPOSPage() {
         </div>
       )}
 
-      {/* SECCIÓN SUPERIOR: INVENTARIO Y PEDIDOS */}
+      {/* INVENTARIO Y PEDIDOS */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+        {/* INVENTARIO */}
         <div className="bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md">
           <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
             <h2 className="text-xs md:text-sm font-black text-white flex items-center gap-1.5">🍦 Conteo de Inventario</h2>
@@ -756,49 +958,73 @@ export default function MartinetoPOSPage() {
           </button>
         </div>
 
+        {/* PEDIDOS A BODEGA */}
         <div className={`bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md ${bloqueadoPorApertura ? 'opacity-50 pointer-events-none' : ''}`}>
           <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
             <h2 className="text-xs md:text-sm font-black text-white flex items-center gap-1.5">🚚 Pedidos de Insumos</h2>
-            <button
-              onClick={() => setMostrarPedidos(!mostrarPedidos)}
-              className="bg-[#051829] hover:bg-[#003d6d] text-sky-200 border border-[#0066b3] font-bold text-xs px-3 py-1.5 rounded-xl cursor-pointer"
-            >
-              {mostrarPedidos ? 'Ocultar' : 'Hacer Pedido'}
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setMostrarModalNuevoProd(true)}
+                className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] px-2.5 py-1 rounded-xl cursor-pointer"
+              >
+                ➕ Crear Producto
+              </button>
+              <button
+                onClick={() => setMostrarPedidos(!mostrarPedidos)}
+                className="bg-[#051829] hover:bg-[#003d6d] text-sky-200 border border-[#0066b3] font-bold text-xs px-3 py-1 rounded-xl cursor-pointer"
+              >
+                {mostrarPedidos ? 'Ocultar' : 'Hacer Pedido'}
+              </button>
+            </div>
           </div>
           {mostrarPedidos && (
             <div className="space-y-3">
               <div className="grid grid-cols-5 gap-1">
-                {(['paletas', 'richi', 'prod', 'insumos', 'aseo'] as const).map((tab) => (
+                {(
+                  [
+                    { id: 'paletas', label: 'paletas' },
+                    { id: 'richi', label: 'richi' },
+                    { id: 'produccion', label: 'producción' },
+                    { id: 'insumos', label: 'insumos' },
+                    { id: 'aseo', label: 'aseo' },
+                  ] as const
+                ).map((tab) => (
                   <button
-                    key={tab}
-                    onClick={() => setTabPedido(tab)}
-                    className={`py-1 rounded text-[10px] font-black uppercase cursor-pointer ${tabPedido === tab ? 'bg-[#00a4ef] text-white' : 'bg-[#051829] text-sky-300 border border-[#0066b3]'}`}
+                    key={tab.id}
+                    onClick={() => setTabPedido(tab.id)}
+                    className={`py-1 rounded text-[10px] font-black uppercase cursor-pointer ${tabPedido === tab.id ? 'bg-[#00a4ef] text-white' : 'bg-[#051829] text-sky-300 border border-[#0066b3]'}`}
                   >
-                    {tab}
+                    {tab.label}
                   </button>
                 ))}
               </div>
               <div className="max-h-60 overflow-y-auto space-y-1.5 pr-1">
-                {insumosFiltrados.map((prod) => (
-                  <div key={prod.nombre} className="flex justify-between items-center bg-[#051829] p-2 rounded-xl border border-[#0066b3]">
-                    <span className="text-xs text-white font-bold">{prod.nombre}</span>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      placeholder="0"
-                      value={pedidosCategorias[tabPedido]?.[prod.nombre] || ''}
-                      onChange={(e) => {
-                        const val = e.target.value.replace(/\D/g, '');
-                        setPedidosCategorias({
-                          ...pedidosCategorias,
-                          [tabPedido]: { ...pedidosCategorias[tabPedido], [prod.nombre]: val === '' ? 0 : Number(val) },
-                        });
-                      }}
-                      className="w-20 bg-[#0e385e] text-sky-200 font-black text-center text-xs rounded-lg p-1.5 outline-none border border-[#0066b3]"
-                    />
-                  </div>
-                ))}
+                {insumosFiltrados.length === 0 ? (
+                  <p className="text-xs text-sky-400 italic text-center py-4">No hay productos disponibles en esta categoría.</p>
+                ) : (
+                  insumosFiltrados.map((prod) => (
+                    <div key={prod.id || prod.nombre} className="flex justify-between items-center bg-[#051829] p-2 rounded-xl border border-[#0066b3]">
+                      <div>
+                        <p className="text-xs text-white font-bold">{prod.nombre}</p>
+                        {prod.grupo && <p className="text-[10px] text-sky-300">{prod.grupo}</p>}
+                      </div>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        placeholder="0"
+                        value={pedidosCategorias[tabPedido]?.[prod.nombre] || ''}
+                        onChange={(e) => {
+                          const val = e.target.value.replace(/\D/g, '');
+                          setPedidosCategorias({
+                            ...pedidosCategorias,
+                            [tabPedido]: { ...pedidosCategorias[tabPedido], [prod.nombre]: val === '' ? 0 : Number(val) },
+                          });
+                        }}
+                        className="w-20 bg-[#0e385e] text-sky-200 font-black text-center text-xs rounded-lg p-1.5 outline-none border border-[#0066b3]"
+                      />
+                    </div>
+                  ))
+                )}
               </div>
               <button
                 onClick={enviarPedidoBodega}
@@ -811,15 +1037,13 @@ export default function MartinetoPOSPage() {
         </div>
       </div>
 
-      {/* ======================================================= */}
-      {/* DISEÑO EN 3 COLUMNAS: MESAS & RAPPI | CATEGORÍAS & PRODUCTOS | FACTURA */}
-      {/* ======================================================= */}
+      {/* DISEÑO EN COLUMNAS DINÁMICAS */}
       <div className={`grid grid-cols-1 lg:grid-cols-12 gap-4 items-start ${bloqueadoPorApertura ? 'opacity-50 pointer-events-none' : ''}`}>
         
-        {/* COLUMNA 1: MESAS Y PEDIDOS RAPPI (Rappi 1, Rappi 2 independientes) */}
-        <div className="lg:col-span-3 bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md">
+        {/* COLUMNA 1: MESAS Y RAPPI */}
+        <div className={`${!mesaActivaId ? 'lg:col-span-12' : itemActivoActual && itemActivoActual.items.length > 0 ? 'lg:col-span-3' : 'lg:col-span-4'} bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md transition-all duration-300`}>
           <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
-            <h2 className="text-xs md:text-sm font-black text-white">🪑 1. Mesas y Rappi</h2>
+            <h2 className="text-xs md:text-sm font-black text-white">🪑 Mesas y Rappi</h2>
             <button
               onClick={agregarNuevoRappi}
               className="bg-rose-600 hover:bg-rose-500 text-white font-bold text-[10px] px-2.5 py-1 rounded-lg uppercase cursor-pointer shadow"
@@ -828,11 +1052,10 @@ export default function MartinetoPOSPage() {
             </button>
           </div>
 
-          <div className="grid grid-cols-1 gap-2.5 max-h-[440px] overflow-y-auto pr-1">
-            {/* PEDIDOS RAPPI */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-1 gap-2.5 max-h-[440px] overflow-y-auto pr-1">
             {pedidosRappi.map((rappi) => {
               const activa = mesaActivaId === rappi.id;
-              const estaPreparado = rappi.estado === 'Preparado';
+              const estaPreparado = rappi.estado === 'Preparando';
 
               return (
                 <div
@@ -855,7 +1078,6 @@ export default function MartinetoPOSPage() {
               );
             })}
 
-            {/* MESAS */}
             {mesas.map((mesa) => {
               const ocupada = mesa.estado === 'Ocupada';
               const entregado = mesa.estado === 'Entregado';
@@ -896,66 +1118,91 @@ export default function MartinetoPOSPage() {
           </div>
         </div>
 
-        {/* COLUMNA 2: CATEGORÍAS Y PRODUCTOS */}
-        <div className="lg:col-span-5 bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md">
-          <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
-            <h2 className="text-xs md:text-sm font-black text-white">📂 2. Categorías y Productos</h2>
-            <span className="text-xs text-sky-200 font-bold">Activo: <b className="text-emerald-300">{itemActivoActual ? itemActivoActual.nombre : 'Ninguno'}</b></span>
-          </div>
+        {/* COLUMNA 2: CATEGORÍAS Y PRODUCTOS (SOLO APARECE SI SE SELECCIONA UNA MESA/RAPPI) */}
+        {mesaActivaId && (
+          <div className={`${itemActivoActual && itemActivoActual.items.length > 0 ? 'lg:col-span-5' : 'lg:col-span-8'} bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md transition-all duration-300`}>
+            <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
+              <h2 className="text-xs md:text-sm font-black text-white">📂 Categorías y Productos</h2>
+              <span className="text-xs text-sky-200 font-bold">Activo: <b className="text-emerald-300">{itemActivoActual ? itemActivoActual.nombre : 'Ninguno'}</b></span>
+            </div>
 
-          <div className="flex flex-wrap gap-1.5">
-            <button
-              onClick={() => setCategoriaVentaSel('TODAS')}
-              className={`px-3 py-2 rounded-xl text-[11px] font-black uppercase cursor-pointer transition-all ${categoriaVentaSel === 'TODAS' ? 'bg-[#00a4ef] text-white border border-white' : 'bg-[#0e385e] text-sky-200 border border-[#0066b3]'}`}
-            >
-              🌟 TODAS
-            </button>
-            {listaCategoriasVenta.map((cat) => (
+            <div className="flex flex-wrap gap-1.5">
               <button
-                key={cat}
-                onClick={() => setCategoriaVentaSel(cat)}
-                className={`px-3 py-2 rounded-xl text-[11px] font-black uppercase cursor-pointer transition-all ${categoriaVentaSel.toLowerCase() === cat.toLowerCase() ? 'bg-[#00a4ef] text-white border border-white' : 'bg-[#0e385e] text-sky-200 border border-[#0066b3]'}`}
+                onClick={() => setCategoriaVentaSel('TODAS')}
+                className={`px-3 py-2 rounded-xl text-[11px] font-black uppercase cursor-pointer transition-all ${categoriaVentaSel === 'TODAS' ? 'bg-[#00a4ef] text-white border border-white' : 'bg-[#0e385e] text-sky-200 border border-[#0066b3]'}`}
               >
-                🏷️ {cat}
+                🌟 TODAS
               </button>
-            ))}
-          </div>
-
-          <div className="max-h-[420px] overflow-y-auto grid grid-cols-2 sm:grid-cols-3 gap-2 pr-1">
-            {productosFiltradosVenta.length === 0 ? (
-              <p className="text-xs text-sky-400 italic col-span-full py-6 text-center">No hay productos en esta categoría.</p>
-            ) : (
-              productosFiltradosVenta.map((prod) => (
+              {listaCategoriasVenta.map((cat) => (
                 <button
-                  key={prod.id || prod.nombre}
-                  onClick={() => agregarProductoAMesa(prod)}
-                  className="bg-[#0e385e] hover:bg-[#003d6d] border border-[#0066b3] p-2.5 rounded-xl text-left transition-all cursor-pointer active:scale-95 shadow-sm"
+                  key={cat}
+                  onClick={() => setCategoriaVentaSel(cat)}
+                  className={`px-3 py-2 rounded-xl text-[11px] font-black uppercase cursor-pointer transition-all ${categoriaVentaSel.toLowerCase() === cat.toLowerCase() ? 'bg-[#00a4ef] text-white border border-white' : 'bg-[#0e385e] text-sky-200 border border-[#0066b3]'}`}
                 >
-                  <p className="font-bold text-white text-xs truncate">{prod.nombre}</p>
-                  <p className="text-[10px] text-sky-300 uppercase mt-0.5">{prod.categoriaMostrar}</p>
-                  <p className="text-xs text-emerald-300 font-black mt-1">$ {Number(prod.precio || 0).toLocaleString('es-CO')}</p>
+                  🏷️ {cat}
                 </button>
-              ))
-            )}
-          </div>
-        </div>
+              ))}
+            </div>
 
-        {/* COLUMNA 3: FACTURA / PEDIDO */}
-        <div className="lg:col-span-4 bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md">
-          <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
-            <h2 className="text-xs md:text-sm font-black text-white">🧾 3. Factura / Pedido</h2>
-            <span className="bg-[#051829] text-sky-300 text-[10px] px-2.5 py-1 rounded-lg border border-[#0066b3] uppercase font-bold">
-              {esRappiActivo ? rappiActivo?.estado : mesaActiva ? mesaActiva.estado : 'Sin Selección'}
-            </span>
-          </div>
+            <div className="max-h-[420px] overflow-y-auto grid grid-cols-2 sm:grid-cols-3 gap-2 pr-1">
+              {productosFiltradosVenta.length === 0 ? (
+                <p className="text-xs text-sky-400 italic col-span-full py-6 text-center">No hay productos en esta categoría.</p>
+              ) : (
+                productosFiltradosVenta.map((prod) => {
+                  const esCorralito = (prod.nombre || '').toLowerCase().includes('corralito') || (prod.nombre || '').toLowerCase().includes('waffle');
 
-          {!itemActivoActual ? (
-            <p className="text-xs text-sky-400 italic text-center py-10">Selecciona una mesa o un pedido Rappi en la columna 1.</p>
-          ) : itemActivoActual.items.length === 0 ? (
-            <p className="text-xs text-sky-400 italic text-center py-10">El pedido está vacío. Haz clic en los productos para agregarlos.</p>
-          ) : (
+                  return (
+                    <div key={prod.id || prod.nombre} className="bg-[#0e385e] border border-[#0066b3] p-2.5 rounded-xl flex flex-col justify-between shadow-sm">
+                      <div>
+                        <p className="font-bold text-white text-xs truncate">{prod.nombre}</p>
+                        <p className="text-[10px] text-sky-300 uppercase mt-0.5">{prod.categoriaMostrar}</p>
+                        <p className="text-xs text-emerald-300 font-black mt-1">$ {Number(prod.precio || 0).toLocaleString('es-CO')}</p>
+                      </div>
+
+                      {esCorralito ? (
+                        <div className="grid grid-cols-2 gap-1 mt-2 pt-1 border-t border-[#0066b3]">
+                          <button
+                            onClick={() => agregarProductoAMesa(prod, false)}
+                            className="bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-[9px] py-1 rounded text-center cursor-pointer"
+                          >
+                            🍽️ Mesa
+                          </button>
+                          <button
+                            onClick={() => agregarProductoAMesa(prod, true)}
+                            className="bg-amber-600 hover:bg-amber-500 text-white font-bold text-[9px] py-1 rounded text-center cursor-pointer"
+                            title="Usa tapa extra: descuenta 2 del inventario de Corralito"
+                          >
+                            🛵 Llevar
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => agregarProductoAMesa(prod, false)}
+                          className="w-full bg-[#0066b3] hover:bg-[#0078d4] text-white font-bold text-[10px] py-1.5 rounded-lg mt-2 cursor-pointer"
+                        >
+                          ➕ Agregar
+                        </button>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* COLUMNA 3: FACTURA / PEDIDO (SOLO APARECE SI LA MESA ACTIVA TIENE PRODUCTOS) */}
+        {itemActivoActual && itemActivoActual.items.length > 0 && (
+          <div className="lg:col-span-4 bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md transition-all duration-300">
+            <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
+              <h2 className="text-xs md:text-sm font-black text-white">🧾 Factura / Pedido</h2>
+              <span className="bg-[#051829] text-sky-300 text-[10px] px-2.5 py-1 rounded-lg border border-[#0066b3] uppercase font-bold">
+                {esRappiActivo ? rappiActivo?.estado : mesaActiva ? mesaActiva.estado : 'Sin Selección'}
+              </span>
+            </div>
+
             <div className="space-y-3">
-              <div className="max-h-[260px] overflow-y-auto pr-1">
+              <div className="max-h-[240px] overflow-y-auto pr-1">
                 <table className="w-full text-left text-xs text-white">
                   <thead>
                     <tr className="border-b border-[#0066b3] text-sky-300">
@@ -972,14 +1219,12 @@ export default function MartinetoPOSPage() {
                         <td className="py-2 px-1 text-center font-black text-sky-200">{i.cantidad}</td>
                         <td className="py-2 px-1 text-right font-black text-emerald-300">$ {(Number(i.precio || 0) * i.cantidad).toLocaleString('es-CO')}</td>
                         <td className="py-2 px-1 text-center">
-                          {(!esRappiActivo && mesaActiva?.estado !== 'Pagada') || esRappiActivo ? (
-                            <button
-                              onClick={() => descontarProductoDeMesa(i.id)}
-                              className="bg-rose-900/80 hover:bg-rose-700 text-white px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer"
-                            >
-                              ➖
-                            </button>
-                          ) : null}
+                          <button
+                            onClick={() => descontarProductoDeMesa(i.id)}
+                            className="bg-rose-900/80 hover:bg-rose-700 text-white px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer"
+                          >
+                            ➖
+                          </button>
                         </td>
                       </tr>
                     ))}
@@ -987,12 +1232,41 @@ export default function MartinetoPOSPage() {
                 </table>
               </div>
 
+              {/* MOVER MESAS */}
+              {!esRappiActivo && mesaActiva && mesaActiva.items.length > 0 && (
+                <div className="bg-[#051829] p-2.5 rounded-xl border border-[#0066b3] space-y-1">
+                  <label className="text-[10px] text-sky-200 font-bold block uppercase">
+                    🔄 Cambiar esta cuenta a otra mesa:
+                  </label>
+                  <select
+                    defaultValue=""
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        moverMesaA(Number(e.target.value));
+                        e.target.value = '';
+                      }
+                    }}
+                    className="w-full bg-[#0e385e] text-emerald-300 font-bold text-xs p-2 rounded-lg outline-none cursor-pointer border border-[#0066b3]"
+                  >
+                    <option value="" disabled>
+                      -- Seleccionar Mesa Libre --
+                    </option>
+                    {mesas
+                      .filter((m) => m.id !== mesaActivaId && m.estado === 'Libre')
+                      .map((m) => (
+                        <option key={m.id} value={m.id}>
+                          🪑 Mover a {m.nombre}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              )}
+
               <div className="flex justify-between items-center text-sm font-black text-white pt-2 border-t border-[#0066b3]">
                 <span>Total a Pagar:</span>
                 <span className="text-emerald-400 text-base">$ {itemActivoActual.total.toLocaleString('es-CO')}</span>
               </div>
 
-              {/* BOTONES DE ACCIÓN PARA RAPPI (PREPARADO VS ENTREGAR) */}
               {esRappiActivo ? (
                 <div className="grid grid-cols-2 gap-2 pt-1">
                   {rappiActivo?.estado === 'Preparando' ? (
@@ -1040,10 +1314,119 @@ export default function MartinetoPOSPage() {
                 </div>
               )}
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
       </div>
+
+      {/* MODAL CREAR NUEVO PRODUCTO EN SUPABASE */}
+      {mostrarModalNuevoProd && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
+          <div className="bg-[#0b2b48] border-2 border-emerald-400 rounded-2xl p-5 max-w-md w-full space-y-4 shadow-2xl">
+            <div className="flex justify-between items-center border-b border-[#0066b3] pb-2">
+              <h3 className="text-sm font-black text-white uppercase">➕ Crear Nuevo Producto / Insumo</h3>
+              <button onClick={() => setMostrarModalNuevoProd(false)} className="text-sky-300 hover:text-white font-black text-sm">✕</button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-sky-200 font-bold block mb-1">Nombre del Producto *:</label>
+                <input
+                  type="text"
+                  placeholder="Ej. Leche condensada"
+                  value={nuevoProdNombre}
+                  onChange={(e) => setNuevoProdNombre(e.target.value)}
+                  className="w-full bg-[#051829] border border-[#0066b3] text-white text-xs p-2.5 rounded-xl outline-none"
+                />
+              </div>
+
+              <div className={`grid ${nuevoProdCategoria === 'Paleta' ? 'grid-cols-2' : 'grid-cols-1'} gap-2`}>
+                <div>
+                  <label className="text-xs text-sky-200 font-bold block mb-1">Categoría General *:</label>
+                  <select
+                    value={nuevoProdCategoria}
+                    onChange={(e) => setNuevoProdCategoria(e.target.value)}
+                    className="w-full bg-[#051829] border border-[#0066b3] text-white text-xs p-2.5 rounded-xl outline-none"
+                  >
+                    <option value="Paleta">🍦 Paleta</option>
+                    <option value="Richi">📦 Richi / Empaque</option>
+                    <option value="Produccion">⚙️ Producción</option>
+                    <option value="Insumos">BS Insumos / Toppings</option>
+                    <option value="Aseo">🧹 Aseo</option>
+                  </select>
+                </div>
+
+                {nuevoProdCategoria === 'Paleta' && (
+                  <div>
+                    <label className="text-xs text-sky-200 font-bold block mb-1">Grupo / Tipo Específico:</label>
+                    <input
+                      type="text"
+                      placeholder="Ej. Frutal, Crema, Soft..."
+                      value={nuevoProdGrupo}
+                      onChange={(e) => setNuevoProdGrupo(e.target.value)}
+                      className="w-full bg-[#051829] border border-[#0066b3] text-white text-xs p-2.5 rounded-xl outline-none"
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="text-xs text-sky-200 font-bold block mb-1">Dónde Comprar *:</label>
+                <select
+                  value={nuevoProdDondeComprar}
+                  onChange={(e) => setNuevoProdDondeComprar(e.target.value)}
+                  className="w-full bg-[#051829] border border-[#0066b3] text-white text-xs p-2.5 rounded-xl outline-none cursor-pointer"
+                >
+                  {listaLugaresCompraUnica.map((lugar) => (
+                    <option key={lugar} value={lugar}>
+                      🛒 {lugar}
+                    </option>
+                  ))}
+                  <option value="Otro">✏️ Otro (Escribir nuevo lugar)...</option>
+                </select>
+
+                {nuevoProdDondeComprar === 'Otro' && (
+                  <input
+                    type="text"
+                    placeholder="Escribe el nuevo lugar de compra..."
+                    value={dondeComprarPersonalizado}
+                    onChange={(e) => setDondeComprarPersonalizado(e.target.value)}
+                    className="w-full bg-[#051829] border border-[#0066b3] text-white text-xs p-2.5 rounded-xl outline-none mt-2"
+                  />
+                )}
+              </div>
+
+              <div>
+                <label className="text-xs text-sky-200 font-bold block mb-1">Visibilidad / Sede *:</label>
+                <select
+                  value={esProductoGlobal ? '0' : 'local'}
+                  onChange={(e) => setEsProductoGlobal(e.target.value === '0')}
+                  className="w-full bg-[#051829] border border-[#0066b3] text-emerald-300 font-black text-xs p-2.5 rounded-xl outline-none cursor-pointer"
+                >
+                  <option value="0">🌍 Para TODAS las Sedes</option>
+                  <option value="local">🏢 Exclusivo de esta Sede</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={() => setMostrarModalNuevoProd(false)}
+                className="w-1/2 bg-[#051829] hover:bg-[#003d6d] text-sky-200 border border-[#0066b3] font-bold py-2 rounded-xl text-xs uppercase cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={crearNuevoProductoBD}
+                disabled={guardandoProducto}
+                className="w-1/2 bg-emerald-600 hover:bg-emerald-500 text-white font-black py-2 rounded-xl text-xs uppercase cursor-pointer shadow-md disabled:opacity-50"
+              >
+                {guardandoProducto ? 'Guardando...' : '💾 Guardar en BD'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MODAL COBRO MIXTO */}
       {mostrarModalCobro && mesaActiva && (
