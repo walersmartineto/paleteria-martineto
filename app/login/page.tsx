@@ -7,6 +7,7 @@ import {
   obtenerUsuariosOperadores,
   validarAccesoEmpleado,
   registrarInicioTurno,
+  actualizarCodigoAcceso, // <--- Importamos la nueva función
   SedeInfo,
   UsuarioLoginInfo,
 } from '@/lib/loginQueries';
@@ -32,6 +33,15 @@ export default function LoginPage() {
 
   const [errorMensaje, setErrorMensaje] = useState('');
   const [cargando, setCargando] = useState(false);
+
+  // Estados para el Modal de Cambio de Clave
+  const [mostrarModalClave, setMostrarModalClave] = useState(false);
+  const [usuarioCambioId, setUsuarioCambioId] = useState<number | ''>('');
+  const [claveActual, setClaveActual] = useState('');
+  const [claveNueva, setClaveNueva] = useState('');
+  const [claveConfirmar, setClaveConfirmar] = useState('');
+  const [mensajeModal, setMensajeModal] = useState({ texto: '', esError: false });
+  const [cargandoModal, setCargandoModal] = useState(false);
 
   useEffect(() => {
     cargarDatosIniciales();
@@ -156,6 +166,42 @@ export default function LoginPage() {
     }
   }
 
+  async function handleCambiarClave(e: React.FormEvent) {
+    e.preventDefault();
+    setMensajeModal({ texto: '', esError: false });
+
+    if (!usuarioCambioId) {
+      setMensajeModal({ texto: 'Selecciona tu usuario.', esError: true });
+      return;
+    }
+    if (!claveActual.trim() || !claveNueva.trim() || !claveConfirmar.trim()) {
+      setMensajeModal({ texto: 'Completa todos los campos de contraseña.', esError: true });
+      return;
+    }
+    if (claveNueva !== claveConfirmar) {
+      setMensajeModal({ texto: 'Las nuevas contraseñas no coinciden.', esError: true });
+      return;
+    }
+
+    setCargandoModal(true);
+    const resultado = await actualizarCodigoAcceso(Number(usuarioCambioId), claveActual, claveNueva);
+    setCargandoModal(false);
+
+    if (resultado.exito) {
+      setMensajeModal({ texto: resultado.mensaje, esError: false });
+      setTimeout(() => {
+        setMostrarModalClave(false);
+        setUsuarioCambioId('');
+        setClaveActual('');
+        setClaveNueva('');
+        setClaveConfirmar('');
+        setMensajeModal({ texto: '', esError: false });
+      }, 2000);
+    } else {
+      setMensajeModal({ texto: resultado.mensaje, esError: true });
+    }
+  }
+
   return (
     <main className="min-h-screen bg-[#004e8c] text-[#f1f5f9] flex flex-col items-center justify-center p-4 font-sans">
       <div className="max-w-md w-full bg-[#0b2b48] border border-[#0066b3] p-6 md:p-8 rounded-3xl space-y-6 shadow-2xl relative overflow-hidden">
@@ -251,6 +297,17 @@ export default function LoginPage() {
           </button>
         </form>
 
+        {/* Botón para abrir el Modal de Cambio de Clave */}
+        <div className="text-center pt-1">
+          <button
+            type="button"
+            onClick={() => setMostrarModalClave(true)}
+            className="text-xs text-sky-300 hover:text-white font-bold underline transition-colors cursor-pointer"
+          >
+            🔑 ¿Cambiar tu contraseña o PIN?
+          </button>
+        </div>
+
         <div className="pt-2 text-center border-t border-[#0066b3]/40">
           <p className="text-[10px] text-sky-300 font-semibold">
             WALERS POS System v2.0 • Punto de Venta e Inventario
@@ -258,6 +315,106 @@ export default function LoginPage() {
         </div>
 
       </div>
+
+      {/* MODAL CAMBIO DE CLAVE */}
+      {mostrarModalClave && (
+        <div className="fixed inset-0 bg-[#051829]/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-[#0b2b48] border border-[#0066b3] p-6 rounded-3xl max-w-sm w-full space-y-4 shadow-2xl">
+            
+            <div className="text-center space-y-1 border-b border-[#0066b3]/50 pb-3">
+              <h3 className="text-base font-black text-white tracking-wide">
+                🔑 Cambiar Contraseña / PIN
+              </h3>
+              <p className="text-xs text-sky-200">
+                Ingresa tus datos para actualizar tu clave de acceso
+              </p>
+            </div>
+
+            {mensajeModal.texto && (
+              <p className={`text-xs p-2.5 rounded-xl text-center font-bold border ${mensajeModal.esError ? 'bg-rose-950/80 border-rose-500/60 text-rose-200' : 'bg-emerald-950/80 border-emerald-500/60 text-emerald-200'}`}>
+                {mensajeModal.texto}
+              </p>
+            )}
+
+            <form onSubmit={handleCambiarClave} className="space-y-3">
+              <div>
+                <label className="text-[10px] font-extrabold text-sky-200 block mb-1 uppercase">
+                  Selecciona tu Usuario:
+                </label>
+                <select
+                  value={usuarioCambioId}
+                  onChange={(e) => setUsuarioCambioId(Number(e.target.value))}
+                  className="w-full bg-[#051829] border border-[#0066b3] rounded-xl p-2.5 text-xs text-white font-bold outline-none cursor-pointer focus:border-[#00a4ef]"
+                >
+                  <option value="">-- Elige tu nombre --</option>
+                  {usuarios.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.nombre_completo}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-extrabold text-sky-200 block mb-1 uppercase">
+                  Contraseña Actual:
+                </label>
+                <input
+                  type="password"
+                  placeholder="••••••"
+                  value={claveActual}
+                  onChange={(e) => setClaveActual(e.target.value)}
+                  className="w-full bg-[#051829] border border-[#0066b3] rounded-xl p-2.5 text-xs text-white font-bold outline-none text-center tracking-widest focus:border-[#00a4ef]"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-extrabold text-sky-200 block mb-1 uppercase">
+                  Nueva Contraseña:
+                </label>
+                <input
+                  type="password"
+                  placeholder="••••••"
+                  value={claveNueva}
+                  onChange={(e) => setClaveNueva(e.target.value)}
+                  className="w-full bg-[#051829] border border-[#0066b3] rounded-xl p-2.5 text-xs text-white font-bold outline-none text-center tracking-widest focus:border-[#00a4ef]"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-extrabold text-sky-200 block mb-1 uppercase">
+                  Confirmar Nueva Contraseña:
+                </label>
+                <input
+                  type="password"
+                  placeholder="••••••"
+                  value={claveConfirmar}
+                  onChange={(e) => setClaveConfirmar(e.target.value)}
+                  className="w-full bg-[#051829] border border-[#0066b3] rounded-xl p-2.5 text-xs text-white font-bold outline-none text-center tracking-widest focus:border-[#00a4ef]"
+                />
+              </div>
+
+              <div className="pt-2 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setMostrarModalClave(false)}
+                  className="w-1/2 bg-[#051829] hover:bg-[#0e385e] text-sky-200 font-bold py-2.5 rounded-xl text-xs border border-[#0066b3] transition-colors cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={cargandoModal}
+                  className="w-1/2 bg-[#0078d4] hover:bg-[#0086e6] text-white font-black py-2.5 rounded-xl text-xs uppercase shadow-md cursor-pointer disabled:opacity-50"
+                >
+                  {cargandoModal ? 'Guardando...' : 'Actualizar'}
+                </button>
+              </div>
+            </form>
+
+          </div>
+        </div>
+      )}
     </main>
   );
 }

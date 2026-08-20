@@ -116,3 +116,38 @@ export async function registrarInicioTurno(
     return null;
   }
 }
+
+// Actualizar contraseña/PIN de usuario
+export async function actualizarCodigoAcceso(usuarioId: number, codigoActual: string, codigoNuevo: string): Promise<{ exito: boolean; mensaje: string }> {
+  try {
+    // 1. Validar que la clave actual sea correcta
+    const { data: usuario, error: errVal } = await supabase
+      .from('usuario')
+      .select('id, codigo_acceso')
+      .eq('id', usuarioId)
+      .single();
+
+    if (errVal || !usuario) {
+      return { exito: false, mensaje: 'Usuario no encontrado.' };
+    }
+
+    if (String(usuario.codigo_acceso).trim() !== String(codigoActual).trim()) {
+      return { exito: false, mensaje: 'La clave actual es incorrecta.' };
+    }
+
+    // 2. Actualizar con la nueva clave
+    const { error: errUpdate } = await supabase
+      .from('usuario')
+      .update({ codigo_acceso: codigoNuevo })
+      .eq('id', usuarioId);
+
+    if (errUpdate) {
+      return { exito: false, mensaje: 'Error al actualizar la clave en la base de datos.' };
+    }
+
+    return { exito: true, mensaje: '¡Contraseña actualizada con éxito!' };
+  } catch (err) {
+    console.error('Error en actualizarCodigoAcceso:', err);
+    return { exito: false, mensaje: 'Error de conexión.' };
+  }
+}

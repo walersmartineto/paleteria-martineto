@@ -1,375 +1,1188 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  obtenerProductosMartineto,
-  obtenerMesasMartineto,
-  actualizarEstadoMesa,
-  registrarVentaPOS,
-  enviarPedidoSuministroPOS,
-  ProductoPOS,
-  MesaPOS,
+  registrarBaseCajaMartineto,
+  registrarMovimientoMartineto,
 } from '@/lib/martinetoQueries';
+import { supabase } from '@/lib/supabase';
 
-interface ItemPedido {
-  producto: ProductoPOS;
-  cantidad: number;
-}
+const LISTA_EMPAQUES_MARTINETO = [
+  'Caja Mostac',
+  'Muñeco Gold',
+  'Muñeco Lego',
+  'Vaso Soft',
+  'Corralito',
+  'Doritos',
+  'Frascos Chamoy',
+  'Vaso Gomita Enchilada',
+  'Vaso 12 onzas',
+];
 
-export default function DashboardPOSPage() {
+const formatearMoneda = (val: number | string): string => {
+  if (val === '' || val === null || val === undefined) return '';
+  const num = typeof val === 'string' ? Number(val.replace(/\D/g, '')) : val;
+  if (isNaN(num) || num === 0) return '';
+  return `$ ${num.toLocaleString('es-CO')}`;
+};
+
+const desformatearMoneda = (val: string): number | '' => {
+  const soloNumeros = val.replace(/\D/g, '');
+  return soloNumeros === '' ? '' : Number(soloNumeros);
+};
+
+type CategoriaTab = 'paletas' | 'richi' | 'prod' | 'insumos' | 'aseo';
+
+export default function MartinetoPOSPage() {
   const router = useRouter();
-
   const [sesion, setSesion] = useState<any>(null);
-  const [productos, setProductos] = useState<ProductoPOS[]>([]);
-  const [mesas, setMesas] = useState<MesaPOS[]>([]);
-  const [mesaSeleccionada, setMesaSeleccionada] = useState<MesaPOS | null>(null);
 
-  const [pedidosMesa, setPedidosMesa] = useState<{ [mesaId: number]: ItemPedido[] }>({});
-  const [pedidosRappi, setPedidosRappi] = useState<ItemPedido[]>([]);
+  const [baseCaja, setBaseCaja] = useState<number | ''>('');
+  const [baseGuardada, setBaseGuardada] = useState(false);
+  const [aperturaRealizada, setAperturaRealizada] = useState(false);
 
-  const [busqueda, setBusqueda] = useState('');
-  const [mostrarPago, setMostrarPago] = useState(false);
-  const [metodosPago, setMetodosPago] = useState({ efectivo: 0, nequi: 0, daviplata: 0 });
+  const [tipoMovimiento, setTipoMovimiento] = useState<string>('apertura');
+  const [totalPaletasInventario, setTotalPaletasInventario] = useState<number | ''>('');
+  const [cantidadesInventario, setCantidadesInventario] = useState<{ [item: string]: number | '' }>({});
+  const [observacionesInventario, setObservacionesInventario] = useState<string>('');
 
-  const [mostrarSolicitarSuministro, setMostrarSolicitarSuministro] = useState(false);
-  const [itemSolicitado, setItemSolicitado] = useState('');
+  // MESAS Y VENTAS
+  const [mesas, setMesas] = useState<any[]>([]);
+  const [mesaActivaId, setMesaActivaId] = useState<any | null>(null);
+  const [productosVenta, setProductosVenta] = useState<any[]>([]);
+  const [listaCategoriasVenta, setListaCategoriasVenta] = useState<string[]>([]);
+  const [categoriaVentaSel, setCategoriaVentaSel] = useState<string>('TODAS');
+  const [errorLecturaBD, setErrorLecturaBD] = useState<string | null>(null);
+
+  // LISTA DE PEDIDOS RAPPI INDEPENDIENTES Y PERSISTENTES
+  const [pedidosRappi, setPedidosRappi] = useState<any[]>([]);
+
+  // MODAL DE COBRO / PAGO MIXTO
+  const [mostrarModalCobro, setMostrarModalCobro] = useState(false);
+  const [pagoEfectivo, setPagoEfectivo] = useState<number | ''>('');
+  const [pagoNequi, setPagoNequi] = useState<number | ''>('');
+  const [pagoDaviplata, setPagoDaviplata] = useState<number | ''>('');
+  const [procesandoPago, setProcesandoPago] = useState(false);
+
+  // REQUISICIONES / PEDIDOS A BODEGA
+  const [productosInsumosBD, setProductosInsumosBD] = useState<any[]>([]);
+  const [mostrarPedidos, setMostrarPedidos] = useState(false);
+  const [tabPedido, setTabPedido] = useState<CategoriaTab>('paletas');
+  
+  const [pedidosCategorias, setPedidosCategorias] = useState<{
+    paletas: { [key: string]: number };
+    richi: { [key: string]: number };
+    prod: { [key: string]: number };
+    insumos: { [key: string]: number };
+    aseo: { [key: string]: number };
+  }>({
+    paletas: {},
+    richi: {},
+    prod: {},
+    insumos: {},
+    aseo: {},
+  });
+
+  const [observacionPedido, setObservacionPedido] = useState<string>('');
+
+  // NÓMINA
+  const [tipoDia, setTipoDia] = useState<string>('entre_semana');
+  const [horasDia, setHorasDia] = useState<number | ''>('');
+  const [horasNoche, setHorasNoche] = useState<number | ''>('');
+  const [totalNomina, setTotalNomina] = useState<number>(18000);
+
   const [cargando, setCargando] = useState(true);
+  const SEDE_ID_MARTINETO = 1;
+
+  const inputRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
+  const pedidosRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
+
+  const bloqueadoPorApertura = !baseGuardada || !aperturaRealizada;
 
   useEffect(() => {
     const sesionLocal = localStorage.getItem('martineto_session');
-    
     if (!sesionLocal) {
       router.replace('/login');
       return;
     }
-
-    try {
-      const dataSesion = JSON.parse(sesionLocal);
-      setSesion(dataSesion);
-      cargarDatos(dataSesion.sede_id || 1);
-    } catch {
-      router.replace('/login');
-    }
+    const ses = JSON.parse(sesionLocal);
+    setSesion(ses);
+    cargarInicial();
   }, [router]);
 
-  async function cargarDatos(sedeId: number) {
+  async function cargarInicial() {
     setCargando(true);
-    const listaProds = await obtenerProductosMartineto();
-    const listaMesas = await obtenerMesasMartineto(sedeId);
-    setProductos(listaProds);
-    setMesas(listaMesas);
-    setCargando(false);
-  }
+    setErrorLecturaBD(null);
 
-  function modificarCantidad(producto: ProductoPOS, delta: number) {
-    if (!mesaSeleccionada) return;
+    try {
+      const mesasRes = await supabase
+        .from('mesa')
+        .select('*')
+        .eq('sede_id', SEDE_ID_MARTINETO)
+        .order('id', { ascending: true });
 
-    const mesaId = mesaSeleccionada.id;
-    const actual = pedidosMesa[mesaId] ? [...pedidosMesa[mesaId]] : [];
-    const index = actual.findIndex((i) => i.producto.id === producto.id);
-
-    if (index > -1) {
-      const nuevaCant = actual[index].cantidad + delta;
-      if (nuevaCant <= 0) {
-        actual.splice(index, 1);
-      } else {
-        actual[index].cantidad = nuevaCant;
+      let listaMesas = mesasRes.data || [];
+      if (listaMesas.length === 0) {
+        listaMesas = [
+          { id: 101, nombre: 'Mesa 1', estado: 'Libre', sede_id: SEDE_ID_MARTINETO },
+          { id: 102, nombre: 'Mesa 2', estado: 'Libre', sede_id: SEDE_ID_MARTINETO },
+          { id: 103, nombre: 'Mesa 3', estado: 'Libre', sede_id: SEDE_ID_MARTINETO },
+          { id: 104, nombre: 'Mesa 4', estado: 'Libre', sede_id: SEDE_ID_MARTINETO },
+          { id: 105, nombre: 'Mesa 5', estado: 'Libre', sede_id: SEDE_ID_MARTINETO },
+          { id: 106, nombre: 'Corredor 1', estado: 'Libre', sede_id: SEDE_ID_MARTINETO },
+          { id: 107, nombre: 'Corredor 2', estado: 'Libre', sede_id: SEDE_ID_MARTINETO },
+        ];
       }
-    } else if (delta > 0) {
-      actual.push({ producto, cantidad: 1 });
-    }
 
-    setPedidosMesa({ ...pedidosMesa, [mesaId]: actual });
+      setMesas(
+        listaMesas.map((m: any) => ({
+          ...m,
+          items: [],
+          total: 0,
+          estado: 'Libre',
+        }))
+      );
 
-    if (actual.length > 0 && mesaSeleccionada.estado === 'libre') {
-      actualizarEstadoMesa(mesaId, 'ocupada_debe');
-      setMesas(mesas.map((m) => (m.id === mesaId ? { ...m, estado: 'ocupada_debe' } : m)));
+      const { data: prodsVentaBD, error: errVenta } = await supabase
+        .from('produc_ven_martineto')
+        .select('*');
+
+      if (errVenta) {
+        setErrorLecturaBD(`Error BD: ${errVenta.message}`);
+      }
+
+      if (prodsVentaBD && prodsVentaBD.length > 0) {
+        const prodsVentaLimpios = prodsVentaBD.map((p: any) => {
+          const catTexto = String(p.categoria || p.Categoria || p.CATEGORIA || 'General').trim();
+          return {
+            ...p,
+            id: p.id,
+            nombre: p.nombre || p.Nombre || 'Sin Nombre',
+            precio: Number(p.precio || p.Precio || 0),
+            categoriaLimpia: catTexto.toLowerCase(),
+            categoriaMostrar: catTexto.toUpperCase(),
+          };
+        });
+
+        setProductosVenta(prodsVentaLimpios);
+
+        const catsSet = new Set<string>();
+        prodsVentaLimpios.forEach((p) => {
+          if (p.categoriaMostrar) catsSet.add(p.categoriaMostrar);
+        });
+
+        const catsUnicasBD = Array.from(catsSet);
+        setListaCategoriasVenta(catsUnicasBD);
+        setCategoriaVentaSel('TODAS');
+      } else {
+        setErrorLecturaBD('La tabla produc_ven_martineto no devolvió registros.');
+      }
+
+      const { data: prodsInsumosBD } = await supabase.from('producto').select('*');
+      if (prodsInsumosBD) {
+        setProductosInsumosBD(
+          prodsInsumosBD.map((p: any) => ({
+            ...p,
+            nombre: p.nombre || p.Nombre || '',
+            categoriaLimpia: String(p.categoria || p.Categoria || 'general').trim().toLowerCase(),
+          }))
+        );
+      }
+    } catch (e: any) {
+      setErrorLecturaBD(`Excepción: ${e.message || 'Error de conexión'}`);
+    } finally {
+      setCargando(false);
     }
   }
 
-  const itemsMesaActual = mesaSeleccionada ? pedidosMesa[mesaSeleccionada.id] || [] : [];
-  const totalMesaActual = itemsMesaActual.reduce((acc, i) => acc + i.producto.precio * i.cantidad, 0);
-  const totalRappi = pedidosRappi.reduce((acc, i) => acc + i.producto.precio * i.cantidad, 0);
+  const esRappiActivo = typeof mesaActivaId === 'string' && mesaActivaId.startsWith('rappi_');
+  const mesaActiva = !esRappiActivo ? mesas.find((m) => m.id === mesaActivaId) || null : null;
+  const rappiActivo = esRappiActivo ? pedidosRappi.find((r) => r.id === mesaActivaId) || null : null;
+  const itemActivoActual = esRappiActivo ? rappiActivo : mesaActiva;
 
-  async function handleConfirmarPagoMesa() {
-    if (!mesaSeleccionada || itemsMesaActual.length === 0) return;
+  const productosFiltradosVenta = productosVenta.filter((p) => {
+    if (!categoriaVentaSel || categoriaVentaSel === 'TODAS') return true;
+    return p.categoriaLimpia === categoriaVentaSel.toLowerCase();
+  });
 
-    const totalIngresado = metodosPago.efectivo + metodosPago.nequi + metodosPago.daviplata;
-    if (totalIngresado < totalMesaActual) {
-      alert(`Monto insuficiente. Faltan $${(totalMesaActual - totalIngresado).toLocaleString('es-CO')}`);
+  const insumosFiltrados = productosInsumosBD.filter((prod) => {
+    const cat = prod.categoriaLimpia;
+    const nom = String(prod.nombre || '').toLowerCase();
+
+    if (tabPedido === 'paletas') return cat.includes('light') || cat.includes('frutal') || cat.includes('crema') || cat.includes('paleta') || nom.includes('paleta');
+    if (tabPedido === 'richi') return cat.includes('richi') || cat.includes('empaque') || cat.includes('vaso') || nom.includes('vaso') || nom.includes('cuchar') || nom.includes('bolsa');
+    if (tabPedido === 'prod') return cat.includes('prod') || cat.includes('produccion') || cat.includes('materia') || nom.includes('mezcla') || nom.includes('helado');
+    if (tabPedido === 'insumos') return cat.includes('insumo') || cat.includes('topping') || nom.includes('chamoy') || nom.includes('nerds') || nom.includes('arequipe');
+    if (tabPedido === 'aseo') return cat.includes('aseo') || cat.includes('limpieza') || nom.includes('clorox') || nom.includes('escoba');
+    return true;
+  });
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>, currentIndex: number, keysList: string[]) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const nextKey = keysList[currentIndex + 1];
+      if (nextKey && inputRefs.current[nextKey]) {
+        inputRefs.current[nextKey]?.focus();
+        inputRefs.current[nextKey]?.select();
+      }
+    }
+  }
+
+  function handleKeyDownPedidos(e: React.KeyboardEvent<HTMLInputElement>, idx: number) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const siguienteProd = insumosFiltrados[idx + 1];
+      if (siguienteProd && pedidosRefs.current[siguienteProd.nombre]) {
+        pedidosRefs.current[siguienteProd.nombre]?.focus();
+        pedidosRefs.current[siguienteProd.nombre]?.select();
+      }
+    }
+  }
+
+  async function handleGuardarBase() {
+    const monto = baseCaja === '' ? 0 : Number(baseCaja);
+    const usuarioId = sesion?.usuario_id || sesion?.id;
+    const exito = await registrarBaseCajaMartineto(SEDE_ID_MARTINETO, usuarioId, monto, sesion?.turno_id);
+    if (exito) {
+      setBaseGuardada(true);
+      alert('¡Base inicial guardada correctamente!');
+    } else {
+      alert('Error al guardar la base.');
+    }
+  }
+
+  async function handleGuardarInventario() {
+    if (!baseGuardada) {
+      alert('⚠️ Primero guarda la Base de Caja.');
+      return;
+    }
+    const usuarioId = sesion?.usuario_id || sesion?.id;
+
+    const detalleEmpaquesLimpio: { [key: string]: number } = {};
+    Object.keys(cantidadesInventario).forEach((key) => {
+      const val = cantidadesInventario[key];
+      if (val !== '' && val !== null && val !== undefined) {
+        detalleEmpaquesLimpio[key] = Number(val);
+      }
+    });
+
+    const exito = await registrarMovimientoMartineto(
+      SEDE_ID_MARTINETO,
+      usuarioId,
+      tipoMovimiento,
+      Number(totalPaletasInventario) || 0,
+      {},
+      detalleEmpaquesLimpio,
+      observacionesInventario,
+      sesion?.turno_id
+    );
+
+    if (exito) {
+      alert(`¡${tipoMovimiento.toUpperCase()} registrada con éxito!`);
+      if (tipoMovimiento === 'apertura') {
+        setAperturaRealizada(true);
+        setTipoMovimiento('nuevas');
+      }
+    } else {
+      alert('Error al registrar inventario.');
+    }
+  }
+
+  async function enviarPedidoBodega() {
+    const usuarioId = sesion?.usuario_id || sesion?.id;
+
+    const limpiarCategoria = (catObj: { [key: string]: number }) => {
+      const res: { [key: string]: number } = {};
+      Object.entries(catObj || {}).forEach(([nom, cant]) => {
+        if (typeof cant === 'number' && cant > 0) {
+          res[nom] = cant;
+        }
+      });
+      return res;
+    };
+
+    const paletasLimpias = limpiarCategoria(pedidosCategorias.paletas);
+    const richiLimpias = limpiarCategoria(pedidosCategorias.richi);
+    const prodLimpias = limpiarCategoria(pedidosCategorias.prod);
+    const insumosLimpias = limpiarCategoria(pedidosCategorias.insumos);
+    const aseoLimpias = limpiarCategoria(pedidosCategorias.aseo);
+
+    const totalItems =
+      Object.keys(paletasLimpias).length +
+      Object.keys(richiLimpias).length +
+      Object.keys(prodLimpias).length +
+      Object.keys(insumosLimpias).length +
+      Object.keys(aseoLimpias).length;
+
+    if (totalItems === 0) {
+      alert('⚠️ Por favor ingresa al menos un producto con cantidad mayor a 0.');
       return;
     }
 
-    const pagosDetalle = [
-      { tipo_pago_id: 1, monto: metodosPago.efectivo },
-      { tipo_pago_id: 2, monto: metodosPago.nequi },
-      { tipo_pago_id: 3, monto: metodosPago.daviplata },
-    ];
+    const payload = {
+      sede_id: SEDE_ID_MARTINETO,
+      usuario_id: usuarioId,
+      estado: 'pendiente',
+      observaciones: observacionPedido || '',
+      pedidos_paletas: paletasLimpias,
+      pedidos_richi: richiLimpias,
+      pedidos_produccion: prodLimpias,
+      pedidos_insumos: insumosLimpias,
+      pedidos_aseo: aseoLimpias,
+    };
 
-    const productosVendidos = itemsMesaActual.map((i) => ({
-      producto_id: i.producto.id,
-      cantidad: i.cantidad,
-      precio_unitario: i.producto.precio,
-    }));
+    const { error } = await supabase.from('pedidos_insumos').insert([payload]);
 
-    const exito = await registrarVentaPOS(
-      sesion.sede_id || 1,
-      sesion.usuario_id,
-      mesaSeleccionada.id,
-      totalMesaActual,
-      false,
-      pagosDetalle,
-      productosVendidos
+    if (!error) {
+      alert('¡Pedido enviado a bodega con éxito!');
+      setPedidosCategorias({
+        paletas: {},
+        richi: {},
+        prod: {},
+        insumos: {},
+        aseo: {},
+      });
+      setObservacionPedido('');
+    } else {
+      alert('Error al guardar en la base de datos: ' + error.message);
+    }
+  }
+
+  // CREAR NUEVO RAPPI CON SECUENCIA DINÁMICA (Rappi 1, Rappi 2...)
+  function agregarNuevoRappi() {
+    const nuevoId = `rappi_${Date.now()}`;
+    const numeroRappi = pedidosRappi.length + 1;
+    const nuevoPedido = {
+      id: nuevoId,
+      nombre: `Rappi ${numeroRappi}`,
+      estado: 'Preparando',
+      items: [],
+      total: 0,
+    };
+    setPedidosRappi((prev) => [...prev, nuevoPedido]);
+    setMesaActivaId(nuevoId);
+  }
+
+  async function agregarProductoAMesa(producto: any) {
+    if (!mesaActivaId) {
+      alert('⚠️ Selecciona una mesa o un pedido Rappi primero en la columna izquierda.');
+      return;
+    }
+
+    if (!esRappiActivo && mesaActiva?.estado === 'Pagada') {
+      alert('⚠️ Esta mesa ya fue pagada. Libérela antes de agregar nuevos productos.');
+      return;
+    }
+
+    const nombreProd = (producto.nombre || '').toLowerCase();
+    const usaVaso12 =
+      nombreProd.includes('yogurneto') ||
+      nombreProd.includes('malteada') ||
+      nombreProd.includes('soda') ||
+      nombreProd.includes('jugo') ||
+      nombreProd.includes('limonada');
+
+    if (usaVaso12) {
+      setCantidadesInventario((prev) => {
+        const actual = Number(prev['Vaso 12 onzas']) || 0;
+        return { ...prev, 'Vaso 12 onzas': Math.max(0, actual - 1) };
+      });
+    }
+
+    if (esRappiActivo) {
+      setPedidosRappi((prev) =>
+        prev.map((r) => {
+          if (r.id !== mesaActivaId) return r;
+          const existe = r.items.some((i: any) => i.id === producto.id);
+          let nuevosItems;
+          if (existe) {
+            nuevosItems = r.items.map((i: any) =>
+              i.id === producto.id ? { ...i, cantidad: i.cantidad + 1 } : i
+            );
+          } else {
+            nuevosItems = [...r.items, { ...producto, cantidad: 1 }];
+          }
+          const nuevoTotal = nuevosItems.reduce((acc: number, i: any) => acc + (Number(i.precio) || 0) * i.cantidad, 0);
+          return { ...r, items: nuevosItems, total: nuevoTotal };
+        })
+      );
+    } else {
+      setMesas((prevMesas) =>
+        prevMesas.map((m) => {
+          if (m.id !== mesaActivaId) return m;
+
+          const existe = m.items.some((i: any) => i.id === producto.id);
+
+          let nuevosItems;
+          if (existe) {
+            nuevosItems = m.items.map((i: any) =>
+              i.id === producto.id ? { ...i, cantidad: i.cantidad + 1 } : i
+            );
+          } else {
+            nuevosItems = [...m.items, { ...producto, cantidad: 1 }];
+          }
+
+          const nuevoTotal = nuevosItems.reduce(
+            (acc: number, i: any) => acc + (Number(i.precio) || 0) * i.cantidad,
+            0
+          );
+
+          return {
+            ...m,
+            items: nuevosItems,
+            total: nuevoTotal,
+            estado: m.estado === 'Libre' ? 'Ocupada' : m.estado,
+          };
+        })
+      );
+    }
+  }
+
+  async function descontarProductoDeMesa(productoId: number) {
+    if (!mesaActivaId) return;
+
+    if (esRappiActivo) {
+      setPedidosRappi((prev) =>
+        prev.map((r) => {
+          if (r.id !== mesaActivaId) return r;
+          const itemsActuales = [...r.items];
+          const index = itemsActuales.findIndex((i: any) => i.id === productoId);
+          if (index >= 0) {
+            if (itemsActuales[index].cantidad > 1) {
+              itemsActuales[index].cantidad -= 1;
+            } else {
+              itemsActuales.splice(index, 1);
+            }
+          }
+          const nuevoTotal = itemsActuales.reduce((acc: number, i: any) => acc + (Number(i.precio) || 0) * i.cantidad, 0);
+          return { ...r, items: itemsActuales, total: nuevoTotal };
+        })
+      );
+    } else {
+      if (mesaActiva?.estado === 'Pagada') return;
+      setMesas((prev) =>
+        prev.map((m) => {
+          if (m.id === mesaActivaId) {
+            const itemsActuales = [...m.items];
+            const index = itemsActuales.findIndex((i: any) => i.id === productoId);
+            if (index >= 0) {
+              if (itemsActuales[index].cantidad > 1) {
+                itemsActuales[index].cantidad -= 1;
+              } else {
+                itemsActuales.splice(index, 1);
+              }
+            }
+            const nuevoTotal = itemsActuales.reduce((acc: number, i: any) => acc + (Number(i.precio) || 0) * i.cantidad, 0);
+            const nuevoEstado = itemsActuales.length === 0 ? 'Libre' : m.estado;
+
+            return { ...m, items: itemsActuales, total: nuevoTotal, estado: nuevoEstado };
+          }
+          return m;
+        })
+      );
+    }
+  }
+
+  // MARCAR RAPPI COMO PREPARADO (QUEDA EN ESPERA DE ENTREGA)
+  function marcarRappiPreparado() {
+    if (!rappiActivo || rappiActivo.items.length === 0) {
+      alert('⚠️ El pedido Rappi está vacío.');
+      return;
+    }
+    setPedidosRappi((prev) =>
+      prev.map((r) => (r.id === mesaActivaId ? { ...r, estado: 'Preparado' } : r))
+    );
+    alert('🍳 Pedido marcado como PREPARADO (En espera de que llegue el rappitendero).');
+  }
+
+  // ENTREGAR RAPPI (GUARDA EN SUPABASE, DESCUENTA Y ELIMINA DE PENDIENTES)
+  async function entregarRappi() {
+    if (!rappiActivo || rappiActivo.items.length === 0) {
+      alert('⚠️ No hay productos en este pedido Rappi.');
+      return;
+    }
+
+    const usuarioId = sesion?.usuario_id || sesion?.id;
+
+    const payloadVenta = {
+      sede_id: SEDE_ID_MARTINETO,
+      usuario_id: usuarioId ? String(usuarioId) : null,
+      monto_total: rappiActivo.total,
+      pago_efectivo: 0,
+      pago_nequi: 0,
+      pago_daviplata: 0,
+      cambio: 0,
+      estado: 'rappi',
+      items: rappiActivo.items,
+    };
+
+    const { error } = await supabase.from('venta').insert([payloadVenta]);
+
+    if (error) {
+      alert('Error guardando pedido Rappi en la tabla "venta": ' + error.message);
+      return;
+    }
+
+    setPedidosRappi((prev) => prev.filter((r) => r.id !== mesaActivaId));
+    setMesaActivaId(null);
+    alert('🚀 ¡Pedido Rappi entregado, guardado en la base de datos y liberado con éxito!');
+  }
+
+  function marcarEntregado() {
+    if (!mesaActiva || mesaActiva.items.length === 0) {
+      alert('⚠️ No hay productos en la orden.');
+      return;
+    }
+    setMesas((prev) =>
+      prev.map((m) =>
+        m.id === mesaActivaId ? { ...m, estado: 'Entregado' } : m
+      )
+    );
+    alert('✅ Pedido marcado como Entregado.');
+  }
+
+  function abrirModalCobro() {
+    if (!mesaActiva || mesaActiva.items.length === 0) {
+      alert('⚠️ No hay productos en la orden para cobrar.');
+      return;
+    }
+    setPagoEfectivo(mesaActiva.total);
+    setPagoNequi('');
+    setPagoDaviplata('');
+    setMostrarModalCobro(true);
+  }
+
+  async function procesarCobroMesa() {
+    if (!mesaActiva) return;
+
+    const efec = Number(pagoEfectivo) || 0;
+    const neq = Number(pagoNequi) || 0;
+    const dav = Number(pagoDaviplata) || 0;
+    const sumaPagos = efec + neq + dav;
+
+    if (sumaPagos < mesaActiva.total) {
+      alert(`⚠️ La suma abonada ($ ${sumaPagos.toLocaleString('es-CO')}) es menor al total de la orden ($ {mesaActiva.total.toLocaleString('es-CO')}).`);
+      return;
+    }
+
+    setProcesandoPago(true);
+    const usuarioId = sesion?.usuario_id || sesion?.id;
+
+    const payloadVenta = {
+      sede_id: SEDE_ID_MARTINETO,
+      usuario_id: usuarioId ? String(usuarioId) : null,
+      monto_total: mesaActiva.total,
+      pago_efectivo: efec,
+      pago_nequi: neq,
+      pago_daviplata: dav,
+      cambio: Math.max(0, sumaPagos - mesaActiva.total),
+      estado: 'pagado',
+      items: mesaActiva.items,
+    };
+
+    const { error } = await supabase.from('venta').insert([payloadVenta]);
+
+    if (error) {
+      alert('Error registrando la venta en la tabla "venta": ' + error.message);
+      setProcesandoPago(false);
+      return;
+    }
+
+    setMesas((prev) =>
+      prev.map((m) =>
+        m.id === mesaActivaId
+          ? { ...m, estado: 'Pagada' }
+          : m
+      )
     );
 
-    if (exito) {
-      await actualizarEstadoMesa(mesaSeleccionada.id, 'ocupada_pagado');
-      setMesas(mesas.map((m) => (m.id === mesaSeleccionada.id ? { ...m, estado: 'ocupada_pagado' } : m)));
-      setMostrarPago(false);
-      setMetodosPago({ efectivo: 0, nequi: 0, daviplata: 0 });
-      alert('¡Pago registrado con éxito!');
-      cargarDatos(sesion.sede_id || 1);
-    }
+    setProcesandoPago(false);
+    setMostrarModalCobro(false);
+    alert('✅ ¡Pago registrado con éxito! La mesa queda en estado Pagada.');
   }
 
-  async function handleConfirmarRappi() {
-    if (pedidosRappi.length === 0) return;
+  function liberarMesa() {
+    if (!mesaActivaId) return;
 
-    const pagosDetalle = [{ tipo_pago_id: 4, monto: totalRappi }];
-    const productosVendidos = pedidosRappi.map((i) => ({
-      producto_id: i.producto.id,
-      cantidad: i.cantidad,
-      precio_unitario: i.producto.precio,
-    }));
-
-    const exito = await registrarVentaPOS(
-      sesion.sede_id || 1,
-      sesion.usuario_id,
-      null,
-      totalRappi,
-      true,
-      pagosDetalle,
-      productosVendidos
+    setMesas((prev) =>
+      prev.map((m) =>
+        m.id === mesaActivaId
+          ? { ...m, items: [], total: 0, estado: 'Libre' }
+          : m
+      )
     );
-
-    if (exito) {
-      setPedidosRappi([]);
-      alert('¡Pedido Rappi registrado y cobrado correctamente!');
-      cargarDatos(sesion.sede_id || 1);
-    }
+    alert('🧹 Mesa liberada y lista.');
   }
 
-  async function handleLiberarMesa(mesaId: number) {
-    await actualizarEstadoMesa(mesaId, 'libre');
-    setMesas(mesas.map((m) => (m.id === mesaId ? { ...m, estado: 'libre' } : m)));
-    setPedidosMesa({ ...pedidosMesa, [mesaId]: [] });
-    setMesaSeleccionada(null);
-  }
-
-  async function handleEnviarSuministro() {
-    if (!itemSolicitado.trim()) return;
-    const ok = await enviarPedidoSuministroPOS(sesion.sede_id || 1, sesion.usuario_id, itemSolicitado.trim());
-    if (ok) {
-      setItemSolicitado('');
-      setMostrarSolicitarSuministro(false);
-      alert('Solicitud de insumo enviada al Administrador');
-    }
-  }
-
-  function cerrarSesion() {
-    localStorage.removeItem('martineto_session');
-    router.push('/login');
-  }
-
-  if (cargando && !sesion) {
+  if (cargando) {
     return (
-      <main className="min-h-screen bg-[#07090e] flex items-center justify-center text-gray-400 text-xs font-bold">
-        Cargando sistema...
+      <main className="min-h-screen bg-[#004e8c] flex items-center justify-center text-white text-xs font-bold font-sans">
+        Cargando Martineto POS...
       </main>
     );
   }
 
-  const prodsFiltrados = productos.filter((p) =>
-    p.nombre.toLowerCase().includes(busqueda.toLowerCase())
-  );
-
   return (
-    <main className="min-h-screen bg-[#07090e] text-slate-100 p-3 font-sans flex flex-col justify-between max-w-7xl mx-auto space-y-3">
-      {/* Header */}
-      <header className="bg-[#0d111a] border border-gray-800 p-3 rounded-2xl flex justify-between items-center">
-        <div className="flex items-center gap-2">
-          <span className="text-xl">🍦</span>
-          <div>
-            <h1 className="text-sm font-black text-white">MARTINETO POS</h1>
-            <p className="text-[10px] text-gray-400">
-              Operador: <b>{sesion?.nombre || 'Operador'}</b> | Sede: <b>{sesion?.sede_nombre || 'Martineto'}</b>
-            </p>
-          </div>
+    <main className="min-h-screen bg-[#004e8c] text-[#f1f5f9] p-4 font-sans max-w-[1600px] mx-auto space-y-4">
+      {/* HEADER */}
+      <header className="bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl flex justify-between items-center shadow-lg">
+        <div>
+          <h1 className="text-base md:text-lg font-black text-white flex items-center gap-2">
+            <span className="w-3 h-3 rounded-full bg-[#00a4ef] inline-block"></span>
+            🍦 MARTINETO POS (Sede Principal)
+          </h1>
+          <p className="text-xs text-sky-200 mt-1">
+            Operador en Turno: <b className="text-white">{sesion?.nombre || 'Iris'}</b> ({sesion?.turno_nombre || 'MAÑANA / APERTURA'})
+          </p>
         </div>
-        <button onClick={cerrarSesion} className="bg-gray-800 hover:bg-rose-950 text-gray-300 border border-gray-700 px-3 py-1.5 rounded-xl text-xs font-bold">
+        <button
+          onClick={() => {
+            localStorage.removeItem('martineto_session');
+            router.push('/login');
+          }}
+          className="bg-[#003d6d] hover:bg-rose-900 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer"
+        >
           🚪 Salir
         </button>
       </header>
 
-      {/* Mesas Tabs */}
-      <div className="flex gap-1.5 overflow-x-auto pb-1 no-scrollbar">
-        {mesas.map((m) => (
+      {/* PASO 1: BASE INICIAL */}
+      <div className="bg-[#0b2b48] border border-emerald-400/50 p-4 rounded-2xl space-y-2 shadow-md">
+        <span className="text-xs md:text-sm font-black text-emerald-300 block">💵 Paso 1: Base Inicial para Empezar el Día (Efectivo en Caja):</span>
+        <div className="flex gap-3">
+          <input
+            type="text"
+            placeholder="Monto en efectivo $"
+            value={formatearMoneda(baseCaja)}
+            onChange={(e) => setBaseCaja(desformatearMoneda(e.target.value))}
+            disabled={baseGuardada}
+            className="w-full bg-[#051829] border border-[#0066b3] text-emerald-300 font-black text-sm rounded-xl p-3 outline-none"
+          />
           <button
-            key={m.id}
-            onClick={() => setMesaSeleccionada(m)}
-            className={`px-3 py-1.5 rounded-xl text-xs font-black whitespace-nowrap border ${
-              mesaSeleccionada?.id === m.id
-                ? 'bg-purple-600 border-purple-400 text-white'
-                : m.estado === 'libre'
-                ? 'bg-[#0d111a] border-gray-800 text-emerald-400'
-                : m.estado === 'ocupada_debe'
-                ? 'bg-rose-950/80 border-rose-800 text-rose-400'
-                : 'bg-amber-950/80 border-amber-800 text-amber-400'
-            }`}
+            onClick={handleGuardarBase}
+            disabled={baseGuardada}
+            className={`font-bold px-6 rounded-xl text-xs ${baseGuardada ? 'bg-emerald-950 text-emerald-300' : 'bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer'}`}
           >
-            {m.nombre} ({m.estado === 'libre' ? 'Libre' : m.estado === 'ocupada_debe' ? 'Debe' : 'Pagado'})
+            {baseGuardada ? '✓ Base Guardada' : 'Guardar Base'}
           </button>
-        ))}
+        </div>
       </div>
 
-      {/* Seccion Principal */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 flex-1">
-        {/* Catalogo de Productos */}
-        <div className="lg:col-span-2 bg-[#0d111a] border border-gray-800 p-3.5 rounded-2xl space-y-3">
-          <div className="flex justify-between items-center">
-            <h2 className="text-xs font-black text-white">
-              {mesaSeleccionada ? `Comanda ${mesaSeleccionada.nombre}` : 'Catálogo de Productos'}
-            </h2>
-            <input
-              type="text"
-              placeholder="🔍 Buscar..."
-              value={busqueda}
-              onChange={(e) => setBusqueda(e.target.value)}
-              className="bg-gray-900 border border-gray-800 rounded-xl px-3 py-1 text-xs text-white outline-none w-36"
-            />
+      {bloqueadoPorApertura && (
+        <div className="bg-amber-950/80 border border-amber-400/60 p-3 rounded-xl text-center text-xs text-amber-200 font-bold">
+          ⚠️ ATENCIÓN: Debes registrar la Base y el <b>Conteo de Apertura</b> para habilitar las ventas y operaciones del sistema.
+        </div>
+      )}
+
+      {/* SECCIÓN SUPERIOR: INVENTARIO Y PEDIDOS */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+        <div className="bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md">
+          <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
+            <h2 className="text-xs md:text-sm font-black text-white flex items-center gap-1.5">🍦 Conteo de Inventario</h2>
+            <span className="bg-[#0078d4] text-white font-black text-[10px] px-3 py-1 rounded-full uppercase">{tipoMovimiento}</span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[500px] overflow-y-auto pr-1">
-            {prodsFiltrados.map((p) => {
-              const itemMesa = mesaSeleccionada ? (pedidosMesa[mesaSeleccionada.id] || []).find((i) => i.producto.id === p.id) : null;
-              const cantMesa = itemMesa ? itemMesa.cantidad : 0;
-
-              return (
-                <div key={p.id} className="bg-gray-900/60 border border-gray-800 p-2.5 rounded-xl flex justify-between items-center">
-                  <div>
-                    <p className="font-bold text-xs text-white">{p.nombre}</p>
-                    <p className="text-[10px] text-emerald-400 font-black">${p.precio.toLocaleString('es-CO')}</p>
-                    <p className="text-[9px] text-gray-400">Stock: {p.stock ?? 0}</p>
-                  </div>
-                  {mesaSeleccionada && (
-                    <div className="flex items-center gap-1 bg-gray-950 p-1 rounded-xl border border-gray-800">
-                      <button onClick={() => modificarCantidad(p, -1)} className="w-6 h-6 rounded-lg bg-gray-800 text-white font-black text-xs flex items-center justify-center">-</button>
-                      <span className="font-black text-xs w-5 text-center text-purple-400">{cantMesa}</span>
-                      <button onClick={() => modificarCantidad(p, 1)} className="w-6 h-6 rounded-lg bg-purple-600 text-white font-black text-xs flex items-center justify-center">+</button>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+          <div className="space-y-1">
+            <span className="text-[10px] text-sky-300 font-bold block uppercase">Acción a registrar:</span>
+            <select
+              value={tipoMovimiento}
+              onChange={(e) => setTipoMovimiento(e.target.value)}
+              disabled={!aperturaRealizada && baseGuardada}
+              className="w-full bg-[#051829] border border-[#0066b3] text-white font-black text-xs rounded-xl p-2.5 outline-none cursor-pointer"
+            >
+              {!aperturaRealizada && <option value="apertura">👤 1. Conteo de Apertura (Obligatorio)</option>}
+              <option value="nuevas">📦 Paletas Nuevas (Ingreso)</option>
+              <option value="compras">🛒 Compras Directas</option>
+              <option value="debaja">⚠️ De Baja / Mermas</option>
+              <option value="cierre">🌙 Conteo de Cierre</option>
+            </select>
           </div>
+
+          <div className="bg-[#051829] border border-[#0066b3] p-3 rounded-xl space-y-1">
+            <span className="text-xs text-sky-200 font-bold block">CANTIDAD TOTAL PARA [{tipoMovimiento.toUpperCase()}]:</span>
+            <div className="flex justify-between items-center pt-1">
+              <span className="text-xs text-white font-black flex items-center gap-1">🍦 Total Paletas:</span>
+              <input
+                ref={(el) => { inputRefs.current['totalPaletas'] = el; }}
+                type="text"
+                inputMode="numeric"
+                placeholder="0"
+                value={totalPaletasInventario}
+                onChange={(e) => setTotalPaletasInventario(e.target.value === '' ? '' : Number(e.target.value.replace(/\D/g, '')))}
+                onKeyDown={(e) => handleKeyDown(e, -1, LISTA_EMPAQUES_MARTINETO)}
+                className="w-28 bg-[#0e385e] text-sky-200 font-black text-center text-sm rounded-lg p-2 outline-none border border-[#0066b3]"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5 max-h-[220px] overflow-y-auto pr-1">
+            <span className="text-xs text-sky-300 font-bold block uppercase">CONTEO DE EMPAQUES Y VASOS:</span>
+            {LISTA_EMPAQUES_MARTINETO.map((item, idx) => (
+              <div key={item} className="flex justify-between items-center bg-[#051829] p-2 rounded-lg border border-[#0066b3]">
+                <span className="text-xs text-white font-bold flex items-center gap-1.5">📦 {item}:</span>
+                <input
+                  ref={(el) => { inputRefs.current[item] = el; }}
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="0"
+                  value={cantidadesInventario[item] ?? ''}
+                  onChange={(e) =>
+                    setCantidadesInventario({
+                      ...cantidadesInventario,
+                      [item]: e.target.value === '' ? '' : Number(e.target.value.replace(/\D/g, '')),
+                    })
+                  }
+                  onKeyDown={(e) => handleKeyDown(e, idx, LISTA_EMPAQUES_MARTINETO)}
+                  className="w-24 bg-[#0e385e] text-sky-200 font-black text-center text-xs rounded p-1.5 outline-none border border-[#0066b3]"
+                />
+              </div>
+            ))}
+          </div>
+
+          <textarea
+            placeholder="Observaciones de inventario..."
+            value={observacionesInventario}
+            onChange={(e) => setObservacionesInventario(e.target.value)}
+            className="w-full bg-[#051829] border border-[#0066b3] text-white text-xs p-2 rounded-xl outline-none resize-none h-14"
+          />
+
+          <button
+            onClick={handleGuardarInventario}
+            disabled={!baseGuardada}
+            className="w-full bg-[#0078d4] hover:bg-[#0086e6] text-white font-black py-2.5 rounded-xl text-xs uppercase cursor-pointer disabled:opacity-50"
+          >
+            💾 Guardar {tipoMovimiento}
+          </button>
         </div>
 
-        {/* Resumen de Comanda o Rappi */}
-        <div className="bg-[#0d111a] border border-gray-800 p-3.5 rounded-2xl space-y-3 flex flex-col justify-between">
-          {mesaSeleccionada ? (
-            <>
-              <div className="space-y-2">
-                <h3 className="text-xs font-black text-white border-b border-gray-800 pb-1.5">
-                  Resumen {mesaSeleccionada.nombre}
-                </h3>
-                {itemsMesaActual.length === 0 ? (
-                  <p className="text-center text-xs text-gray-500 py-6">Sin productos en comanda</p>
-                ) : (
-                  itemsMesaActual.map((i, idx) => (
-                    <div key={idx} className="flex justify-between items-center text-xs bg-gray-900/60 p-2 rounded-xl">
-                      <span>{i.producto.nombre} <b>x{i.cantidad}</b></span>
-                      <span className="font-black text-purple-400">${(i.producto.precio * i.cantidad).toLocaleString('es-CO')}</span>
-                    </div>
-                  ))
-                )}
-              </div>
-
-              <div className="space-y-2 pt-2 border-t border-gray-800">
-                <p className="text-xs font-black text-emerald-400 flex justify-between">
-                  <span>Total Pedido:</span>
-                  <span>${totalMesaActual.toLocaleString('es-CO')}</span>
-                </p>
-
-                {mesaSeleccionada.estado === 'ocupada_pagado' ? (
-                  <button onClick={() => handleLiberarMesa(mesaSeleccionada.id)} className="w-full bg-emerald-600 text-white font-black py-2 rounded-xl text-xs">
-                    🔓 Liberar / Desocupar Mesa
-                  </button>
-                ) : (
-                  <button onClick={() => { setMetodosPago({ efectivo: totalMesaActual, nequi: 0, daviplata: 0 }); setMostrarPago(true); }} disabled={itemsMesaActual.length === 0} className="w-full bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white font-black py-2 rounded-xl text-xs">
-                    💳 Registrar Pago
-                  </button>
-                )}
-              </div>
-            </>
-          ) : (
+        <div className={`bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md ${bloqueadoPorApertura ? 'opacity-50 pointer-events-none' : ''}`}>
+          <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
+            <h2 className="text-xs md:text-sm font-black text-white flex items-center gap-1.5">🚚 Pedidos de Insumos</h2>
+            <button
+              onClick={() => setMostrarPedidos(!mostrarPedidos)}
+              className="bg-[#051829] hover:bg-[#003d6d] text-sky-200 border border-[#0066b3] font-bold text-xs px-3 py-1.5 rounded-xl cursor-pointer"
+            >
+              {mostrarPedidos ? 'Ocultar' : 'Hacer Pedido'}
+            </button>
+          </div>
+          {mostrarPedidos && (
             <div className="space-y-3">
-              <h3 className="text-xs font-black text-white border-b border-gray-800 pb-1.5">🛵 Pedido Directo Rappi</h3>
-              <p className="text-[10px] text-gray-400">Selecciona productos del catálogo para armar pedido de Rappi</p>
-              {pedidosRappi.map((i, idx) => (
-                <div key={idx} className="flex justify-between items-center text-xs bg-gray-900/60 p-2 rounded-xl">
-                  <span>{i.producto.nombre} <b>x{i.cantidad}</b></span>
-                  <span className="font-black text-purple-400">${(i.producto.precio * i.cantidad).toLocaleString('es-CO')}</span>
-                </div>
-              ))}
-              <p className="text-xs font-black text-amber-400 flex justify-between pt-2 border-t border-gray-800">
-                <span>Total Rappi:</span>
-                <span>${totalRappi.toLocaleString('es-CO')}</span>
-              </p>
-              <button onClick={handleConfirmarRappi} disabled={pedidosRappi.length === 0} className="w-full bg-amber-600 hover:bg-amber-500 disabled:opacity-40 text-white font-black py-2 rounded-xl text-xs">
-                🛵 Confirmar y Cobrar Rappi
+              <div className="grid grid-cols-5 gap-1">
+                {(['paletas', 'richi', 'prod', 'insumos', 'aseo'] as const).map((tab) => (
+                  <button
+                    key={tab}
+                    onClick={() => setTabPedido(tab)}
+                    className={`py-1 rounded text-[10px] font-black uppercase cursor-pointer ${tabPedido === tab ? 'bg-[#00a4ef] text-white' : 'bg-[#051829] text-sky-300 border border-[#0066b3]'}`}
+                  >
+                    {tab}
+                  </button>
+                ))}
+              </div>
+              <div className="max-h-60 overflow-y-auto space-y-1.5 pr-1">
+                {insumosFiltrados.map((prod) => (
+                  <div key={prod.nombre} className="flex justify-between items-center bg-[#051829] p-2 rounded-xl border border-[#0066b3]">
+                    <span className="text-xs text-white font-bold">{prod.nombre}</span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="0"
+                      value={pedidosCategorias[tabPedido]?.[prod.nombre] || ''}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/\D/g, '');
+                        setPedidosCategorias({
+                          ...pedidosCategorias,
+                          [tabPedido]: { ...pedidosCategorias[tabPedido], [prod.nombre]: val === '' ? 0 : Number(val) },
+                        });
+                      }}
+                      className="w-20 bg-[#0e385e] text-sky-200 font-black text-center text-xs rounded-lg p-1.5 outline-none border border-[#0066b3]"
+                    />
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={enviarPedidoBodega}
+                className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black py-2.5 rounded-xl text-xs uppercase cursor-pointer shadow-md"
+              >
+                🚀 Enviar Pedido a Bodega
               </button>
             </div>
           )}
         </div>
       </div>
 
-      {/* Botón Suministros */}
-      <button onClick={() => setMostrarSolicitarSuministro(true)} className="w-full bg-gray-900 border border-gray-800 text-amber-400 font-bold py-2 rounded-xl text-xs">
-        📦 Solicitar Insumo / Suministro a Administración
-      </button>
+      {/* ======================================================= */}
+      {/* DISEÑO EN 3 COLUMNAS: MESAS & RAPPI | CATEGORÍAS & PRODUCTOS | FACTURA */}
+      {/* ======================================================= */}
+      <div className={`grid grid-cols-1 lg:grid-cols-12 gap-4 items-start ${bloqueadoPorApertura ? 'opacity-50 pointer-events-none' : ''}`}>
+        
+        {/* COLUMNA 1: MESAS Y PEDIDOS RAPPI (Rappi 1, Rappi 2 independientes) */}
+        <div className="lg:col-span-3 bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md">
+          <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
+            <h2 className="text-xs md:text-sm font-black text-white">🪑 1. Mesas y Rappi</h2>
+            <button
+              onClick={agregarNuevoRappi}
+              className="bg-rose-600 hover:bg-rose-500 text-white font-bold text-[10px] px-2.5 py-1 rounded-lg uppercase cursor-pointer shadow"
+            >
+              + Rappi
+            </button>
+          </div>
 
-      {/* Modales */}
-      {mostrarPago && mesaSeleccionada && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
-          <div className="bg-[#0d111a] border border-gray-800 p-5 rounded-3xl max-w-xs w-full space-y-3">
-            <h3 className="text-xs font-black text-white">Cobrar {mesaSeleccionada.nombre}</h3>
-            <p className="text-lg font-black text-emerald-400">${totalMesaActual.toLocaleString('es-CO')}</p>
-            <div className="space-y-2 text-xs">
-              <input type="number" placeholder="Efectivo" value={metodosPago.efectivo || ''} onChange={(e) => setMetodosPago({ ...metodosPago, efectivo: Number(e.target.value) })} className="w-full bg-gray-900 border border-gray-800 rounded-xl p-2 text-white outline-none font-bold" />
-              <input type="number" placeholder="Nequi" value={metodosPago.nequi || ''} onChange={(e) => setMetodosPago({ ...metodosPago, nequi: Number(e.target.value) })} className="w-full bg-gray-900 border border-gray-800 rounded-xl p-2 text-white outline-none font-bold" />
-              <input type="number" placeholder="Daviplata" value={metodosPago.daviplata || ''} onChange={(e) => setMetodosPago({ ...metodosPago, daviplata: Number(e.target.value) })} className="w-full bg-gray-900 border border-gray-800 rounded-xl p-2 text-white outline-none font-bold" />
+          <div className="grid grid-cols-1 gap-2.5 max-h-[440px] overflow-y-auto pr-1">
+            {/* PEDIDOS RAPPI */}
+            {pedidosRappi.map((rappi) => {
+              const activa = mesaActivaId === rappi.id;
+              const estaPreparado = rappi.estado === 'Preparado';
+
+              return (
+                <div
+                  key={rappi.id}
+                  onClick={() => setMesaActivaId(rappi.id)}
+                  className={`p-3 rounded-xl border cursor-pointer transition-all flex justify-between items-center shadow-md ${
+                    activa
+                      ? 'border-white ring-2 ring-white bg-rose-700'
+                      : estaPreparado
+                      ? 'bg-amber-700/90 border-amber-400'
+                      : 'bg-rose-950/80 border-rose-500 hover:bg-rose-900'
+                  }`}
+                >
+                  <div>
+                    <p className="font-black text-xs text-white uppercase">📦 {rappi.nombre}</p>
+                    <p className="text-[10px] font-bold text-rose-200 mt-0.5">{rappi.estado}</p>
+                  </div>
+                  <p className="text-xs text-emerald-300 font-black">$ {rappi.total.toLocaleString('es-CO')}</p>
+                </div>
+              );
+            })}
+
+            {/* MESAS */}
+            {mesas.map((mesa) => {
+              const ocupada = mesa.estado === 'Ocupada';
+              const entregado = mesa.estado === 'Entregado';
+              const pagada = mesa.estado === 'Pagada';
+              const activa = mesaActivaId === mesa.id;
+
+              let estiloColor = 'bg-[#051829] border-[#0066b3] hover:border-[#00a4ef]';
+              let textoEstadoColor = 'text-sky-300';
+
+              if (activa) {
+                estiloColor = 'border-white ring-2 ring-white bg-[#0078d4]';
+                textoEstadoColor = 'text-white';
+              } else if (pagada) {
+                estiloColor = 'bg-purple-900/90 border-purple-500';
+                textoEstadoColor = 'text-purple-200';
+              } else if (entregado) {
+                estiloColor = 'bg-blue-800/90 border-blue-400';
+                textoEstadoColor = 'text-blue-200';
+              } else if (ocupada) {
+                estiloColor = 'bg-amber-800/90 border-amber-500';
+                textoEstadoColor = 'text-amber-200';
+              }
+
+              return (
+                <div
+                  key={mesa.id}
+                  onClick={() => setMesaActivaId(mesa.id)}
+                  className={`p-3 rounded-xl border cursor-pointer transition-all flex justify-between items-center shadow-md ${estiloColor}`}
+                >
+                  <div>
+                    <p className="font-black text-xs text-white uppercase">{mesa.nombre}</p>
+                    <p className={`text-[10px] font-bold capitalize mt-0.5 ${textoEstadoColor}`}>{mesa.estado}</p>
+                  </div>
+                  <p className="text-xs text-emerald-300 font-black">$ {mesa.total.toLocaleString('es-CO')}</p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* COLUMNA 2: CATEGORÍAS Y PRODUCTOS */}
+        <div className="lg:col-span-5 bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md">
+          <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
+            <h2 className="text-xs md:text-sm font-black text-white">📂 2. Categorías y Productos</h2>
+            <span className="text-xs text-sky-200 font-bold">Activo: <b className="text-emerald-300">{itemActivoActual ? itemActivoActual.nombre : 'Ninguno'}</b></span>
+          </div>
+
+          <div className="flex flex-wrap gap-1.5">
+            <button
+              onClick={() => setCategoriaVentaSel('TODAS')}
+              className={`px-3 py-2 rounded-xl text-[11px] font-black uppercase cursor-pointer transition-all ${categoriaVentaSel === 'TODAS' ? 'bg-[#00a4ef] text-white border border-white' : 'bg-[#0e385e] text-sky-200 border border-[#0066b3]'}`}
+            >
+              🌟 TODAS
+            </button>
+            {listaCategoriasVenta.map((cat) => (
+              <button
+                key={cat}
+                onClick={() => setCategoriaVentaSel(cat)}
+                className={`px-3 py-2 rounded-xl text-[11px] font-black uppercase cursor-pointer transition-all ${categoriaVentaSel.toLowerCase() === cat.toLowerCase() ? 'bg-[#00a4ef] text-white border border-white' : 'bg-[#0e385e] text-sky-200 border border-[#0066b3]'}`}
+              >
+                🏷️ {cat}
+              </button>
+            ))}
+          </div>
+
+          <div className="max-h-[420px] overflow-y-auto grid grid-cols-2 sm:grid-cols-3 gap-2 pr-1">
+            {productosFiltradosVenta.length === 0 ? (
+              <p className="text-xs text-sky-400 italic col-span-full py-6 text-center">No hay productos en esta categoría.</p>
+            ) : (
+              productosFiltradosVenta.map((prod) => (
+                <button
+                  key={prod.id || prod.nombre}
+                  onClick={() => agregarProductoAMesa(prod)}
+                  className="bg-[#0e385e] hover:bg-[#003d6d] border border-[#0066b3] p-2.5 rounded-xl text-left transition-all cursor-pointer active:scale-95 shadow-sm"
+                >
+                  <p className="font-bold text-white text-xs truncate">{prod.nombre}</p>
+                  <p className="text-[10px] text-sky-300 uppercase mt-0.5">{prod.categoriaMostrar}</p>
+                  <p className="text-xs text-emerald-300 font-black mt-1">$ {Number(prod.precio || 0).toLocaleString('es-CO')}</p>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* COLUMNA 3: FACTURA / PEDIDO */}
+        <div className="lg:col-span-4 bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md">
+          <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
+            <h2 className="text-xs md:text-sm font-black text-white">🧾 3. Factura / Pedido</h2>
+            <span className="bg-[#051829] text-sky-300 text-[10px] px-2.5 py-1 rounded-lg border border-[#0066b3] uppercase font-bold">
+              {esRappiActivo ? rappiActivo?.estado : mesaActiva ? mesaActiva.estado : 'Sin Selección'}
+            </span>
+          </div>
+
+          {!itemActivoActual ? (
+            <p className="text-xs text-sky-400 italic text-center py-10">Selecciona una mesa o un pedido Rappi en la columna 1.</p>
+          ) : itemActivoActual.items.length === 0 ? (
+            <p className="text-xs text-sky-400 italic text-center py-10">El pedido está vacío. Haz clic en los productos para agregarlos.</p>
+          ) : (
+            <div className="space-y-3">
+              <div className="max-h-[260px] overflow-y-auto pr-1">
+                <table className="w-full text-left text-xs text-white">
+                  <thead>
+                    <tr className="border-b border-[#0066b3] text-sky-300">
+                      <th className="py-1 px-1">Prod</th>
+                      <th className="py-1 px-1 text-center">Cant</th>
+                      <th className="py-1 px-1 text-right">Total</th>
+                      <th className="py-1 px-1 text-center">Acción</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {itemActivoActual.items.map((i: any, idx: number) => (
+                      <tr key={idx} className="border-b border-[#0066b3]/30">
+                        <td className="py-2 px-1 font-bold">{i.nombre}</td>
+                        <td className="py-2 px-1 text-center font-black text-sky-200">{i.cantidad}</td>
+                        <td className="py-2 px-1 text-right font-black text-emerald-300">$ {(Number(i.precio || 0) * i.cantidad).toLocaleString('es-CO')}</td>
+                        <td className="py-2 px-1 text-center">
+                          {(!esRappiActivo && mesaActiva?.estado !== 'Pagada') || esRappiActivo ? (
+                            <button
+                              onClick={() => descontarProductoDeMesa(i.id)}
+                              className="bg-rose-900/80 hover:bg-rose-700 text-white px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer"
+                            >
+                              ➖
+                            </button>
+                          ) : null}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="flex justify-between items-center text-sm font-black text-white pt-2 border-t border-[#0066b3]">
+                <span>Total a Pagar:</span>
+                <span className="text-emerald-400 text-base">$ {itemActivoActual.total.toLocaleString('es-CO')}</span>
+              </div>
+
+              {/* BOTONES DE ACCIÓN PARA RAPPI (PREPARADO VS ENTREGAR) */}
+              {esRappiActivo ? (
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  {rappiActivo?.estado === 'Preparando' ? (
+                    <button
+                      onClick={marcarRappiPreparado}
+                      className="col-span-2 bg-amber-600 hover:bg-amber-500 text-white font-black py-2.5 rounded-xl text-xs uppercase cursor-pointer shadow-md"
+                    >
+                      🍳 Marcar como Preparado
+                    </button>
+                  ) : (
+                    <button
+                      onClick={entregarRappi}
+                      className="col-span-2 bg-rose-600 hover:bg-rose-500 text-white font-black py-3 rounded-xl text-xs uppercase cursor-pointer shadow-lg transition-all"
+                    >
+                      🚀 Entregar Rappi
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  {mesaActiva?.estado === 'Pagada' ? (
+                    <button
+                      onClick={liberarMesa}
+                      className="col-span-2 bg-purple-600 hover:bg-purple-500 text-white font-black py-2.5 rounded-xl text-xs uppercase cursor-pointer shadow-md"
+                    >
+                      🧹 Liberar Mesa
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        onClick={marcarEntregado}
+                        className="bg-blue-600 hover:bg-blue-500 text-white font-black py-2.5 rounded-xl text-xs uppercase cursor-pointer shadow-md"
+                        title="Cambia estado a Entregado"
+                      >
+                        🚀 Entregado
+                      </button>
+                      <button
+                        onClick={abrirModalCobro}
+                        className="bg-emerald-600 hover:bg-emerald-500 text-white font-black py-2.5 rounded-xl text-xs uppercase cursor-pointer shadow-md"
+                      >
+                        💳 Pagar
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
-            <div className="grid grid-cols-2 gap-2 pt-2">
-              <button onClick={() => setMostrarPago(false)} className="bg-gray-800 text-gray-300 font-bold py-2 rounded-xl text-xs">Cancelar</button>
-              <button onClick={handleConfirmarPagoMesa} className="bg-emerald-600 text-white font-black py-2 rounded-xl text-xs">Confirmar Pago</button>
+          )}
+        </div>
+
+      </div>
+
+      {/* MODAL COBRO MIXTO */}
+      {mostrarModalCobro && mesaActiva && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
+          <div className="bg-[#0b2b48] border-2 border-[#00a4ef] rounded-2xl p-5 max-w-md w-full space-y-4 shadow-2xl">
+            <div className="flex justify-between items-center border-b border-[#0066b3] pb-2">
+              <h3 className="text-sm font-black text-white uppercase">💳 COBRAR {mesaActiva.nombre}</h3>
+              <button onClick={() => setMostrarModalCobro(false)} className="text-sky-300 hover:text-white font-black text-sm">✕</button>
+            </div>
+
+            <div className="bg-[#051829] p-3 rounded-xl border border-[#0066b3] text-center space-y-1">
+              <span className="text-xs text-sky-200 font-bold block">TOTAL A PAGAR:</span>
+              <span className="text-2xl font-black text-emerald-400">$ {mesaActiva.total.toLocaleString('es-CO')}</span>
+            </div>
+
+            <div className="space-y-2">
+              <div>
+                <label className="text-[10px] text-sky-200 font-bold block mb-1">💵 Efectivo ($):</label>
+                <input
+                  type="text"
+                  placeholder="0"
+                  value={formatearMoneda(pagoEfectivo)}
+                  onChange={(e) => setPagoEfectivo(desformatearMoneda(e.target.value))}
+                  className="w-full bg-[#051829] border border-[#0066b3] text-emerald-300 font-black text-sm p-2 rounded-xl outline-none"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] text-sky-200 font-bold block mb-1">💜 Nequi ($):</label>
+                <input
+                  type="text"
+                  placeholder="0"
+                  value={formatearMoneda(pagoNequi)}
+                  onChange={(e) => setPagoNequi(desformatearMoneda(e.target.value))}
+                  className="w-full bg-[#051829] border border-[#0066b3] text-purple-300 font-black text-sm p-2 rounded-xl outline-none"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] text-sky-200 font-bold block mb-1">🔴 Daviplata ($):</label>
+                <input
+                  type="text"
+                  placeholder="0"
+                  value={formatearMoneda(pagoDaviplata)}
+                  onChange={(e) => setPagoDaviplata(desformatearMoneda(e.target.value))}
+                  className="w-full bg-[#051829] border border-[#0066b3] text-rose-300 font-black text-sm p-2 rounded-xl outline-none"
+                />
+              </div>
+            </div>
+
+            {(() => {
+              const abonado = (Number(pagoEfectivo) || 0) + (Number(pagoNequi) || 0) + (Number(pagoDaviplata) || 0);
+              const diferencia = abonado - mesaActiva.total;
+
+              return (
+                <div className="bg-[#051829] p-3 rounded-xl border border-[#0066b3] space-y-1">
+                  <div className="flex justify-between text-xs font-bold text-white">
+                    <span>Total Abonado:</span>
+                    <span>$ {abonado.toLocaleString('es-CO')}</span>
+                  </div>
+                  {diferencia >= 0 ? (
+                    <div className="flex justify-between text-xs font-black text-emerald-400">
+                      <span>Cambio / Devueltas:</span>
+                      <span>$ {diferencia.toLocaleString('es-CO')}</span>
+                    </div>
+                  ) : (
+                    <div className="flex justify-between text-xs font-black text-rose-400">
+                      <span>Falta por Pagar:</span>
+                      <span>$ {Math.abs(diferencia).toLocaleString('es-CO')}</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => setMostrarModalCobro(false)}
+                className="w-1/2 bg-[#051829] hover:bg-[#003d6d] text-sky-200 border border-[#0066b3] font-bold py-2 rounded-xl text-xs uppercase cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={procesarCobroMesa}
+                disabled={procesandoPago}
+                className="w-1/2 bg-emerald-600 hover:bg-emerald-500 text-white font-black py-2 rounded-xl text-xs uppercase cursor-pointer shadow-md disabled:opacity-50"
+              >
+                {procesandoPago ? 'Procesando...' : '✓ Confirmar Pago'}
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {mostrarSolicitarSuministro && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
-          <div className="bg-[#0d111a] border border-gray-800 p-5 rounded-3xl max-w-xs w-full space-y-3">
-            <h3 className="text-xs font-black text-white">Pedir Suministro a Administración</h3>
-            <input type="text" placeholder="Ej: Leche, Escoba, Vasos..." value={itemSolicitado} onChange={(e) => setItemSolicitado(e.target.value)} className="w-full bg-gray-900 border border-gray-800 rounded-xl p-2.5 text-xs text-white outline-none font-bold" />
-            <div className="grid grid-cols-2 gap-2 pt-1">
-              <button onClick={() => setMostrarSolicitarSuministro(false)} className="bg-gray-800 text-gray-300 font-bold py-2 rounded-xl text-xs">Cancelar</button>
-              <button onClick={handleEnviarSuministro} className="bg-amber-600 text-white font-black py-2 rounded-xl text-xs">Enviar Pedido</button>
-            </div>
+      {/* SECCIÓN NÓMINA Y TURNO */}
+      <div className="bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md">
+        <h2 className="text-xs md:text-sm font-black text-white border-b border-[#0066b3]/50 pb-2">⚙️ Cambio de Turno / Nómina</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-center">
+          <div>
+            <label className="text-[10px] text-sky-300 font-bold block mb-1">Tipo de Día:</label>
+            <select
+              value={tipoDia}
+              onChange={(e) => setTipoDia(e.target.value)}
+              className="w-full bg-[#051829] border border-[#0066b3] text-white text-xs p-2 rounded-xl outline-none"
+            >
+              <option value="entre_semana">Entre semana (lunes a sábado)</option>
+              <option value="festivo">Domingo o Festivo</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-[10px] text-sky-300 font-bold block mb-1">Horas Día:</label>
+            <input
+              type="text"
+              placeholder="0"
+              value={horasDia}
+              onChange={(e) => setHorasDia(e.target.value === '' ? '' : Number(e.target.value.replace(/\D/g, '')))}
+              className="w-full bg-[#051829] border border-[#0066b3] text-white text-xs p-2 rounded-xl text-center font-bold"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] text-sky-300 font-bold block mb-1">Horas Noche:</label>
+            <input
+              type="text"
+              placeholder="0"
+              value={horasNoche}
+              onChange={(e) => setHorasNoche(e.target.value === '' ? '' : Number(e.target.value.replace(/\D/g, '')))}
+              className="w-full bg-[#051829] border border-[#0066b3] text-white text-xs p-2 rounded-xl text-center font-bold"
+            />
           </div>
         </div>
-      )}
+        <div className="bg-[#051829] p-3 rounded-xl border border-[#00a4ef] flex justify-between items-center">
+          <span className="text-xs font-bold text-white uppercase">Total Nómina:</span>
+          <span className="text-sm font-black text-rose-400">$ {totalNomina.toLocaleString('es-CO')}</span>
+        </div>
+        <button
+          onClick={() => alert('Turno registrado y cerrado con éxito.')}
+          className="w-full bg-sky-600 hover:bg-sky-500 text-white font-black py-2.5 rounded-xl text-xs uppercase cursor-pointer"
+        >
+          💾 Registrar Nómina y Cambio de Turno
+        </button>
+      </div>
     </main>
   );
 }
