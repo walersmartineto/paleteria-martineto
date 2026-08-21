@@ -7,7 +7,7 @@ import {
   obtenerUsuariosOperadores,
   validarAccesoEmpleado,
   registrarInicioTurno,
-  actualizarCodigoAcceso, // <--- Importamos la nueva función
+  actualizarCodigoAcceso,
   SedeInfo,
   UsuarioLoginInfo,
 } from '@/lib/loginQueries';
@@ -17,6 +17,7 @@ const SEDES_DEFAULT: SedeInfo[] = [
   { id: 2, nombre: 'Walers Viva', codigo: 'viva', descripcion: 'Sede CC Viva' },
   { id: 3, nombre: 'Walers Centro', codigo: 'centro', descripcion: 'Sede Sector Centro' },
   { id: 4, nombre: 'Ositos', codigo: 'ositos', descripcion: 'Sede Ositos' },
+  { id: 6, nombre: 'Walers Producción', codigo: 'produccion', descripcion: 'Planta de Producción Central' },
   { id: 99, nombre: 'Administración Global', codigo: 'admin', descripcion: 'Panel de Control Central' },
 ];
 
@@ -54,7 +55,11 @@ export default function LoginPage() {
       const listaUsuarios = await obtenerUsuariosOperadores();
 
       if (listaSedes && listaSedes.length > 0) {
-        setSedes(listaSedes);
+        // Ocultar Sede Global (id 0 o codigo 'global')
+        const sedesSinGlobal = listaSedes.filter(
+          (s) => s.id !== 0 && s.codigo !== 'global'
+        );
+        setSedes(sedesSinGlobal);
       } else {
         setSedes(SEDES_DEFAULT);
       }
@@ -138,7 +143,7 @@ export default function LoginPage() {
           JSON.stringify({
             usuario_id: usuarioId,
             nombre: nombreCompleto,
-            rol: 'operador',
+            rol: tipoUsuario,
             sede_id: sedeId,
             sede_nombre: sedeNombre,
             sede_codigo: sedeCodigo,
@@ -156,6 +161,8 @@ export default function LoginPage() {
         router.push('/centro');
       } else if (sedeCodigo === 'ositos') {
         router.push('/ositos');
+      } else if (sedeCodigo === 'produccion') {
+        router.push('/produccion');
       } else {
         router.push('/admin');
       }
@@ -233,11 +240,21 @@ export default function LoginPage() {
               className="w-full bg-[#051829] border border-[#0066b3] rounded-xl p-3 text-xs md:text-sm text-white outline-none font-bold cursor-pointer focus:border-[#00a4ef] transition-colors"
             >
               <option value="">-- Elige Sede o Administración --</option>
-              {sedes.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.codigo === 'admin' ? '⚙️ ADMINISTRACIÓN GLOBAL' : `🏢 ${s.nombre}`}
-                </option>
-              ))}
+              {sedes
+                .filter((s) => s.id !== 0 && s.codigo !== 'global')
+                .map((s) => {
+                  let icono = '🏢';
+                  if (s.codigo === 'admin') icono = '⚙️';
+                  if (s.codigo === 'produccion') icono = '🏭';
+
+                  return (
+                    <option key={s.id} value={s.id}>
+                      {s.codigo === 'admin'
+                        ? '⚙️ ADMINISTRACIÓN GLOBAL'
+                        : `${icono} ${s.nombre}`}
+                    </option>
+                  );
+                })}
             </select>
           </div>
 
@@ -261,7 +278,7 @@ export default function LoginPage() {
 
           <div>
             <label className="text-[11px] font-extrabold text-sky-200 block mb-1 uppercase tracking-wider">
-              ⏰ Turno (Solo Operadores):
+              ⏰ Turno (Solo Operadores / Producción):
             </label>
             <select
               value={tipoTurno}
@@ -297,7 +314,6 @@ export default function LoginPage() {
           </button>
         </form>
 
-        {/* Botón para abrir el Modal de Cambio de Clave */}
         <div className="text-center pt-1">
           <button
             type="button"
@@ -316,7 +332,6 @@ export default function LoginPage() {
 
       </div>
 
-      {/* MODAL CAMBIO DE CLAVE */}
       {mostrarModalClave && (
         <div className="fixed inset-0 bg-[#051829]/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-[#0b2b48] border border-[#0066b3] p-6 rounded-3xl max-w-sm w-full space-y-4 shadow-2xl">

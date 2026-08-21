@@ -9,9 +9,9 @@ export interface TarifasViva {
   horaNocheFestivo: number;
 }
 
-// 1. OBTENER TARIFAS DE NÓMINA DE VIVA
+// 1. OBTENER TARIFAS DE LA SEDE VIVA
 export async function obtenerTarifasViva(): Promise<TarifasViva> {
-  const tarifasDefecto: TarifasViva = {
+  const tarifasPorDefecto: TarifasViva = {
     subsidio: 9600,
     transporte: 8400,
     horaDiaEntreSemana: 7200,
@@ -22,58 +22,62 @@ export async function obtenerTarifasViva(): Promise<TarifasViva> {
 
   try {
     const { data, error } = await supabase
-      .from('configuracion_nomina')
+      .from('configuracion_sede')
       .select('*')
       .eq('sede_id', 2)
-      .single();
+      .maybeSingle();
 
-    if (error || !data) return tarifasDefecto;
+    if (error || !data) {
+      return tarifasPorDefecto;
+    }
 
     return {
-      subsidio: data.subsidio ?? 9600,
-      transporte: data.transporte ?? 8400,
-      horaDiaEntreSemana: data.hora_dia_entre_semana ?? 7200,
-      horaNocheEntreSemana: data.hora_noche_entre_semana ?? 10700,
-      horaDiaFestivo: data.hora_dia_festivo ?? 12700,
-      horaNocheFestivo: data.hora_noche_festivo ?? 15200,
+      subsidio: Number(data.subsidio) || tarifasPorDefecto.subsidio,
+      transporte: Number(data.transporte) || tarifasPorDefecto.transporte,
+      horaDiaEntreSemana: Number(data.hora_dia_entre_semana) || tarifasPorDefecto.horaDiaEntreSemana,
+      horaNocheEntreSemana: Number(data.hora_noche_entre_semana) || tarifasPorDefecto.horaNocheEntreSemana,
+      horaDiaFestivo: Number(data.hora_dia_festivo) || tarifasPorDefecto.horaDiaFestivo,
+      horaNocheFestivo: Number(data.hora_noche_festivo) || tarifasPorDefecto.horaNocheFestivo,
     };
-  } catch (e) {
-    console.error('Error obteniendo tarifas:', e);
-    return tarifasDefecto;
+  } catch (err) {
+    console.warn('Error al cargar tarifas de Viva, usando por defecto:', err);
+    return tarifasPorDefecto;
   }
 }
 
-// 2. OBTENER LISTA DE SABORES DISPONIBLES PARA VIVA
-export async function obtenerSaboresViva(): Promise<any[]> {
+// 2. OBTENER LISTADO DE SABORES Y PRODUCTOS PARA VIVA
+export async function obtenerSaboresViva() {
   try {
     const { data, error } = await supabase
       .from('producto')
-      .select('id, nombre, precio, es_comun, activo, stock, categoria')
+      .select('id, nombre, categoria, grupo, donde_comprar, sede_id, activo')
+      .or('sede_id.eq.2,sede_id.eq.0,sede_id.is.null')
       .eq('activo', true)
       .order('nombre', { ascending: true });
 
     if (error) {
-      console.error('Error cargando sabores:', error);
+      console.error('Error cargando sabores:', error.message || error);
       return [];
     }
+
     return data || [];
   } catch (err) {
-    console.error('Error en obtenerSaboresViva:', err);
+    console.error('Error inesperado en obtenerSaboresViva:', err);
     return [];
   }
 }
 
-// 3. OBTENER USUARIOS OPERARIOS
-export async function obtenerUsuariosOperarios(): Promise<any[]> {
+// 3. OBTENER LISTA DE OPERARIOS
+export async function obtenerUsuariosOperarios() {
   try {
     const { data, error } = await supabase
       .from('usuario')
-      .select('id, nombre_completo, codigo_acceso, tipo_usuario, activo')
+      .select('id, nombre_completo, codigo_acceso, tipo_usuario')
       .eq('activo', true)
       .order('nombre_completo', { ascending: true });
 
     if (error) {
-      console.error('Error obteniendo usuarios:', error);
+      console.error('Error obteniendo operarios:', error.message || error);
       return [];
     }
 
@@ -84,37 +88,37 @@ export async function obtenerUsuariosOperarios(): Promise<any[]> {
       rol: u.tipo_usuario,
     }));
   } catch (err) {
-    console.error('Error en obtenerUsuariosOperarios:', err);
+    console.error('Error inesperado obteniendo operarios:', err);
     return [];
   }
 }
 
-// 4. REGISTRAR BASE INICIAL EN LA TABLA CAJA
+// 4. REGISTRAR BASE DE CAJA
 export async function registrarBaseCajaViva(
   sedeId: number,
   usuarioId: number,
-  montoApertura: number,
-  turnoId?: number
-): Promise<boolean> {
+  monto: number,
+  turnoId?: number | null
+) {
   try {
     const { error } = await supabase.from('caja').insert([
       {
         sede_id: sedeId,
         usuario_id: usuarioId,
-        turno_id: turnoId || null,
-        monto_apertura: montoApertura,
+        monto_apertura: monto,
         estado: 'abierta',
-        fecha: new Date().toISOString(),
+        turno_id: turnoId || null,
       },
     ]);
 
     if (error) {
-      console.error('Error insertando base en caja:', error);
+      console.error('Error al registrar base de caja:', error.message || error);
       return false;
     }
+
     return true;
   } catch (err) {
-    console.error('Error en registrarBaseCajaViva:', err);
+    console.error('Error inesperado registrando base:', err);
     return false;
   }
 }
@@ -128,37 +132,36 @@ export async function registrarMovimientoViva(
   detallePaletas: { [key: string]: number },
   detalleEmpaques: { [key: string]: number },
   observaciones: string,
-  turnoId?: number
-): Promise<boolean> {
+  turnoId?: number | null
+) {
   try {
-    const payload: any = {
-      sede_id: sedeId,
-      usuario_id: usuarioId,
-      tipo_movimiento: tipoMovimiento,
-      total_paletas: totalPaletas,
-      detalle_paletas: detallePaletas,
-      detalle_empaques: detalleEmpaques,
-      observacion: observaciones || '',
-      fecha_registro: new Date().toISOString(),
-    };
-
-    if (turnoId) payload.turno_id = turnoId;
-
-    const { error } = await supabase.from('inventario_diario').insert([payload]);
+    const { error } = await supabase.from('inventario_diario').insert([
+      {
+        sede_id: sedeId,
+        usuario_id: usuarioId,
+        tipo_movimiento: tipoMovimiento,
+        total_paletas: totalPaletas,
+        detalle_paletas: detallePaletas,
+        detalle_empaques: detalleEmpaques,
+        observacion: observaciones,
+        turno_id: turnoId || null,
+      },
+    ]);
 
     if (error) {
-      console.error('Error guardando movimiento de inventario (DETALLE):', JSON.stringify(error, null, 2));
+      console.error('Error registrando inventario Viva:', error.message || error);
       return false;
     }
+
     return true;
   } catch (err) {
-    console.error('Error en registrarMovimientoViva:', err);
+    console.error('Error inesperado en inventario Viva:', err);
     return false;
   }
 }
 
-// 6. CREAR PEDIDO DE INSUMOS Y REQUISICIONES
-export async function crearPedidoInsumosViva(datos: {
+// 6. CREAR PEDIDO DE INSUMOS (REQUISICIÓN)
+export async function crearPedidoInsumosViva(payload: {
   sedeId: number;
   usuarioId: number;
   paletas: { [key: string]: number };
@@ -166,35 +169,36 @@ export async function crearPedidoInsumosViva(datos: {
   insumos: { [key: string]: number };
   aseo: { [key: string]: number };
   observaciones: string;
-}): Promise<boolean> {
+}) {
   try {
-    const payload = {
-      sede_id: datos.sedeId,
-      usuario_id: datos.usuarioId,
-      pedidos_paletas: datos.paletas,  // Nombre exacto en Supabase
-      pedidos_richi: datos.richi,      // Nombre exacto en Supabase
-      pedidos_insumos: datos.insumos,  // Nombre exacto en Supabase
-      pedidos_aseo: datos.aseo,        // Nombre exacto en Supabase
-      observaciones: datos.observaciones || '',
-      estado: 'pendiente',
-      fecha: new Date().toISOString(),
-    };
-
-    const { error } = await supabase.from('pedidos_insumos').insert([payload]);
+    const { error } = await supabase.from('pedidos_insumos').insert([
+      {
+        sede_id: payload.sedeId,
+        usuario_id: payload.usuarioId,
+        pedidos_paletas: payload.paletas,
+        pedidos_produccion: {},
+        pedidos_richi: payload.richi,
+        pedidos_insumos: payload.insumos,
+        pedidos_aseo: payload.aseo,
+        observaciones: payload.observaciones,
+        estado: 'PENDIENTE',
+      },
+    ]);
 
     if (error) {
-      console.error('Error creando pedido de insumos:', error);
+      console.error('Error creando pedido de insumos:', error.message || error);
       return false;
     }
+
     return true;
   } catch (err) {
-    console.error('Error en crearPedidoInsumosViva:', err);
+    console.error('Error inesperado enviando pedido:', err);
     return false;
   }
 }
 
-// 7. REGISTRAR NÓMINA Y ACTUALIZAR ARQUEO COMPLETO EN TABLA CAJA
-export async function registrarNominaYCambioTurno(data: {
+// 7. REGISTRAR NÓMINA Y ARQUEO / CAMBIO DE TURNO
+export async function registrarNominaYCambioTurno(datos: {
   sedeId: number;
   usuarioId: number;
   tipoDia: string;
@@ -208,64 +212,46 @@ export async function registrarNominaYCambioTurno(data: {
   daviplata: number;
   gastos: number;
   motivoGasto: string;
-}): Promise<boolean> {
+}) {
   try {
-    const fechaHoy = new Date().toISOString().split('T')[0];
-
-    // A. Registrar el pago de nómina con los nombres exactos de la tabla nomina
     const { error: errorNomina } = await supabase.from('nomina').insert([
       {
-        sede_id: data.sedeId,
-        usuario_id: data.usuarioId,
-        tipo_dia: data.tipoDia,
-        horas_dia: data.horasDia,
-        horas_noche: data.horasNoche,
-        subsidio_transporte: data.subsidio + data.transporte, // Suma exacta para la columna subsidio_transporte
-        monto: data.totalPagado,                             // Nombre exacto: monto
+        sede_id: datos.sedeId,
+        usuario_id: datos.usuarioId,
+        monto: datos.totalPagado,
         concepto: 'Pago de turno',
-        fecha_pago: fechaHoy,                                // Nombre exacto: fecha_pago
+        tipo_dia: datos.tipoDia,
+        horas_dia: datos.horasDia,
+        horas_noche: datos.horasNoche,
+        subsidio_transporte: datos.subsidio + datos.transporte,
+        total_pagado: datos.totalPagado,
+        efectivo_dejadocaja: datos.efectivoCaja,
       },
     ]);
 
     if (errorNomina) {
-      console.error('Error guardando nómina:', errorNomina);
+      console.error('Error al registrar nómina:', errorNomina.message || errorNomina);
       return false;
     }
 
-    // B. Si es cierre de caja, actualizar la caja abierta más reciente
-    if (data.efectivoCaja > 0 || data.nequi > 0 || data.daviplata > 0) {
-      const { data: cajaAbierta } = await supabase
-        .from('caja')
-        .select('id')
-        .eq('sede_id', data.sedeId)
-        .eq('estado', 'abierta')
-        .order('id', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+    if (datos.efectivoCaja > 0 || datos.nequi > 0 || datos.daviplata > 0 || datos.gastos > 0) {
+      const { error: errorCierre } = await supabase.from('caja').insert([
+        {
+          sede_id: datos.sedeId,
+          usuario_id: datos.usuarioId,
+          monto_apertura: datos.efectivoCaja,
+          estado: 'cerrada',
+        },
+      ]);
 
-      if (cajaAbierta) {
-        const { error: errCaja } = await supabase
-          .from('caja')
-          .update({
-            efectivo_cierre: data.efectivoCaja,
-            nequi: data.nequi,
-            daviplata: data.daviplata,
-            monto_gasto: data.gastos,
-            motivo_gasto: data.motivoGasto,
-            estado: 'cerrada',
-          })
-          .eq('id', cajaAbierta.id);
-
-        if (errCaja) {
-          console.error('Error actualizando la caja:', errCaja);
-          return false;
-        }
+      if (errorCierre) {
+        console.error('Error al registrar arqueo en caja:', errorCierre.message || errorCierre);
       }
     }
 
     return true;
   } catch (err) {
-    console.error('Error en registrarNominaYCambioTurno:', err);
+    console.error('Error inesperado en nómina y cambio de turno:', err);
     return false;
   }
 }
