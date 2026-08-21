@@ -12,6 +12,18 @@ import {
   obtenerSaboresOsitos,
   TarifasOsitos,
 } from '@/lib/ositosQueries';
+import { supabase } from '@/lib/supabase';
+
+const LUGARES_COMPRA_INICIALES = [
+  'Avicampo',
+  'Carnaval del Dulce',
+  'Chispazo',
+  'D1',
+  'Flesman',
+  'Makro',
+  'Plaza de Mercado',
+  'Plasticos Richi',
+];
 
 // LISTA DE EMPAQUES / APERTURA
 const LISTA_EMPAQUES_OSITOS = [
@@ -140,7 +152,7 @@ export default function OsitosPage() {
   const [cantidadesEmpaques, setCantidadesEmpaques] = useState<{ [item: string]: number | '' }>({});
   const [observaciones, setObservaciones] = useState<string>('');
 
-  // REQUISICIÓN DE PEDIDOS (MANTIENE LOS SABORES)
+  // REQUISICIÓN DE PEDIDOS
   const [mostrarModuloPedidos, setMostrarModuloPedidos] = useState(false);
   const [categoriaPedido, setCategoriaPedido] = useState<'paletas' | 'richi' | 'produccion' | 'insumos' | 'aseo'>('paletas');
   const [cantidadesPedidoPaletas, setCantidadesPedidoPaletas] = useState<{ [saborId: number]: number | '' }>({});
@@ -150,6 +162,17 @@ export default function OsitosPage() {
   const [cantidadesAseo, setCantidadesAseo] = useState<{ [item: string]: number | '' }>({});
   const [otroInsumoTexto, setOtroInsumoTexto] = useState('');
   const [obsPedido, setObsPedido] = useState('');
+
+  // ESTADOS MODAL CREAR NUEVO PRODUCTO / INSUMO EN BD
+  const [productosInsumosBD, setProductosInsumosBD] = useState<any[]>([]);
+  const [mostrarModalNuevoProd, setMostrarModalNuevoProd] = useState(false);
+  const [nuevoProdNombre, setNuevoProdNombre] = useState('');
+  const [nuevoProdCategoria, setNuevoProdCategoria] = useState('Paleta');
+  const [nuevoProdGrupo, setNuevoProdGrupo] = useState('');
+  const [nuevoProdDondeComprar, setNuevoProdDondeComprar] = useState('Plaza de Mercado');
+  const [dondeComprarPersonalizado, setDondeComprarPersonalizado] = useState('');
+  const [esProductoGlobal, setEsProductoGlobal] = useState(true);
+  const [guardandoProducto, setGuardandoProducto] = useState(false);
 
   // NÓMINA Y ARQUEO DE CAJA
   const [tipoDia, setTipoDia] = useState<'entre_semana' | 'domingo_festivo'>('entre_semana');
@@ -182,22 +205,37 @@ export default function OsitosPage() {
 
   const totalVentasCalculado = (Number(efectivoCaja) || 0) + (Number(nequi) || 0) + (Number(daviplata) || 0);
 
-  const SEDE_ID_OSITOS = 4; // Ajusta este ID según corresponda a la sede en tu base de datos
+  const SEDE_ID_OSITOS = 4; // Ajusta según tu base de datos
+
+  const listaLugaresCompraUnica = Array.from(
+    new Set([
+      ...LUGARES_COMPRA_INICIALES,
+      ...productosInsumosBD
+        .map((p) => p.donde_comprar)
+        .filter((lugar): lugar is string => Boolean(lugar && lugar.trim() !== '')),
+    ])
+  ).sort();
 
   const paletasFiltradas = saboresOsitos.filter((p) => {
-    const cat = (p.categoria || '').toLowerCase();
-    const nom = (p.nombre || '').toLowerCase();
-    return (
-      !cat.includes('aseo') &&
-      !cat.includes('insumo') &&
-      !cat.includes('materia') &&
-      !cat.includes('empaque') &&
-      !cat.includes('richi') &&
-      !nom.includes('antibacterial') &&
-      !nom.includes('servilleta') &&
-      !nom.includes('sal limón') &&
-      !nom.includes('girasol')
-    );
+    const cat = String(p.categoria || '').toLowerCase();
+    const grp = String(p.grupo || '').toLowerCase();
+    const nom = String(p.nombre || '').toLowerCase();
+
+    const esNoPaleta =
+      cat.includes('aseo') ||
+      cat.includes('insumo') ||
+      cat.includes('materia') ||
+      cat.includes('empaque') ||
+      cat.includes('richi') ||
+      grp.includes('aseo') ||
+      grp.includes('insumo') ||
+      grp.includes('richi') ||
+      nom.includes('antibacterial') ||
+      nom.includes('servilleta') ||
+      nom.includes('sal limón') ||
+      nom.includes('girasol');
+
+    return !esNoPaleta;
   });
 
   const totalPaletasSuma = Number(totalPaletasInventario) || 0;
@@ -243,7 +281,88 @@ export default function OsitosPage() {
     listaSabores.forEach((s: any) => (inicialesPedido[s.id] = ''));
     setCantidadesPedidoPaletas(inicialesPedido);
 
+    const { data: prodsInsumosBD } = await supabase
+      .from('producto')
+      .select('*')
+      .or(`sede_id.eq.${SEDE_ID_OSITOS},sede_id.eq.0,sede_id.is.null`);
+
+    if (prodsInsumosBD) {
+      setProductosInsumosBD(
+        prodsInsumosBD.map((p: any) => ({
+          ...p,
+          nombre: p.nombre || p.Nombre || '',
+          categoriaLimpia: String(p.categoria || p.Categoria || 'general').trim().toLowerCase(),
+          grupoLimpio: String(p.grupo || p.Grupo || '').trim().toLowerCase(),
+          donde_comprar: p.donde_comprar || '',
+        }))
+      );
+    }
+
     setCargando(false);
+  }
+
+  async function crearNuevoProductoBD() {
+    const nombreLimpio = nuevoProdNombre.trim();
+    const dondeComprarFinal =
+      nuevoProdDondeComprar === 'Otro'
+        ? dondeComprarPersonalizado.trim()
+        : nuevoProdDondeComprar.trim();
+
+    if (!nombreLimpio) {
+      alert('⚠️ El nombre del producto/insumo es obligatorio.');
+      return;
+    }
+
+    if (!dondeComprarFinal) {
+      alert('⚠️ Debe especificar el lugar de compra o proveedor.');
+      return;
+    }
+
+    setGuardandoProducto(true);
+
+    const grupoAInsertar =
+      nuevoProdCategoria === 'Paleta'
+        ? nuevoProdGrupo.trim() || 'Paleta'
+        : nuevoProdCategoria;
+
+    const payload = {
+      nombre: nombreLimpio,
+      categoria: nuevoProdCategoria,
+      grupo: grupoAInsertar,
+      donde_comprar: dondeComprarFinal,
+      sede_id: esProductoGlobal ? 0 : SEDE_ID_OSITOS,
+      activo: true,
+    };
+
+    const { data, error } = await supabase.from('producto').insert([payload]).select();
+
+    if (error) {
+      alert('Error guardando en la base de datos: ' + error.message);
+      setGuardandoProducto(false);
+      return;
+    }
+
+    alert(`✅ ¡Insumo "${nombreLimpio}" creado con éxito!`);
+
+    if (data && data.length > 0) {
+      const nuevoObj = {
+        ...data[0],
+        nombre: data[0].nombre,
+        categoriaLimpia: String(data[0].categoria || '').trim().toLowerCase(),
+        grupoLimpio: String(data[0].grupo || '').trim().toLowerCase(),
+        donde_comprar: data[0].donde_comprar || '',
+      };
+      setProductosInsumosBD((prev) => [...prev, nuevoObj]);
+      setSaboresOsitos((prev) => [...prev, nuevoObj]);
+      setCantidadesPedidoPaletas((prev) => ({ ...prev, [data[0].id]: '' }));
+    }
+
+    setNuevoProdNombre('');
+    setNuevoProdGrupo('');
+    setNuevoProdDondeComprar(LUGARES_COMPRA_INICIALES[0]);
+    setDondeComprarPersonalizado('');
+    setMostrarModalNuevoProd(false);
+    setGuardandoProducto(false);
   }
 
   function handleEmpaqueCantidadChange(item: string, rawVal: string) {
@@ -603,7 +722,7 @@ export default function OsitosPage() {
         </div>
         <button
           onClick={cerrarSesion}
-          className="bg-[#003d6d] hover:bg-rose-900/80 text-white hover:text-rose-200 border border-[#0066b3] hover:border-rose-500 px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm"
+          className="bg-[#003d6d] hover:bg-rose-900/80 text-white hover:text-rose-200 border border-[#0066b3] hover:border-rose-500 px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer"
         >
           🚪 Salir
         </button>
@@ -674,7 +793,6 @@ export default function OsitosPage() {
             </select>
           </div>
 
-          {/* CAJITA DEDICADA DE TOTAL PALETAS PARA CUALQUIER MOVIMIENTO */}
           <div className="bg-[#0e385e] p-3 rounded-xl border border-[#0066b3]/60 space-y-2">
             <span className="text-[10px] text-sky-300 font-extrabold uppercase block">
               Cantidad Total para [{tipoMovimiento.toUpperCase()}]:
@@ -693,7 +811,6 @@ export default function OsitosPage() {
             </div>
           </div>
 
-          {/* CONTEO DE EMPAQUES Y VASOS */}
           <div className="bg-[#0e385e] p-3 rounded-xl border border-[#0066b3]/60 space-y-2">
             <span className="text-[10px] text-sky-300 font-extrabold uppercase block">Conteo de Empaques y Vasos:</span>
             <div className="space-y-1.5 max-h-[220px] overflow-y-auto pr-1">
@@ -738,54 +855,69 @@ export default function OsitosPage() {
         {/* COLUMNA DERECHA: PEDIDOS Y CIERRE DE CAJA / NÓMINA */}
         <div className={`space-y-4 transition-opacity ${bloqueadoPorApertura ? 'opacity-50 pointer-events-none select-none' : 'opacity-100'}`}>
           
-          {/* MÓDULO PEDIDOS (MANTIENE LOS SABORES) */}
+          {/* MÓDULO PEDIDOS */}
           <div className="bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md">
             <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
               <h2 className="text-xs md:text-sm font-black text-white flex items-center gap-1.5">
                 🚚 Pedidos de Insumos (Requisición)
               </h2>
-              <button
-                type="button"
-                onClick={() => setMostrarModuloPedidos(!mostrarModuloPedidos)}
-                className="bg-[#0e385e] hover:bg-[#003d6d] text-white px-3 py-1 rounded-lg text-xs font-bold transition-colors border border-[#0066b3]"
-              >
-                {mostrarModuloPedidos ? '👁️ Ocultar Pedidos' : '👁️ Hacer Pedido'}
-              </button>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setMostrarModalNuevoProd(true)}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] px-2.5 py-1 rounded-lg uppercase cursor-pointer shadow"
+                >
+                  ➕ Crear Producto
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMostrarModuloPedidos(!mostrarModuloPedidos)}
+                  className="bg-[#0e385e] hover:bg-[#003d6d] text-white px-3 py-1 rounded-lg text-xs font-bold transition-colors border border-[#0066b3] cursor-pointer"
+                >
+                  {mostrarModuloPedidos ? '👁️ Ocultar Pedidos' : '👁️ Hacer Pedido'}
+                </button>
+              </div>
             </div>
 
             {mostrarModuloPedidos && (
               <div className="space-y-3 pt-1">
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-1 text-[10px]">
-                  <button type="button" onClick={() => setCategoriaPedido('paletas')} className={`py-2 px-1 rounded-xl font-bold border text-center transition-all ${categoriaPedido === 'paletas' ? 'bg-[#0078d4] text-white border-[#00a4ef] shadow' : 'bg-[#051829] text-sky-200 border-[#0066b3]'}`}>🍦 Paletas</button>
-                  <button type="button" onClick={() => setCategoriaPedido('richi')} className={`py-2 px-1 rounded-xl font-bold border text-center transition-all ${categoriaPedido === 'richi' ? 'bg-[#0078d4] text-white border-[#00a4ef] shadow' : 'bg-[#051829] text-sky-200 border-[#0066b3]'}`}>🛍️ Richi</button>
-                  <button type="button" onClick={() => setCategoriaPedido('produccion')} className={`py-2 px-1 rounded-xl font-bold border text-center transition-all ${categoriaPedido === 'produccion' ? 'bg-[#0078d4] text-white border-[#00a4ef] shadow' : 'bg-[#051829] text-sky-200 border-[#0066b3]'}`}>⚙️ Prod</button>
-                  <button type="button" onClick={() => setCategoriaPedido('insumos')} className={`py-2 px-1 rounded-xl font-bold border text-center transition-all ${categoriaPedido === 'insumos' ? 'bg-[#0078d4] text-white border-[#00a4ef] shadow' : 'bg-[#051829] text-sky-200 border-[#0066b3]'}`}>🍫 Insumos</button>
-                  <button type="button" onClick={() => setCategoriaPedido('aseo')} className={`py-2 px-1 rounded-xl font-bold border text-center transition-all ${categoriaPedido === 'aseo' ? 'bg-[#0078d4] text-white border-[#00a4ef] shadow' : 'bg-[#051829] text-sky-200 border-[#0066b3]'}`}>🧹 Aseo</button>
+                  <button type="button" onClick={() => setCategoriaPedido('paletas')} className={`py-2 px-1 rounded-xl font-bold border text-center transition-all cursor-pointer ${categoriaPedido === 'paletas' ? 'bg-[#0078d4] text-white border-[#00a4ef] shadow' : 'bg-[#051829] text-sky-200 border-[#0066b3]'}`}>🍦 Paletas</button>
+                  <button type="button" onClick={() => setCategoriaPedido('richi')} className={`py-2 px-1 rounded-xl font-bold border text-center transition-all cursor-pointer ${categoriaPedido === 'richi' ? 'bg-[#0078d4] text-white border-[#00a4ef] shadow' : 'bg-[#051829] text-sky-200 border-[#0066b3]'}`}>🛍️ Richi</button>
+                  <button type="button" onClick={() => setCategoriaPedido('produccion')} className={`py-2 px-1 rounded-xl font-bold border text-center transition-all cursor-pointer ${categoriaPedido === 'produccion' ? 'bg-[#0078d4] text-white border-[#00a4ef] shadow' : 'bg-[#051829] text-sky-200 border-[#0066b3]'}`}>⚙️ Prod</button>
+                  <button type="button" onClick={() => setCategoriaPedido('insumos')} className={`py-2 px-1 rounded-xl font-bold border text-center transition-all cursor-pointer ${categoriaPedido === 'insumos' ? 'bg-[#0078d4] text-white border-[#00a4ef] shadow' : 'bg-[#051829] text-sky-200 border-[#0066b3]'}`}>🍫 Insumos</button>
+                  <button type="button" onClick={() => setCategoriaPedido('aseo')} className={`py-2 px-1 rounded-xl font-bold border text-center transition-all cursor-pointer ${categoriaPedido === 'aseo' ? 'bg-[#0078d4] text-white border-[#00a4ef] shadow' : 'bg-[#051829] text-sky-200 border-[#0066b3]'}`}>🧹 Aseo</button>
                 </div>
 
                 {categoriaPedido === 'paletas' && (
                   <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 border border-[#0066b3]/50 p-2.5 rounded-xl bg-[#051829]">
                     <span className="text-[10px] text-sky-300 font-bold uppercase block">Seleccionar Sabores a Solicitar a Bodega:</span>
-                    {paletasFiltradas.map((s, idx) => (
-                      <div key={s.id} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2">
-                        <div className="truncate">
-                          <p className="font-bold text-xs text-white truncate">{s.nombre}</p>
-                          <span className="text-[10px] font-semibold text-sky-300 block -mt-0.5 capitalize">
-                            {s.categoria || ''}
-                          </span>
+                    {paletasFiltradas.length === 0 ? (
+                      <p className="text-xs text-amber-200 text-center py-4 font-semibold">
+                        ⚠️ No se encontraron sabores de paletas. Haz clic en "➕ Crear Producto" arriba para agregar nuevos.
+                      </p>
+                    ) : (
+                      paletasFiltradas.map((s, idx) => (
+                        <div key={s.id} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2">
+                          <div className="truncate">
+                            <p className="font-bold text-xs text-white truncate">{s.nombre}</p>
+                            <span className="text-[10px] font-semibold text-sky-300 block -mt-0.5 capitalize">
+                              {s.grupo || s.categoria || 'Paleta'}
+                            </span>
+                          </div>
+                          <input
+                            ref={(el) => { inputsRef.current[`pedido_paleta_${s.id}`] = el; }}
+                            type="number"
+                            placeholder="0"
+                            value={cantidadesPedidoPaletas[s.id] ?? ''}
+                            onChange={(e) => handleCantidadPedidoChange(s.id, e.target.value)}
+                            onKeyDown={(e) => handleKeyDownPedido(e, idx, paletasFiltradas, 'pedido_paleta')}
+                            onFocus={(e) => e.target.select()}
+                            className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          />
                         </div>
-                        <input
-                          ref={(el) => { inputsRef.current[`pedido_paleta_${s.id}`] = el; }}
-                          type="number"
-                          placeholder="0"
-                          value={cantidadesPedidoPaletas[s.id] ?? ''}
-                          onChange={(e) => handleCantidadPedidoChange(s.id, e.target.value)}
-                          onKeyDown={(e) => handleKeyDownPedido(e, idx, paletasFiltradas, 'pedido_paleta')}
-                          onFocus={(e) => e.target.select()}
-                          className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                        />
-                      </div>
-                    ))}
+                      ))
+                    )}
                   </div>
                 )}
 
@@ -1045,6 +1177,120 @@ export default function OsitosPage() {
         </div>
       </div>
 
+      {/* MODAL CREAR NUEVO PRODUCTO / INSUMO */}
+      {mostrarModalNuevoProd && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
+          <div className="bg-[#0b2b48] border-2 border-emerald-400 rounded-2xl p-5 max-w-md w-full space-y-4 shadow-2xl">
+            <div className="flex justify-between items-center border-b border-[#0066b3] pb-2">
+              <h3 className="text-sm font-black text-white uppercase">➕ Crear Nuevo Insumo / Producto</h3>
+              <button
+                onClick={() => setMostrarModalNuevoProd(false)}
+                className="text-sky-300 hover:text-white font-black text-sm cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-sky-200 font-bold block mb-1">Nombre del Insumo *:</label>
+                <input
+                  type="text"
+                  placeholder="Ej. Leche condensada"
+                  value={nuevoProdNombre}
+                  onChange={(e) => setNuevoProdNombre(e.target.value)}
+                  className="w-full bg-[#051829] border border-[#0066b3] text-white text-xs p-2.5 rounded-xl outline-none"
+                />
+              </div>
+
+              <div className={`grid ${nuevoProdCategoria === 'Paleta' ? 'grid-cols-2' : 'grid-cols-1'} gap-2`}>
+                <div>
+                  <label className="text-xs text-sky-200 font-bold block mb-1">Categoría General *:</label>
+                  <select
+                    value={nuevoProdCategoria}
+                    onChange={(e) => setNuevoProdCategoria(e.target.value)}
+                    className="w-full bg-[#051829] border border-[#0066b3] text-white text-xs p-2.5 rounded-xl outline-none cursor-pointer"
+                  >
+                    <option value="Paleta">🍦 Paleta</option>
+                    <option value="Richi">📦 Richi / Empaque</option>
+                    <option value="Produccion">⚙️ Producción</option>
+                    <option value="Insumos">🍫 Insumos / Toppings</option>
+                    <option value="Aseo">🧹 Aseo</option>
+                  </select>
+                </div>
+
+                {nuevoProdCategoria === 'Paleta' && (
+                  <div>
+                    <label className="text-xs text-sky-200 font-bold block mb-1">Grupo / Tipo Específico:</label>
+                    <input
+                      type="text"
+                      placeholder="Ej. Frutal, Crema, Soft..."
+                      value={nuevoProdGrupo}
+                      onChange={(e) => setNuevoProdGrupo(e.target.value)}
+                      className="w-full bg-[#051829] border border-[#0066b3] text-white text-xs p-2.5 rounded-xl outline-none"
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="text-xs text-sky-200 font-bold block mb-1">Dónde Comprar *:</label>
+                <select
+                  value={nuevoProdDondeComprar}
+                  onChange={(e) => setNuevoProdDondeComprar(e.target.value)}
+                  className="w-full bg-[#051829] border border-[#0066b3] text-white text-xs p-2.5 rounded-xl outline-none cursor-pointer"
+                >
+                  {listaLugaresCompraUnica.map((lugar) => (
+                    <option key={lugar} value={lugar}>
+                      🛒 {lugar}
+                    </option>
+                  ))}
+                  <option value="Otro">✏️ Otro (Escribir nuevo lugar)...</option>
+                </select>
+
+                {nuevoProdDondeComprar === 'Otro' && (
+                  <input
+                    type="text"
+                    placeholder="Escribe el nuevo lugar de compra..."
+                    value={dondeComprarPersonalizado}
+                    onChange={(e) => setDondeComprarPersonalizado(e.target.value)}
+                    className="w-full bg-[#051829] border border-[#0066b3] text-white text-xs p-2.5 rounded-xl outline-none mt-2"
+                  />
+                )}
+              </div>
+
+              <div>
+                <label className="text-xs text-sky-200 font-bold block mb-1">Visibilidad / Sede *:</label>
+                <select
+                  value={esProductoGlobal ? '0' : 'local'}
+                  onChange={(e) => setEsProductoGlobal(e.target.value === '0')}
+                  className="w-full bg-[#051829] border border-[#0066b3] text-emerald-300 font-black text-xs p-2.5 rounded-xl outline-none cursor-pointer"
+                >
+                  <option value="0">🌍 Para TODAS las Sedes</option>
+                  <option value="local">🏢 Exclusivo de Sede Ositos</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={() => setMostrarModalNuevoProd(false)}
+                className="w-1/2 bg-[#051829] hover:bg-[#003d6d] text-sky-200 border border-[#0066b3] font-bold py-2 rounded-xl text-xs uppercase cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={crearNuevoProductoBD}
+                disabled={guardandoProducto}
+                className="w-1/2 bg-emerald-600 hover:bg-emerald-500 text-white font-black py-2 rounded-xl text-xs uppercase cursor-pointer shadow-md disabled:opacity-50"
+              >
+                {guardandoProducto ? 'Guardando...' : '💾 Guardar en BD'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* MODAL CAMBIO DE TURNO */}
       {mostrarModalCambioTurno && (
         <div className="fixed inset-0 bg-[#051829]/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
@@ -1114,7 +1360,7 @@ export default function OsitosPage() {
               <button
                 type="button"
                 onClick={() => setMostrarModalCambioTurno(false)}
-                className="w-1/3 bg-[#051829] hover:bg-[#0e385e] text-sky-200 font-bold py-3 rounded-xl text-xs transition-colors border border-[#0066b3]"
+                className="w-1/3 bg-[#051829] hover:bg-[#0e385e] text-sky-200 font-bold py-3 rounded-xl text-xs transition-colors border border-[#0066b3] cursor-pointer"
               >
                 Cancelar
               </button>

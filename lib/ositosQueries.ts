@@ -48,7 +48,7 @@ export async function obtenerSaboresOsitos(): Promise<any[]> {
   try {
     const { data, error } = await supabase
       .from('producto')
-      .select('id, nombre, precio, es_comun, activo, stock, categoria')
+      .select('id, nombre, activo, stock, categoria, grupo, es_comun, donde_comprar')
       .eq('activo', true)
       .order('nombre', { ascending: true });
 
