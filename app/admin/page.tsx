@@ -1,273 +1,438 @@
 'use client';
-
-import { useEffect, useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import {
-  obtenerComprasConsolidadasAdmin,
-  marcarComoComprado,
-  obtenerEntregasPorSedeAdmin,
-  marcarComoEntregado,
-  obtenerDiferenciasInventarioAdmin,
-  obtenerTurnosEmpleadosAdmin,
-  obtenerUsuariosAdmin,
-  crearUsuarioAdmin,
-  ResumenConsolidadoCompras,
-  PedidoSedeEntrega,
-  NovedadInventario,
-  EmpleadoTurnoActivo,
-  UsuarioInfo,
-} from '@/lib/adminQueries';
+import { supabase } from '@/lib/supabase';
+import { useSede } from '@/context/SedeContext';
 
-export default function PanelAdministrador() {
+export default function AdminPage() {
   const router = useRouter();
-  const [tab, setTab] = useState<'compras' | 'reparto' | 'turnos' | 'empleados' | 'novedades'>('compras');
+  const { sedeData } = useSede();
 
-  const [compras, setCompras] = useState<ResumenConsolidadoCompras[]>([]);
-  const [entregas, setEntregas] = useState<PedidoSedeEntrega[]>([]);
-  const [novedades, setNovedades] = useState<NovedadInventario[]>([]);
-  const [turnos, setTurnos] = useState<EmpleadoTurnoActivo[]>([]);
-  const [usuarios, setUsuarios] = useState<UsuarioInfo[]>([]);
+  // Fecha de referencia global
+  const fechaHoy = new Date().toISOString().split('T')[0];
+  const [fechaSeleccionada, setFechaSeleccionada] = useState<string>(fechaHoy);
+  const [sedeSeleccionada, setSedeSeleccionada] = useState<string>('todos');
 
-  // Formulario Nuevo Empleado
-  const [nombreEmp, setNombreEmp] = useState('');
-  const [codigoEmp, setCodigoEmp] = useState('');
-  const [tipoEmp, setTipoEmp] = useState('operador');
+  // Control de Módulos Principales (Acordeones Grandes de Nivel 1)
+  const [moduloAbierto, setModuloAbierto] = useState<string | null>('logistica'); // 'logistica' | 'cierres' | 'inventario' | etc.
 
-  const [cargando, setCargando] = useState(false);
+  // Sub-control interno dentro de Logística
+  const [subPestanaLogistica, setSubPestanaLogistica] = useState<'compras' | 'despachos'>('compras');
+
+  // Estados de Datos
+  const [pedidos, setPedidos] = useState<any[]>([]);
+  const [productosBD, setProductosBD] = useState<any[]>([]);
+  const [registrosCaja, setRegistrosCaja] = useState<any[]>([]);
+  const [cargando, setCargando] = useState<boolean>(true);
+  const [editandoProveedor, setEditandoProveedor] = useState<{ [nombre: string]: string }>({});
+
+  // Acordeones internos de nivel 2
+  const [acordeonesCompras, setAcordeonesCompras] = useState<{ [key: string]: boolean }>({});
+  const [acordeonesDespachos, setAcordeonesDespachos] = useState<{ [key: string]: boolean }>({});
+  const [acordeonesCierres, setAcordeonesCierres] = useState<{ [key: string]: boolean }>({ global: true });
 
   useEffect(() => {
-    cargarDatosTab();
-  }, [tab]);
+    cargarDatosAdmin();
+  }, [fechaSeleccionada]);
 
-  async function cargarDatosTab() {
+  async function cargarDatosAdmin() {
     setCargando(true);
-    if (tab === 'compras') setCompras(await obtenerComprasConsolidadasAdmin());
-    if (tab === 'reparto') setEntregas(await obtenerEntregasPorSedeAdmin());
-    if (tab === 'turnos') setTurnos(await obtenerTurnosEmpleadosAdmin());
-    if (tab === 'empleados') setUsuarios(await obtenerUsuariosAdmin());
-    if (tab === 'novedades') setNovedades(await obtenerDiferenciasInventarioAdmin());
-    setCargando(false);
-  }
+    try {
+      const inicioDia = `${fechaSeleccionada}T00:00:00`;
+      const finDia = `${fechaSeleccionada}T23:59:59`;
 
-  async function handleComprarGrupo(ids: number[]) {
-    if (await marcarComoComprado(ids)) cargarDatosTab();
-  }
+      // 1. Pedidos
+      const { data: pedidosData } = await supabase
+        .from('pedidos_insumos')
+        .select('*')
+        .gte('fecha', inicioDia)
+        .lte('fecha', finDia);
 
-  async function handleEntregarPedido(id: number) {
-    if (await marcarComoEntregado(id)) cargarDatosTab();
-  }
+      // 2. Productos
+      const { data: prodData } = await supabase
+        .from('producto')
+        .select('id, nombre, donde_comprar');
 
-  async function handleCrearEmpleado(e: React.FormEvent) {
-    e.preventDefault();
-    if (!nombreEmp.trim() || !codigoEmp.trim()) return;
+      // 3. Cierres de caja
+      const { data: cajaData } = await supabase
+        .from('caja')
+        .select('*')
+        .gte('created_at', inicioDia)
+        .lte('created_at', finDia);
 
-    const res = await crearUsuarioAdmin(nombreEmp, codigoEmp, tipoEmp);
-    if (res.success) {
-      setNombreEmp('');
-      setCodigoEmp('');
-      cargarDatosTab();
-    } else {
-      alert('Error al crear usuario o código ya existente');
+      setPedidos(pedidosData || []);
+      setProductosBD(prodData || []);
+      setRegistrosCaja(cajaData || []);
+    } catch (err) {
+      console.error('Error cargando datos:', err);
+    } finally {
+      setCargando(false);
     }
   }
 
+  // --- LOGISTICA ---
+  const pedidosPendientesCompra = pedidos.filter(p => p.estado === 'pendiente');
+  const pedidosListosParaEntrega = pedidos.filter(p => p.estado === 'comprado');
+
+  const consolidadoCompras = (() => {
+    const mapaProveedores: { [prov: string]: { items: any; idsPedidosSet: Set<number> } } = {};
+    pedidosPendientesCompra.forEach(p => {
+      const jsonItems = { ...(p.pedidos_paletas || {}), ...(p.pedidos_richi || {}), ...(p.pedidos_produccion || {}), ...(p.pedidos_insumos || {}) };
+      Object.entries(jsonItems).forEach(([nombreProd, cantidad]) => {
+        const cantNum = Number(cantidad) || 0;
+        if (cantNum <= 0) return;
+        const prodEnBD = productosBD.find(item => String(item.nombre).trim().toLowerCase() === String(nombreProd).trim().toLowerCase());
+        const prov = prodEnBD?.donde_comprar && prodEnBD.donde_comprar.trim() !== '' ? prodEnBD.donde_comprar : '⚠️ Faltan datos de dónde comprar';
+
+        if (!mapaProveedores[prov]) mapaProveedores[prov] = { items: {}, idsPedidosSet: new Set() };
+        mapaProveedores[prov].idsPedidosSet.add(p.id);
+        if (!mapaProveedores[prov].items[nombreProd]) mapaProveedores[prov].items[nombreProd] = { cantidad: 0, idProd: prodEnBD?.id };
+        mapaProveedores[prov].items[nombreProd].cantidad += cantNum;
+      });
+    });
+    return mapaProveedores;
+  })();
+
+  const despachosPorSede = (() => {
+    const mapaSedes: { [sede: string]: { productos: any; idsPedidos: number[] } } = {};
+    pedidosListosParaEntrega.forEach(p => {
+      const nombreSede = p.sede_id === 1 ? 'Sede Martineto' : p.sede_id === 2 ? 'Sede Centro' : p.sede_id === 3 ? 'Sede Viva' : 'Sede Ositos';
+      if (sedeSeleccionada !== 'todos' && String(p.sede_id) !== sedeSeleccionada) return;
+      if (!mapaSedes[nombreSede]) mapaSedes[nombreSede] = { productos: {}, idsPedidos: [] };
+      if (!mapaSedes[nombreSede].idsPedidos.includes(p.id)) mapaSedes[nombreSede].idsPedidos.push(p.id);
+
+      const jsonItems = { ...(p.pedidos_paletas || {}), ...(p.pedidos_richi || {}), ...(p.pedidos_produccion || {}), ...(p.pedidos_insumos || {}) };
+      Object.entries(jsonItems).forEach(([k, v]) => {
+        const cant = Number(v) || 0;
+        if (cant > 0) mapaSedes[nombreSede].productos[k] = (mapaSedes[nombreSede].productos[k] || 0) + cant;
+      });
+    });
+    return mapaSedes;
+  })();
+
+  // --- CIERRES DE CAJA ---
+  const CierreGlobal = registrosCaja.reduce((acc, row) => {
+    const efec = Number(row.efectivo_cierre) || 0;
+    const neq = Number(row.nequi) || 0;
+    const dav = Number(row.daviplata) || 0;
+    const gas = Number(row.monto_gasto) || 0;
+    return {
+      efectivo: acc.efectivo + efec,
+      nequi: acc.nequi + neq,
+      daviplata: acc.daviplata + dav,
+      gastos: acc.gastos + gas,
+      totalVenta: acc.totalVenta + (efec + neq + dav)
+    };
+  }, { efectivo: 0, nequi: 0, daviplata: 0, gastos: 0, totalVenta: 0 });
+
+  const cierresPorSede = (() => {
+    const mapa: { [sede: string]: any } = {};
+    registrosCaja.forEach(row => {
+      const nombreSede = row.sede_id === 1 ? 'Sede Martineto' : row.sede_id === 2 ? 'Sede Centro' : row.sede_id === 3 ? 'Sede Viva' : 'Sede Ositos';
+      if (sedeSeleccionada !== 'todos' && String(row.sede_id) !== sedeSeleccionada) return;
+
+      const efec = Number(row.efectivo_cierre) || 0;
+      const neq = Number(row.nequi) || 0;
+      const dav = Number(row.daviplata) || 0;
+      const gas = Number(row.monto_gasto) || 0;
+
+      if (!mapa[nombreSede]) {
+        mapa[nombreSede] = {
+          efectivo: 0,
+          nequi: 0,
+          daviplata: 0,
+          gastos: 0,
+          totalVenta: 0,
+          motivosGastos: [],
+          estado: row.estado || 'abierta'
+        };
+      }
+
+      mapa[nombreSede].efectivo += efec;
+      mapa[nombreSede].nequi += neq;
+      mapa[nombreSede].daviplata += dav;
+      mapa[nombreSede].gastos += gas;
+      mapa[nombreSede].totalVenta += (efec + neq + dav);
+      if (row.motivo_gasto) mapa[nombreSede].motivosGastos.push(row.motivo_gasto);
+    });
+    return mapa;
+  })();
+
+  // --- ACCIONES ---
+  async function guardarProveedorInteligente(nombreProducto: string, idProd?: number) {
+    const nuevoProv = editandoProveedor[nombreProducto];
+    if (!nuevoProv || !nuevoProv.trim()) { alert('⚠️ Escribe el lugar de compra.'); return; }
+    if (idProd) {
+      await supabase.from('producto').update({ donde_comprar: nuevoProv.trim() }).eq('id', idProd);
+    } else {
+      await supabase.from('producto').insert([{ nombre: nombreProducto, donde_comprar: nuevoProv.trim(), categoria: 'General', activo: true, sede_id: 0 }]);
+    }
+    alert(`✅ Guardado: ${nuevoProv}`);
+    cargarDatosAdmin();
+  }
+
+  async function marcarProveedorComoComprado(idsPedidosSet: Set<number>) {
+    const ids = Array.from(idsPedidosSet);
+    if (ids.length === 0) return;
+    if (!confirm('¿Has comprado ya estos insumos? Pasarán a Despachos.')) return;
+    await supabase.from('pedidos_insumos').update({ estado: 'comprado' }).in('id', ids);
+    cargarDatosAdmin();
+  }
+
+  async function marcarPedidosComoEntregados(idsPedidos: number[]) {
+    if (!confirm('¿Deseas marcar el pedido como ENTREGADO?')) return;
+    await supabase.from('pedidos_insumos').update({ estado: 'entregado' }).in('id', idsPedidos);
+    cargarDatosAdmin();
+  }
+
+  const toggleModulo = (id: string) => {
+    setModuloAbierto(prev => prev === id ? null : id);
+  };
+
   return (
-    <main className="min-h-screen bg-[#07090e] text-slate-100 p-4 font-sans space-y-5 max-w-lg mx-auto">
-      {/* Header */}
-      <div className="bg-[#0d111a] border border-gray-800 p-4 rounded-2xl flex justify-between items-center">
+    <main className="min-h-screen bg-[#004e8c] text-white p-3 font-sans max-w-md mx-auto space-y-4 pb-20">
+      
+      {/* HEADER */}
+      <header className="bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl flex justify-between items-center shadow-lg">
         <div>
-          <h1 className="text-base font-black text-white">PANEL ADMINISTRACIÓN</h1>
-          <p className="text-xs text-purple-400">Walers Global System</p>
+          <h1 className="text-sm font-black text-white">🛡️ ADMIN CENTRAL</h1>
+          <p className="text-[10px] text-sky-200">Panel de Control General</p>
         </div>
-        <button
-          onClick={() => router.push('/puntos')}
-          className="bg-gray-800 text-gray-300 px-3 py-1.5 rounded-xl text-xs font-bold"
-        >
-          ⬅️ Puntos
-        </button>
+        <button onClick={() => router.back()} className="bg-[#031d35] hover:bg-[#003d6d] px-3 py-1.5 rounded-xl text-xs font-bold border border-[#0066b3] cursor-pointer">Volver</button>
+      </header>
+
+      {/* CALENDARIO GENERAL */}
+      <div className="bg-[#0b2b48] border border-[#0066b3] p-3 rounded-2xl shadow-md">
+        <label className="text-[10px] font-extrabold text-sky-300 uppercase block mb-1">📅 Fecha de Consulta:</label>
+        <input type="date" value={fechaSeleccionada} onChange={(e) => setFechaSeleccionada(e.target.value)} className="w-full bg-[#031d35] border border-[#0066b3] text-white p-3 rounded-xl text-xs outline-none" />
       </div>
 
-      {/* Tabs */}
-      <div className="grid grid-cols-5 gap-1 bg-[#0d111a] p-1 rounded-xl border border-gray-800 text-[10px] font-bold text-center">
-        <button
-          onClick={() => setTab('compras')}
-          className={`py-2 rounded-lg transition-all ${tab === 'compras' ? 'bg-purple-600 text-white font-black' : 'text-gray-400'}`}
-        >
-          🛒 Compras
-        </button>
-        <button
-          onClick={() => setTab('reparto')}
-          className={`py-2 rounded-lg transition-all ${tab === 'reparto' ? 'bg-purple-600 text-white font-black' : 'text-gray-400'}`}
-        >
-          🚚 Reparto
-        </button>
-        <button
-          onClick={() => setTab('turnos')}
-          className={`py-2 rounded-lg transition-all ${tab === 'turnos' ? 'bg-purple-600 text-white font-black' : 'text-gray-400'}`}
-        >
-          ⏰ Turnos
-        </button>
-        <button
-          onClick={() => setTab('empleados')}
-          className={`py-2 rounded-lg transition-all ${tab === 'empleados' ? 'bg-purple-600 text-white font-black' : 'text-gray-400'}`}
-        >
-          👥 Personal
-        </button>
-        <button
-          onClick={() => setTab('novedades')}
-          className={`py-2 rounded-lg transition-all relative ${tab === 'novedades' ? 'bg-rose-600 text-white font-black' : 'text-gray-400'}`}
-        >
-          ⚠️ Alertas
-        </button>
-      </div>
+      {cargando ? <div className="text-center py-10 text-xs font-bold text-sky-200">Cargando datos...</div> : (
+        <div className="space-y-3">
 
-      {cargando ? (
-        <p className="text-center text-gray-500 text-xs py-8">Cargando datos...</p>
-      ) : (
-        <>
-          {/* TAB COMPRAS */}
-          {tab === 'compras' && (
-            <div className="space-y-3">
-              <h2 className="text-xs font-black text-gray-400 uppercase tracking-wider">Compras Pendientes</h2>
-              {compras.length === 0 ? (
-                <p className="text-xs text-gray-500 text-center py-6">No hay solicitudes pendientes.</p>
-              ) : (
-                compras.map((item, idx) => (
-                  <div key={idx} className="bg-[#0d111a] border border-gray-800 p-3.5 rounded-2xl flex justify-between items-center">
-                    <div>
-                      <span className="text-[10px] font-black uppercase text-amber-400 bg-amber-950/60 border border-amber-800/60 px-2 py-0.5 rounded-md">
-                        📍 {item.lugar_compra}
-                      </span>
-                      <p className="text-sm font-black text-white mt-1">
-                        {item.nombre_producto} <b className="text-purple-400">x{item.total_cantidad}</b>
-                      </p>
-                      <p className="text-[10px] text-gray-400">Sedes: {item.sedes_solicitantes.join(', ')}</p>
-                    </div>
-                    <button onClick={() => handleComprarGrupo(item.ids_pedidos)} className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black px-3 py-2 rounded-xl">
-                      ✓ Comprado
-                    </button>
+          {/* ======================================================== */}
+          {/* MÓDULO 1: GESTIÓN LOGÍSTICA (COMPRAS Y DESPACHOS) */}
+          {/* ======================================================== */}
+          <div className="border border-[#0066b3] bg-[#0b2b48] rounded-2xl overflow-hidden shadow-lg">
+            <button 
+              onClick={() => toggleModulo('logistica')}
+              className="w-full p-4 flex justify-between items-center text-xs font-black uppercase text-amber-300 bg-[#0b2b48] cursor-pointer"
+            >
+              <span className="flex items-center gap-2">
+                <span>{moduloAbierto === 'logistica' ? '▼' : '▶'}</span> 🚚 1. GESTIÓN LOGÍSTICA E INSUMOS
+              </span>
+              <span className="bg-[#031d35] text-sky-200 text-[10px] px-2 py-0.5 rounded border border-[#0066b3]">
+                {pedidosPendientesCompra.length + pedidosListosParaEntrega.length} activos
+              </span>
+            </button>
+
+            {moduloAbierto === 'logistica' && (
+              <div className="p-3 pt-0 space-y-3 border-t border-[#0066b3]/30 bg-[#031d35]/60">
+                
+                {/* SUB-PESTAÑAS INTERNAS DE LOGÍSTICA */}
+                <div className="grid grid-cols-2 gap-2 pt-3">
+                  <button onClick={() => setSubPestanaLogistica('compras')} className={`py-2 rounded-xl font-extrabold text-[11px] uppercase border ${subPestanaLogistica === 'compras' ? 'bg-[#0078d4] border-[#00a4ef]' : 'bg-[#0b2b48] border-[#0066b3]'}`}>🛒 Por Comprar</button>
+                  <button onClick={() => setSubPestanaLogistica('despachos')} className={`py-2 rounded-xl font-extrabold text-[11px] uppercase border ${subPestanaLogistica === 'despachos' ? 'bg-[#0078d4] border-[#00a4ef]' : 'bg-[#0b2b48] border-[#0066b3]'}`}>🚚 Por Entregar</button>
+                </div>
+
+                {/* VISTA COMPRAS */}
+                {subPestanaLogistica === 'compras' && (
+                  Object.keys(consolidadoCompras).length === 0 ? (
+                    <p className="text-center text-xs text-sky-300 py-6 font-semibold">No hay compras pendientes.</p>
+                  ) : (
+                    Object.entries(consolidadoCompras).map(([proveedor, dataProv]) => {
+                      const abierto = !!acordeonesCompras[proveedor];
+                      const esAlerta = proveedor.includes('Faltan datos');
+                      const itemsArray = Object.entries(dataProv.items);
+
+                      return (
+                        <div key={proveedor} className={`border rounded-xl overflow-hidden shadow-sm ${esAlerta ? 'border-rose-500 bg-rose-950/20' : 'border-[#0066b3] bg-[#0b2b48]'}`}>
+                          <button onClick={() => setAcordeonesCompras(prev => ({ ...prev, [proveedor]: !abierto }))} className="w-full p-3 flex justify-between items-center text-xs font-bold uppercase text-amber-300">
+                            <span>{abierto ? '▼' : '▶'} {proveedor}</span>
+                            <span className="text-[10px] bg-[#031d35] px-2 py-0.5 rounded">{itemsArray.length} ítems</span>
+                          </button>
+                          {abierto && (
+                            <div className="p-3 pt-0 space-y-2 border-t border-[#0066b3]/30">
+                              <div className="space-y-1.5 pt-2">
+                                {itemsArray.map(([nombreProd, info]: any, i) => (
+                                  <div key={i} className="bg-[#031d35] p-2.5 rounded-lg border border-[#0066b3]/50 flex justify-between items-center text-xs">
+                                    <div>
+                                      <p className="font-semibold text-white">{nombreProd}</p>
+                                      {esAlerta && (
+                                        <div className="flex gap-1 mt-1.5">
+                                          <input className="bg-[#0b2b48] border border-rose-500 text-white text-[10px] p-1.5 rounded outline-none w-24" placeholder="Ej. D1" onChange={(e) => setEditandoProveedor({ ...editandoProveedor, [nombreProd]: e.target.value })} />
+                                          <button onClick={() => guardarProveedorInteligente(nombreProd, info.idProd)} className="bg-emerald-600 px-2 py-1 rounded text-[10px] font-bold">Guardar</button>
+                                        </div>
+                                      )}
+                                    </div>
+                                    <span className="bg-[#0078d4] text-white px-2.5 py-1 rounded font-black text-xs">x{info.cantidad}</span>
+                                  </div>
+                                ))}
+                              </div>
+                              {!esAlerta && (
+                                <button onClick={() => marcarProveedorComoComprado(dataProv.idsPedidosSet)} className="w-full mt-2 bg-emerald-600 hover:bg-emerald-500 text-white font-black py-2 rounded-lg text-xs uppercase">
+                                  ✓ Marcar Comprado
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
+                  )
+                )}
+
+                {/* VISTA DESPACHOS */}
+                {subPestanaLogistica === 'despachos' && (
+                  <div className="space-y-2">
+                    <select value={sedeSeleccionada} onChange={(e) => setSedeSeleccionada(e.target.value)} className="w-full bg-[#031d35] border border-[#0066b3] text-white font-bold text-xs p-2 rounded-lg outline-none">
+                      <option value="todos">🌐 Todas las Sedes</option>
+                      <option value="1">Sede Martineto</option>
+                      <option value="2">Sede Centro</option>
+                      <option value="3">Sede Viva</option>
+                      <option value="4">Sede Ositos</option>
+                    </select>
+
+                    {Object.keys(despachosPorSede).length === 0 ? (
+                      <p className="text-center text-xs text-sky-300 py-6 font-semibold">No hay despachos listos (comprados).</p>
+                    ) : (
+                      Object.entries(despachosPorSede).map(([nombreSede, dataSede]) => {
+                        const abierto = !!acordeonesDespachos[nombreSede];
+                        return (
+                          <div key={nombreSede} className="border border-[#0066b3] bg-[#0b2b48] rounded-xl overflow-hidden">
+                            <button onClick={() => setAcordeonesDespachos(prev => ({ ...prev, [nombreSede]: !abierto }))} className="w-full p-3 flex justify-between items-center text-xs font-bold text-white uppercase">
+                              <span>{abierto ? '▼' : '▶'} {nombreSede}</span>
+                              <span className="text-[10px] bg-[#031d35] px-2 py-0.5 rounded">{Object.keys(dataSede.productos).length} productos</span>
+                            </button>
+                            {abierto && (
+                              <div className="p-3 pt-0 bg-[#031d35] text-xs space-y-2 border-t border-[#0066b3]/30">
+                                <div className="space-y-1 pt-1">
+                                  {Object.entries(dataSede.productos).map(([k, v]: any, i) => (
+                                    <div key={i} className="flex justify-between border-b border-[#0066b3]/20 py-1 text-white">
+                                      <span>{k}</span>
+                                      <span className="font-bold text-sky-200">x{v}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                                <button onClick={() => marcarPedidosComoEntregados(dataSede.idsPedidos)} className="w-full mt-2 bg-emerald-600 text-white font-black py-2 rounded-lg text-xs uppercase">
+                                  🚚 Marcar Entregado
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
                   </div>
-                ))
-              )}
-            </div>
-          )}
+                )}
 
-          {/* TAB REPARTO */}
-          {tab === 'reparto' && (
-            <div className="space-y-3">
-              <h2 className="text-xs font-black text-gray-400 uppercase tracking-wider">Entregas Pendientes a Sedes</h2>
-              {entregas.length === 0 ? (
-                <p className="text-xs text-gray-500 text-center py-6">No hay entregas pendientes.</p>
-              ) : (
-                entregas.map((item) => (
-                  <div key={item.id} className="bg-[#0d111a] border border-gray-800 p-3.5 rounded-2xl flex justify-between items-center">
-                    <div>
-                      <span className="text-[10px] font-black uppercase text-purple-400 bg-purple-950/60 border border-purple-800/60 px-2 py-0.5 rounded-md">
-                        🏢 {item.sede_nombre}
-                      </span>
-                      <p className="text-sm font-black text-white mt-1">
-                        {item.producto_nombre} <b className="text-purple-400">x{item.cantidad}</b>
-                      </p>
-                    </div>
-                    <button onClick={() => handleEntregarPedido(item.id)} className="bg-sky-600 hover:bg-sky-500 text-white text-xs font-black px-3 py-2 rounded-xl">
-                      📦 Entregar
-                    </button>
-                  </div>
-                ))
-              )}
-            </div>
-          )}
+              </div>
+            )}
+          </div>
 
-          {/* TAB TURNOS TRABAJANDO */}
-          {tab === 'turnos' && (
-            <div className="space-y-3">
-              <h2 className="text-xs font-black text-gray-400 uppercase tracking-wider">Monitoreo de Turnos y Horarios</h2>
-              {turnos.length === 0 ? (
-                <p className="text-xs text-gray-500 text-center py-6">No hay turnos registrados hoy.</p>
-              ) : (
-                turnos.map((t) => (
-                  <div key={t.id} className="bg-[#0d111a] border border-gray-800 p-3 rounded-2xl space-y-1">
-                    <div className="flex justify-between items-center">
-                      <span className="font-black text-xs text-white">{t.usuario_nombre}</span>
-                      <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-purple-950 text-purple-300 border border-purple-800">
-                        {t.sede_nombre}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-gray-400">
-                      Entrada: <b>{t.hora_entrada}</b> | Salida: <b>{t.hora_salida}</b>
-                    </p>
-                  </div>
-                ))
-              )}
-            </div>
-          )}
+          {/* ======================================================== */}
+          {/* MÓDULO 2: AUDITORÍA Y CIERRES DE CAJA */}
+          {/* ======================================================== */}
+          <div className="border border-[#0066b3] bg-[#0b2b48] rounded-2xl overflow-hidden shadow-lg">
+            <button 
+              onClick={() => toggleModulo('cierres')}
+              className="w-full p-4 flex justify-between items-center text-xs font-black uppercase text-emerald-300 bg-[#0b2b48] cursor-pointer"
+            >
+              <span className="flex items-center gap-2">
+                <span>{moduloAbierto === 'cierres' ? '▼' : '▶'}</span> 💰 2. CIERRES DE CAJA Y VENTAS
+              </span>
+              <span className="bg-[#031d35] text-emerald-300 font-bold text-[10px] px-2 py-0.5 rounded border border-[#0066b3]">
+                ${(CierreGlobal.totalVenta - CierreGlobal.gastos).toLocaleString()}
+              </span>
+            </button>
 
-          {/* TAB GESTIÓN DE PERSONAL */}
-          {tab === 'empleados' && (
-            <div className="space-y-4">
-              <form onSubmit={handleCrearEmpleado} className="bg-[#0d111a] border border-gray-800 p-3.5 rounded-2xl space-y-2">
-                <h3 className="text-xs font-black text-white">Registrar Nuevo Empleado</h3>
-                <input
-                  type="text"
-                  placeholder="Nombre Completo"
-                  value={nombreEmp}
-                  onChange={(e) => setNombreEmp(e.target.value)}
-                  className="w-full bg-gray-900 border border-gray-800 rounded-xl p-2 text-xs text-white outline-none"
-                />
-                <div className="grid grid-cols-2 gap-2">
-                  <input
-                    type="text"
-                    placeholder="Código Acceso"
-                    value={codigoEmp}
-                    onChange={(e) => setCodigoEmp(e.target.value)}
-                    className="bg-gray-900 border border-gray-800 rounded-xl p-2 text-xs text-white outline-none"
-                  />
-                  <select
-                    value={tipoEmp}
-                    onChange={(e) => setTipoEmp(e.target.value)}
-                    className="bg-gray-900 border border-gray-800 rounded-xl p-2 text-xs text-white outline-none"
-                  >
-                    <option value="operador">Operador</option>
-                    <option value="administrador">Administrador</option>
+            {moduloAbierto === 'cierres' && (
+              <div className="p-3 pt-0 space-y-3 border-t border-[#0066b3]/30 bg-[#031d35]/60">
+                
+                <div className="pt-3">
+                  <select value={sedeSeleccionada} onChange={(e) => setSedeSeleccionada(e.target.value)} className="w-full bg-[#031d35] border border-[#0066b3] text-white font-bold text-xs p-2 rounded-lg outline-none">
+                    <option value="todos">🌐 Ver Todas las Sedes (Global)</option>
+                    <option value="1">Sede Martineto</option>
+                    <option value="2">Sede Centro</option>
+                    <option value="3">Sede Viva</option>
+                    <option value="4">Sede Ositos</option>
                   </select>
                 </div>
-                <button type="submit" className="w-full bg-purple-600 hover:bg-purple-500 text-white font-black py-2 rounded-xl text-xs">
-                  + Agregar Empleado
-                </button>
-              </form>
 
-              <div className="space-y-2">
-                <h3 className="text-xs font-black text-gray-400 uppercase">Lista de Empleados</h3>
-                {usuarios.map((u) => (
-                  <div key={u.id} className="bg-[#0d111a] border border-gray-800 p-2.5 rounded-xl flex justify-between items-center text-xs">
-                    <div>
-                      <p className="font-bold text-white">{u.nombre_completo}</p>
-                      <p className="text-[10px] text-gray-400">Código: <b>{u.codigo_acceso}</b> | Rol: <b>{u.tipo_usuario}</b></p>
-                    </div>
+                {/* RESUMEN GLOBAL */}
+                {sedeSeleccionada === 'todos' && (
+                  <div className="border border-emerald-500/50 bg-[#0b2b48] rounded-xl overflow-hidden">
+                    <button onClick={() => setAcordeonesCierres(prev => ({ ...prev, global: !prev.global }))} className="w-full p-3 flex justify-between items-center text-xs font-black uppercase text-emerald-300 bg-emerald-950/40">
+                      <span>{acordeonesCierres.global ? '▼' : '▶'} CONSOLIDADO GLOBAL</span>
+                      <span className="text-white">${CierreGlobal.totalVenta.toLocaleString()}</span>
+                    </button>
+                    {acordeonesCierres.global && (
+                      <div className="p-3 space-y-1.5 bg-[#031d35] text-xs border-t border-emerald-500/30">
+                        <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>💵 Efectivo:</span><span className="font-bold text-emerald-400">${CierreGlobal.efectivo.toLocaleString()}</span></div>
+                        <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>📲 Nequi:</span><span className="font-bold text-sky-300">${CierreGlobal.nequi.toLocaleString()}</span></div>
+                        <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>💳 Daviplata:</span><span className="font-bold text-rose-300">${CierreGlobal.daviplata.toLocaleString()}</span></div>
+                        <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>📉 Gastos:</span><span className="font-bold text-amber-400">-${CierreGlobal.gastos.toLocaleString()}</span></div>
+                        <div className="flex justify-between py-1.5 text-xs font-black border-t border-emerald-400 mt-1 text-white"><span>💰 VENTA NETO GLOBAL:</span><span className="text-emerald-300">${(CierreGlobal.totalVenta - CierreGlobal.gastos).toLocaleString()}</span></div>
+                      </div>
+                    )}
                   </div>
-                ))}
+                )}
+
+                {/* DETALLE POR SEDE */}
+                {Object.keys(cierresPorSede).length === 0 ? (
+                  <p className="text-center text-xs text-sky-300 py-6 font-semibold">No se encontraron cierres de caja en esta fecha.</p>
+                ) : (
+                  Object.entries(cierresPorSede).map(([nombreSede, dataSede]) => {
+                    const abierto = !!acordeonesCierres[nombreSede];
+                    return (
+                      <div key={nombreSede} className="border border-[#0066b3] bg-[#0b2b48] rounded-xl overflow-hidden">
+                        <button onClick={() => setAcordeonesCierres(prev => ({ ...prev, [nombreSede]: !abierto }))} className="w-full p-3 flex justify-between items-center text-xs font-bold text-white uppercase">
+                          <span>{abierto ? '▼' : '▶'} {nombreSede}</span>
+                          <span className="text-emerald-300 font-bold">${dataSede.totalVenta.toLocaleString()}</span>
+                        </button>
+                        {abierto && (
+                          <div className="p-3 space-y-1 bg-[#031d35] text-xs border-t border-[#0066b3]/30">
+                            <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>💵 Efectivo:</span><span className="font-bold text-emerald-400">${dataSede.efectivo.toLocaleString()}</span></div>
+                            <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>📲 Nequi:</span><span className="font-bold text-sky-300">${dataSede.nequi.toLocaleString()}</span></div>
+                            <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>💳 Daviplata:</span><span className="font-bold text-rose-300">${dataSede.daviplata.toLocaleString()}</span></div>
+                            <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>📉 Gastos:</span><span className="font-bold text-amber-400">-${dataSede.gastos.toLocaleString()}</span></div>
+                            {dataSede.motivosGastos.length > 0 && (
+                              <div className="bg-[#0b2b48] p-2 rounded text-[10px] my-1 border border-amber-500/30">
+                                <span className="text-amber-300 font-bold block">Notas de Gastos:</span>
+                                {dataSede.motivosGastos.map((m: string, idx: number) => <p key={idx} className="text-sky-200">• {m}</p>)}
+                              </div>
+                            )}
+                            <div className="flex justify-between py-1 font-black border-t border-sky-500/40 text-white"><span>💰 VENTA NETO:</span><span className="text-emerald-300">${(dataSede.totalVenta - dataSede.gastos).toLocaleString()}</span></div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
-          {/* TAB ALERTAS INVENTARIO */}
-          {tab === 'novedades' && (
-            <div className="space-y-3">
-              <h2 className="text-xs font-black text-rose-400 uppercase tracking-wider">Alertas Cierre vs. Apertura</h2>
-              {novedades.length === 0 ? (
-                <p className="text-xs text-gray-500 text-center py-6">No hay diferencias encontradas.</p>
-              ) : (
-                novedades.map((nov) => (
-                  <div key={nov.id} className="bg-[#160d13] border border-rose-900/60 p-3.5 rounded-2xl space-y-1.5">
-                    <p className="text-xs font-black text-white">{nov.sede_nombre} - {nov.producto_nombre}</p>
-                    <p className="text-[10px] text-rose-400">Diferencia: <b>{nov.diferencia}</b> | Operador: {nov.usuario_nombre}</p>
-                  </div>
-                ))
-              )}
-            </div>
-          )}
-        </>
+          {/* ======================================================== */}
+          {/* MÓDULO 3: CONTROL DE INVENTARIOS Y STOCK (PRÓXIMO) */}
+          {/* ======================================================== */}
+          <div className="border border-[#0066b3]/60 bg-[#0b2b48]/60 rounded-2xl p-4 flex justify-between items-center text-xs font-bold text-sky-300 opacity-80">
+            <span>📦 3. INVENTARIOS Y STOCK GENERAL</span>
+            <span className="bg-[#031d35] text-[10px] px-2 py-0.5 rounded border border-[#0066b3]">Próxima Consulta</span>
+          </div>
+
+          {/* ======================================================== */}
+          {/* MÓDULO 4: NÓMINA Y HORARIOS (PRÓXIMO) */}
+          {/* ======================================================== */}
+          <div className="border border-[#0066b3]/60 bg-[#0b2b48]/60 rounded-2xl p-4 flex justify-between items-center text-xs font-bold text-sky-300 opacity-80">
+            <span>👥 4. NÓMINA Y REGISTRO DE TURNOS</span>
+            <span className="bg-[#031d35] text-[10px] px-2 py-0.5 rounded border border-[#0066b3]">Próxima Consulta</span>
+          </div>
+
+        </div>
       )}
+
     </main>
   );
 }
