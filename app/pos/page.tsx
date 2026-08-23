@@ -90,6 +90,7 @@ export default function MartinetoPOSPage() {
 
   // REQUISICIONES / PEDIDOS A BODEGA
   const [productosInsumosBD, setProductosInsumosBD] = useState<any[]>([]);
+  const [historialPedidosBD, setHistorialPedidosBD] = useState<any[]>([]);
   const [tabPedido, setTabPedido] = useState<CategoriaTab>('paletas');
 
   const [pedidosCategorias, setPedidosCategorias] = useState<{
@@ -190,6 +191,18 @@ export default function MartinetoPOSPage() {
     setSesion(ses);
     cargarInicial(ses);
   }, [router]);
+
+  async function cargarHistorialPedidos() {
+    const { data, error } = await supabase
+      .from('pedidos_insumos')
+      .select('*')
+      .eq('sede_id', SEDE_ID_MARTINETO)
+      .order('id', { ascending: false });
+
+    if (!error && data) {
+      setHistorialPedidosBD(data);
+    }
+  }
 
   async function cargarInicial(sesionActual: any) {
     setCargando(true);
@@ -308,6 +321,8 @@ export default function MartinetoPOSPage() {
           }))
         );
       }
+
+      await cargarHistorialPedidos();
     } catch (e: any) {
       setErrorLecturaBD(`Excepción: ${e.message || 'Error de conexión'}`);
     } finally {
@@ -430,22 +445,25 @@ export default function MartinetoPOSPage() {
   const rappiActivo = esRappiActivo ? pedidosRappi.find((r) => r.id === mesaActivaId) || null : null;
   const itemActivoActual = esRappiActivo ? rappiActivo : mesaActiva;
 
-  const productosFiltradosVenta = productosVenta.filter((p) => {
-    const catSel = categoriaVentaSel.toLowerCase();
-    const nombreNorm = p.nombre.toLowerCase();
+  // PRODUCTOS ORDENADOS ALFABÉTICAMENTE
+  const productosFiltradosVenta = productosVenta
+    .filter((p) => {
+      const catSel = categoriaVentaSel.toLowerCase();
+      const nombreNorm = p.nombre.toLowerCase();
 
-    const coincideCategoria =
-      !categoriaVentaSel || categoriaVentaSel === 'TODAS'
-        ? true
-        : p.categoriaLimpia === catSel || (catSel === 'enchilados' && (nombreNorm.includes('enchilada') || nombreNorm.includes('mostac')));
+      const coincideCategoria =
+        !categoriaVentaSel || categoriaVentaSel === 'TODAS'
+          ? true
+          : p.categoriaLimpia === catSel || (catSel === 'enchilados' && (nombreNorm.includes('enchilada') || nombreNorm.includes('mostac')));
 
-    const coincideTexto =
-      busquedaProducto.trim() === ''
-        ? true
-        : nombreNorm.includes(busquedaProducto.toLowerCase().trim());
+      const coincideTexto =
+        busquedaProducto.trim() === ''
+          ? true
+          : nombreNorm.includes(busquedaProducto.toLowerCase().trim());
 
-    return coincideCategoria && coincideTexto;
-  });
+      return coincideCategoria && coincideTexto;
+    })
+    .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }));
 
   function handleKeyDownTotalPaletas(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'Enter') {
@@ -664,6 +682,7 @@ export default function MartinetoPOSPage() {
         aseo: {},
       });
       setObservacionPedido('');
+      await cargarHistorialPedidos();
     } else {
       alert('Error al guardar en la base de datos: ' + error.message);
     }
@@ -1938,6 +1957,60 @@ export default function MartinetoPOSPage() {
           >
             🚀 Enviar Pedido a Bodega
           </button>
+
+          {/* HISTORIAL DE PEDIDOS REALIZADOS EN EL DÍA */}
+          <div className="border-t border-[#0066b3]/50 pt-4 space-y-2">
+            <h3 className="text-xs font-black text-sky-200 uppercase flex items-center gap-1.5">
+              📋 Historial de Pedidos Enviados a Bodega
+            </h3>
+
+            <div className="max-h-52 overflow-y-auto space-y-2 pr-1">
+              {historialPedidosBD.length === 0 ? (
+                <p className="text-xs text-sky-400 italic text-center py-3">
+                  No se han enviado pedidos a bodega todavía.
+                </p>
+              ) : (
+                historialPedidosBD.map((ped) => {
+                  const hora = ped.created_at
+                    ? new Date(ped.created_at).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })
+                    : '';
+
+                  const itemsConsolidados = [
+                    ...Object.entries(ped.pedidos_paletas || {}),
+                    ...Object.entries(ped.pedidos_richi || {}),
+                    ...Object.entries(ped.pedidos_produccion || {}),
+                    ...Object.entries(ped.pedidos_insumos || {}),
+                    ...Object.entries(ped.pedidos_aseo || {}),
+                  ];
+
+                  return (
+                    <div key={ped.id} className="bg-[#051829] border border-[#0066b3] p-3 rounded-xl text-xs space-y-1.5 shadow-sm">
+                      <div className="flex justify-between items-center border-b border-[#0066b3]/40 pb-1">
+                        <span className="font-black text-white">📦 Pedido #{ped.id} <small className="text-sky-300 font-normal">({hora})</small></span>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                          ped.estado === 'completado' ? 'bg-emerald-900 text-emerald-300 border border-emerald-500' : 'bg-amber-950 text-amber-300 border border-amber-500'
+                        }`}>
+                          {ped.estado || 'Pendiente'}
+                        </span>
+                      </div>
+
+                      <div className="flex flex-wrap gap-1.5 pt-1">
+                        {itemsConsolidados.map(([nombreItem, cant]) => (
+                          <span key={nombreItem} className="bg-[#0e385e] text-sky-100 px-2 py-0.5 rounded-md font-bold text-[11px] border border-[#0066b3]">
+                            {nombreItem}: <b className="text-emerald-300">{cant as number}</b>
+                          </span>
+                        ))}
+                      </div>
+
+                      {ped.observaciones && (
+                        <p className="text-[10px] text-sky-300 italic pt-1">Obs: {ped.observaciones}</p>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
         </div>
       )}
 
