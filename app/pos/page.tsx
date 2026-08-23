@@ -43,10 +43,14 @@ const desformatearMoneda = (val: string): number | '' => {
 };
 
 type CategoriaTab = 'paletas' | 'richi' | 'produccion' | 'insumos' | 'aseo';
+type ModuloPrincipal = 'movimientos' | 'pedidos' | 'gastos' | 'ventas' | 'cierre';
 
 export default function MartinetoPOSPage() {
   const router = useRouter();
   const [sesion, setSesion] = useState<any>(null);
+
+  // MÓDULO ACTIVO NAVEGACIÓN
+  const [moduloActivo, setModuloActivo] = useState<ModuloPrincipal>('movimientos');
 
   const [baseCaja, setBaseCaja] = useState<number | ''>('');
   const [baseGuardada, setBaseGuardada] = useState(false);
@@ -74,6 +78,9 @@ export default function MartinetoPOSPage() {
   // RAPPI ACTIVOS
   const [pedidosRappi, setPedidosRappi] = useState<any[]>([]);
 
+  // MODAL DE CONSULTA FLOTANTE DE CAJA Y VENTAS
+  const [mostrarModalConsultaCaja, setMostrarModalConsultaCaja] = useState(false);
+
   // MODAL DE COBRO / PAGO MIXTO Y ABONOS
   const [mostrarModalCobro, setMostrarModalCobro] = useState(false);
   const [pagoEfectivo, setPagoEfectivo] = useState<number | ''>('');
@@ -83,7 +90,6 @@ export default function MartinetoPOSPage() {
 
   // REQUISICIONES / PEDIDOS A BODEGA
   const [productosInsumosBD, setProductosInsumosBD] = useState<any[]>([]);
-  const [mostrarPedidos, setMostrarPedidos] = useState(false);
   const [tabPedido, setTabPedido] = useState<CategoriaTab>('paletas');
 
   const [pedidosCategorias, setPedidosCategorias] = useState<{
@@ -146,7 +152,7 @@ export default function MartinetoPOSPage() {
   });
 
   const [cargando, setCargando] = useState(true);
-  const SEDE_ID_MARTINETO = 4; // Configurado estrictamente con ID 4
+  const SEDE_ID_MARTINETO = 4;
 
   const inputRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
   const bloqueadoPorApertura = !baseGuardada || !aperturaRealizada;
@@ -190,7 +196,6 @@ export default function MartinetoPOSPage() {
     setErrorLecturaBD(null);
 
     try {
-      // 1. Obtener el turno activo del día (Día Completo o el correspondiente) para Martineto si no viene en la sesión
       let turnoIdActual = sesionActual?.turno_id;
       if (!turnoIdActual) {
         const { data: turnoData } = await supabase
@@ -202,7 +207,6 @@ export default function MartinetoPOSPage() {
 
         if (turnoData && turnoData.length > 0) {
           turnoIdActual = turnoData[0].id;
-          // Actualizamos la sesión local con el turno encontrado
           sesionActual.turno_id = turnoIdActual;
           sesionActual.turno_nombre = turnoData[0].nombre;
           setSesion({ ...sesionActual });
@@ -334,7 +338,7 @@ export default function MartinetoPOSPage() {
     }
 
     const operarioNombre = sesion?.nombre || 'Operador';
-    const conceptoNomen = `Pago Nómina a ${operarioNombre} (${horasDia || 0}h Día / ${horasNoche || 0}h Noche)`;
+    const conceptoNomen = `Pago Nómina Operador - ${operarioNombre} (${horasDia || 0}h Día / ${horasNoche || 0}h Noche)`;
     const horaActual = new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
 
     const gastoNominaObj = {
@@ -426,7 +430,6 @@ export default function MartinetoPOSPage() {
   const rappiActivo = esRappiActivo ? pedidosRappi.find((r) => r.id === mesaActivaId) || null : null;
   const itemActivoActual = esRappiActivo ? rappiActivo : mesaActiva;
 
-  // FILTRO POR CATEGORÍA Y BUSCADOR
   const productosFiltradosVenta = productosVenta.filter((p) => {
     const catSel = categoriaVentaSel.toLowerCase();
     const nombreNorm = p.nombre.toLowerCase();
@@ -509,7 +512,7 @@ export default function MartinetoPOSPage() {
     }
 
     setBaseGuardada(true);
-    alert('✅ ¡Base inicial de caja guardada correctamente para Martineto (Sede 4)!');
+    alert('✅ ¡Base inicial de caja guardada correctamente!');
   }
 
   async function handleGuardarInventario() {
@@ -561,6 +564,7 @@ export default function MartinetoPOSPage() {
       if (tipoMovimiento === 'apertura') {
         setAperturaRealizada(true);
         setTipoMovimiento('nuevas');
+        setModuloActivo('ventas');
       }
     } else {
       alert('Error al registrar inventario.');
@@ -572,7 +576,7 @@ export default function MartinetoPOSPage() {
     const valorGasto = Number(montoGasto);
 
     if (!textoConcepto) {
-      alert('⚠️ Ingresa el concepto del gasto (ej: fresas, plátanos, bolsas...).');
+      alert('⚠️ Ingresa el concepto del gasto.');
       return;
     }
 
@@ -718,7 +722,7 @@ export default function MartinetoPOSPage() {
 
   const calcularDisponibilidadActual = (nombreEmpaque: string) => {
     let apertura = 0;
-    
+
     const movimientoApertura = movimientosDiaBD.find((m) => m.tipo === 'apertura');
     if (movimientoApertura) {
       if (nombreEmpaque === 'Total Paletas') {
@@ -940,13 +944,13 @@ export default function MartinetoPOSPage() {
       }
 
       if (dispMostac <= 0) {
-        alert('⚠️ No hay empaques de "Caja Mostac" disponibles en inventario para servir la Paleta Enchilada.');
+        alert('⚠️ No hay empaques de "Caja Mostac" disponibles en inventario.');
         return;
       }
     } else if (nombreNorm.includes('paleta')) {
       const dispPaletas = calcularDisponibilidadActual('Total Paletas');
       if (dispPaletas <= 0) {
-        alert('⚠️ No hay stock disponible de Paletas para registrar ventas (Disponibles: 0).');
+        alert('⚠️ No hay stock disponible de Paletas (Disponibles: 0).');
         return;
       }
     }
@@ -954,7 +958,7 @@ export default function MartinetoPOSPage() {
     if (nombreNorm.includes('doritos') || nombreNorm.includes('dorinetos')) {
       const dispDoritos = calcularDisponibilidadActual('Doritos');
       if (dispDoritos <= 0) {
-        alert('⚠️ No hay stock disponible de Doritos / Dorinetos en apertura (Disponibles: 0).');
+        alert('⚠️ No hay stock disponible de Doritos / Dorinetos (Disponibles: 0).');
         return;
       }
     }
@@ -968,7 +972,7 @@ export default function MartinetoPOSPage() {
 
       if (esParaLlevar) {
         if (dispCorralito < 2) {
-          alert('⚠️ No hay empaques suficientes de Corralito para llevar (se requieren 2 empaques: 1 base + 1 tapa).');
+          alert('⚠️ No hay empaques suficientes de Corralito para llevar (requiere 2 empaques).');
           return;
         }
       }
@@ -989,7 +993,7 @@ export default function MartinetoPOSPage() {
     ) {
       const dispVasos = calcularDisponibilidadActual('Vaso 12 onzas');
       if (dispVasos <= 0) {
-        alert('⚠️ No hay Vasos de 12 onzas disponibles en inventario para preparar esta bebida (Disponibles: 0).');
+        alert('⚠️ No hay Vasos de 12 onzas disponibles en inventario (Disponibles: 0).');
         return;
       }
     }
@@ -1061,13 +1065,11 @@ export default function MartinetoPOSPage() {
             0
           );
 
-          const estadoRevisado = 'Ocupada';
-
           return {
             ...m,
             items: nuevosItems,
             total: nuevoTotal,
-            estado: estadoRevisado,
+            estado: 'Ocupada',
           };
         })
       );
@@ -1331,7 +1333,7 @@ export default function MartinetoPOSPage() {
     setMostrarModalCobro(false);
 
     if (estaCompletamentePagado) {
-      alert('✅ ¡Cuenta pagada con éxito! (Recuerda despachar los productos pendientes si los hay).');
+      alert('✅ ¡Cuenta pagada con éxito!');
     } else {
       alert(
         `✅ ¡Abono registrado con éxito! Saldo pendiente: $ ${(
@@ -1345,7 +1347,7 @@ export default function MartinetoPOSPage() {
     if (!mesaActivaId) return;
 
     if (hayProductosPorEntregar) {
-      alert('⚠️ No puedes liberar la mesa porque aún hay productos pendientes POR ENTREGAR. Marca los productos como entregados o usa el botón "🚀 Todo Entregado".');
+      alert('⚠️ No puedes liberar la mesa porque aún hay productos pendientes POR ENTREGAR.');
       return;
     }
 
@@ -1394,7 +1396,7 @@ export default function MartinetoPOSPage() {
     mesaActiva.total > 0 &&
     !hayProductosPorEntregar;
 
-  // CÁLCULOS AUDITORÍA Y MÉTODOS DE PAGO
+  // CÁLCULOS AUDITORÍA Y MÉTODOS DE PAGO EN TIEMPO REAL
   const sumaGastosTotal = listaGastos.reduce((acc, g) => acc + Number(g.monto || 0), 0);
   
   const totalEfectivoIngresado = ventasDiaBD.reduce((acc, v) => acc + Number(v.pago_efectivo || 0), 0);
@@ -1580,7 +1582,7 @@ export default function MartinetoPOSPage() {
 
   async function guardarCierreDefinitivoBD() {
     if (!nominaPagadaEnTurno) {
-      alert('⚠️ ATENCIÓN: No puedes realizar el Cierre del Día sin haber procesado primero el PAGO DE NÓMINA en la sección inferior.');
+      alert('⚠️ ATENCIÓN: No puedes realizar el Cierre del Día sin haber procesado primero el PAGO DE NÓMINA.');
       return;
     }
 
@@ -1628,7 +1630,6 @@ export default function MartinetoPOSPage() {
       const { error: errCaja } = await supabase.from('caja').insert([payloadCaja]);
       if (errCaja) throw new Error(`Error guardando en caja: ${errCaja.message}`);
 
-      // Registrar movimiento de CIERRE en inventario_diario usando la función auxiliar
       const detallePaletasCierre: { [key: string]: number } = {};
       const detalleEmpaquesCierre: { [key: string]: number } = {};
       let totalPaletasCierreNum = 0;
@@ -1660,7 +1661,6 @@ export default function MartinetoPOSPage() {
       alert('✅ ¡CIERRE TOTAL DEL DÍA GUARDADO CON ÉXITO EN LA BASE DE DATOS!');
       setMostrarModalResumen(false);
       
-      // Limpiar sesión y redirigir al login igual que las demás sedes
       localStorage.removeItem('martineto_session');
       router.push('/login');
     } catch (err: any) {
@@ -1672,7 +1672,7 @@ export default function MartinetoPOSPage() {
 
   if (cargando) {
     return (
-      <main className="min-h-screen bg-[#004e8c] flex items-center justify-center text-xs font-bold font-sans">
+      <main className="min-h-screen bg-[#004e8c] flex items-center justify-center text-xs font-bold font-sans text-white">
         Cargando Martineto POS...
       </main>
     );
@@ -1680,7 +1680,7 @@ export default function MartinetoPOSPage() {
 
   return (
     <main className="min-h-screen bg-[#004e8c] text-[#f1f5f9] p-4 font-sans max-w-[1600px] mx-auto space-y-4">
-      {/* HEADER */}
+      {/* HEADER LIMPIO */}
       <header className="bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl flex justify-between items-center shadow-lg">
         <div>
           <h1 className="text-base md:text-lg font-black text-white flex items-center gap-2">
@@ -1691,56 +1691,97 @@ export default function MartinetoPOSPage() {
             Operador en Turno: <b className="text-white">{sesion?.nombre || 'Iris'}</b> ({sesion?.turno_nombre || 'DÍA COMPLETO'})
           </p>
         </div>
-        <button
-          onClick={() => {
-            localStorage.removeItem('martineto_session');
-            router.push('/login');
-          }}
-          className="bg-[#003d6d] hover:bg-rose-900 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer"
-        >
-          🚪 Salir
-        </button>
       </header>
 
-      {/* PASO 1: BASE INICIAL */}
-      <div className="bg-[#0b2b48] border border-emerald-400/50 p-4 rounded-2xl space-y-2 shadow-md">
-        <span className="text-xs md:text-sm font-black text-emerald-300 block">💵 Paso 1: Base Inicial para Empezar el Día (Efectivo en Caja):</span>
-        <div className="flex gap-3">
-          <input
-            type="text"
-            placeholder="Monto en efectivo $"
-            value={formatearMoneda(baseCaja)}
-            onChange={(e) => setBaseCaja(desformatearMoneda(e.target.value))}
-            disabled={baseGuardada}
-            className="w-full bg-[#051829] border border-[#0066b3] text-emerald-300 font-black text-sm rounded-xl p-3 outline-none"
-          />
-          <button
-            onClick={handleGuardarBase}
-            disabled={baseGuardada}
-            className={`font-bold px-6 rounded-xl text-xs ${baseGuardada ? 'bg-emerald-950 text-emerald-300' : 'bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer'}`}
-          >
-            {baseGuardada ? '✓ Base Guardada' : 'Guardar Base'}
-          </button>
-        </div>
-      </div>
+      {/* BARRA NAVEGACIÓN INDEPENDIENTE POR BOTONES */}
+      <nav className="flex flex-wrap gap-2 bg-[#0b2b48] p-2 rounded-2xl border border-[#0066b3] shadow-md">
+        <button
+          onClick={() => setModuloActivo('movimientos')}
+          className={`px-4 py-2.5 rounded-xl text-xs font-black uppercase transition-all cursor-pointer ${
+            moduloActivo === 'movimientos' ? 'bg-[#00a4ef] text-white shadow-md' : 'bg-[#051829] text-sky-300 border border-[#0066b3] hover:text-white'
+          }`}
+        >
+          1. 📦 Apertura y Movimientos
+        </button>
+        <button
+          onClick={() => setModuloActivo('pedidos')}
+          className={`px-4 py-2.5 rounded-xl text-xs font-black uppercase transition-all cursor-pointer ${
+            moduloActivo === 'pedidos' ? 'bg-[#00a4ef] text-white shadow-md' : 'bg-[#051829] text-sky-300 border border-[#0066b3] hover:text-white'
+          }`}
+        >
+          2. 🚚 Pedidos
+        </button>
+        <button
+          onClick={() => setModuloActivo('gastos')}
+          className={`px-4 py-2.5 rounded-xl text-xs font-black uppercase transition-all cursor-pointer ${
+            moduloActivo === 'gastos' ? 'bg-amber-600 text-white shadow-md' : 'bg-[#051829] text-sky-300 border border-[#0066b3] hover:text-white'
+          }`}
+        >
+          3. 💸 Gastos
+        </button>
+        <button
+          onClick={() => setModuloActivo('ventas')}
+          className={`px-4 py-2.5 rounded-xl text-xs font-black uppercase transition-all cursor-pointer ${
+            moduloActivo === 'ventas' ? 'bg-emerald-600 text-white shadow-md' : 'bg-[#051829] text-sky-300 border border-[#0066b3] hover:text-white'
+          }`}
+        >
+          4. 🛒 Ventas
+        </button>
+        <button
+          onClick={() => setModuloActivo('cierre')}
+          className={`px-4 py-2.5 rounded-xl text-xs font-black uppercase transition-all cursor-pointer ${
+            moduloActivo === 'cierre' ? 'bg-purple-600 text-white shadow-md' : 'bg-[#051829] text-sky-300 border border-[#0066b3] hover:text-white'
+          }`}
+        >
+          5. 🌙 Cierre
+        </button>
+      </nav>
 
       {bloqueadoPorApertura && (
         <div className="bg-amber-950/80 border border-amber-400/60 p-3 rounded-xl text-center text-xs text-amber-200 font-bold">
-          ⚠️ ATENCIÓN: Debes registrar la Base y el <b>Conteo de Apertura</b> para habilitar las ventas y operaciones del sistema.
+          ⚠️ ATENCIÓN: Debes registrar la Base de Caja y el <b>Conteo Físico de Apertura (Módulo 1)</b> para habilitar las ventas.
         </div>
       )}
 
-      {/* INVENTARIO, PEDIDOS Y GASTOS */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
-        {/* INVENTARIO */}
-        <div className="bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md">
-          <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
-            <h2 className="text-xs md:text-sm font-black text-white flex items-center gap-1.5">🍦 Conteo de Inventario</h2>
+      {/* -------------------------------------------------------------------------- */}
+      {/* MÓDULO 1: APERTURA Y MOVIMIENTOS E INVENTARIO */}
+      {/* -------------------------------------------------------------------------- */}
+      {moduloActivo === 'movimientos' && (
+        <div className="bg-[#0b2b48] border border-[#0066b3] p-5 rounded-2xl space-y-4 shadow-md max-w-2xl mx-auto">
+          
+          {/* APERTURA UNIFICADA EN LA PARTE SUPERIOR DEL MÓDULO 1 */}
+          <div className="bg-[#051829] border-2 border-emerald-400/70 p-4 rounded-xl space-y-3 shadow-inner">
+            <span className="text-xs font-black text-emerald-300 block uppercase border-b border-emerald-400/30 pb-1">
+              💵 1. Base Inicial de Caja (Efectivo en Caja al Abrir)
+            </span>
+            <div className="flex gap-3">
+              <input
+                type="text"
+                placeholder="Monto en efectivo $"
+                value={formatearMoneda(baseCaja)}
+                onChange={(e) => setBaseCaja(desformatearMoneda(e.target.value))}
+                disabled={baseGuardada}
+                className="w-full bg-[#0e385e] border border-[#0066b3] text-emerald-300 font-black text-sm rounded-xl p-2.5 outline-none"
+              />
+              <button
+                onClick={handleGuardarBase}
+                disabled={baseGuardada}
+                className={`font-bold px-6 rounded-xl text-xs ${baseGuardada ? 'bg-emerald-950 text-emerald-300 border border-emerald-500' : 'bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer'}`}
+              >
+                {baseGuardada ? '✓ Base Guardada' : 'Guardar Base'}
+              </button>
+            </div>
+          </div>
+
+          <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2 pt-2">
+            <h2 className="text-sm font-black text-white flex items-center gap-1.5">
+              📦 Conteo Físico de Productos y Movimientos de Inventario
+            </h2>
             <span className="bg-[#0078d4] text-white font-black text-[10px] px-3 py-1 rounded-full uppercase">{tipoMovimiento}</span>
           </div>
 
           <div className="space-y-1">
-            <span className="text-[10px] text-sky-300 font-bold block uppercase">Acción a registrar:</span>
+            <span className="text-xs text-sky-300 font-bold block uppercase">Acción a registrar:</span>
             <select
               value={tipoMovimiento}
               onChange={(e) => {
@@ -1751,9 +1792,9 @@ export default function MartinetoPOSPage() {
                 setObservacionesInventario('');
               }}
               disabled={!aperturaRealizada && baseGuardada}
-              className="w-full bg-[#051829] border border-[#0066b3] text-white font-black text-xs rounded-xl p-2.5 outline-none cursor-pointer"
+              className="w-full bg-[#051829] border border-[#0066b3] text-white font-black text-xs rounded-xl p-3 outline-none cursor-pointer"
             >
-              {!aperturaRealizada && <option value="apertura">👤 1. Conteo de Apertura (Obligatorio)</option>}
+              {!aperturaRealizada && <option value="apertura">👤 Conteo Físico de Apertura (Obligatorio al iniciar día)</option>}
               <option value="nuevas">📦 Paletas Nuevas (Ingreso)</option>
               <option value="compras">🛒 Compras Directas</option>
               <option value="debaja">⚠️ De Baja / Mermas</option>
@@ -1777,10 +1818,10 @@ export default function MartinetoPOSPage() {
             </div>
           </div>
 
-          <div className="space-y-1.5 max-h-[220px] overflow-y-auto pr-1">
+          <div className="space-y-1.5 max-h-[300px] overflow-y-auto pr-1">
             <span className="text-xs text-sky-300 font-bold block uppercase">CONTEO DE EMPAQUES Y VASOS (Presiona ENTER para avanzar):</span>
             {listaEmpaquesFiltrados.map((item, idx) => (
-              <div key={item} className="flex justify-between items-center bg-[#051829] p-2 rounded-lg border border-[#0066b3]">
+              <div key={item} className="flex justify-between items-center bg-[#051829] p-2.5 rounded-lg border border-[#0066b3]">
                 <span className="text-xs text-white font-bold flex items-center gap-1.5">📦 {item}:</span>
                 <input
                   ref={(el) => { inputRefs.current[item] = el; }}
@@ -1795,7 +1836,7 @@ export default function MartinetoPOSPage() {
                     })
                   }
                   onKeyDown={(e) => handleKeyDownEmpaques(e, idx)}
-                  className="w-24 bg-[#0e385e] text-sky-200 font-black text-center text-xs rounded p-1.5 outline-none border border-[#0066b3]"
+                  className="w-28 bg-[#0e385e] text-sky-200 font-black text-center text-xs rounded p-2 outline-none border border-[#0066b3]"
                 />
               </div>
             ))}
@@ -1805,136 +1846,146 @@ export default function MartinetoPOSPage() {
             placeholder="Observaciones de inventario..."
             value={observacionesInventario}
             onChange={(e) => setObservacionesInventario(e.target.value)}
-            className="w-full bg-[#051829] border border-[#0066b3] text-white text-xs p-2 rounded-xl outline-none resize-none h-14"
+            className="w-full bg-[#051829] border border-[#0066b3] text-white text-xs p-2.5 rounded-xl outline-none resize-none h-16"
           />
 
           <button
             onClick={handleGuardarInventario}
             disabled={!baseGuardada}
-            className="w-full bg-[#0078d4] hover:bg-[#0086e6] text-white font-black py-2.5 rounded-xl text-xs uppercase cursor-pointer disabled:opacity-50"
+            className="w-full bg-[#0078d4] hover:bg-[#0086e6] text-white font-black py-3 rounded-xl text-xs uppercase cursor-pointer disabled:opacity-50 shadow-md"
           >
-            💾 Guardar {tipoMovimiento}
+            💾 Guardar Movimiento ({tipoMovimiento})
           </button>
         </div>
+      )}
 
-        {/* PEDIDOS Y GASTOS */}
-        <div className="space-y-4">
-          <div className={`bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md ${bloqueadoPorApertura ? 'opacity-50 pointer-events-none' : ''}`}>
-            <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
-              <h2 className="text-xs md:text-sm font-black text-white flex items-center gap-1.5">🚚 Pedidos de Insumos</h2>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setMostrarModalNuevoProd(true)}
-                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] px-2.5 py-1 rounded-xl cursor-pointer"
-                >
-                  ➕ Crear Producto
-                </button>
-                <button
-                  onClick={() => setMostrarPedidos(!mostrarPedidos)}
-                  className="bg-[#051829] hover:bg-[#003d6d] text-sky-200 border border-[#0066b3] font-bold text-xs px-3 py-1 rounded-xl cursor-pointer"
-                >
-                  {mostrarPedidos ? 'Ocultar' : 'Hacer Pedido'}
-                </button>
-              </div>
-            </div>
-            {mostrarPedidos && (
-              <div className="space-y-3">
-                <div className="grid grid-cols-5 gap-1">
-                  {(
-                    [
-                      { id: 'paletas', label: 'paletas' },
-                      { id: 'richi', label: 'richi' },
-                      { id: 'produccion', label: 'producción' },
-                      { id: 'insumos', label: 'insumos' },
-                      { id: 'aseo', label: 'aseo' },
-                    ] as const
-                  ).map((tab) => (
-                    <button
-                      key={tab.id}
-                      onClick={() => setTabPedido(tab.id)}
-                      className={`py-1 rounded text-[10px] font-black uppercase cursor-pointer ${tabPedido === tab.id ? 'bg-[#00a4ef] text-white' : 'bg-[#051829] text-sky-300 border border-[#0066b3]'}`}
-                    >
-                      {tab.label}
-                    </button>
-                  ))}
+      {/* -------------------------------------------------------------------------- */}
+      {/* MÓDULO 2: PEDIDOS A BODEGA */}
+      {/* -------------------------------------------------------------------------- */}
+      {moduloActivo === 'pedidos' && (
+        <div className={`bg-[#0b2b48] border border-[#0066b3] p-5 rounded-2xl space-y-4 shadow-md max-w-3xl mx-auto ${bloqueadoPorApertura ? 'opacity-50 pointer-events-none' : ''}`}>
+          <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
+            <h2 className="text-sm font-black text-white flex items-center gap-1.5">2. 🚚 Pedidos de Insumos y Empaques a Bodega</h2>
+            <button
+              onClick={() => setMostrarModalNuevoProd(true)}
+              className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-3 py-1.5 rounded-xl cursor-pointer shadow"
+            >
+              ➕ Crear Nuevo Producto
+            </button>
+          </div>
+
+          <div className="grid grid-cols-5 gap-1.5">
+            {(
+              [
+                { id: 'paletas', label: 'paletas' },
+                { id: 'richi', label: 'richi' },
+                { id: 'produccion', label: 'producción' },
+                { id: 'insumos', label: 'insumos' },
+                { id: 'aseo', label: 'aseo' },
+              ] as const
+            ).map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setTabPedido(tab.id)}
+                className={`py-2 rounded-xl text-xs font-black uppercase cursor-pointer transition-all ${tabPedido === tab.id ? 'bg-[#00a4ef] text-white shadow-md' : 'bg-[#051829] text-sky-300 border border-[#0066b3]'}`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="max-h-[380px] overflow-y-auto space-y-2 pr-1">
+            {insumosFiltrados.length === 0 ? (
+              <p className="text-xs text-sky-400 italic text-center py-8">No hay productos disponibles en esta categoría.</p>
+            ) : (
+              insumosFiltrados.map((prod, idx) => (
+                <div key={prod.id || prod.nombre} className="flex justify-between items-center bg-[#051829] p-3 rounded-xl border border-[#0066b3]">
+                  <div>
+                    <p className="text-xs text-white font-bold">{prod.nombre}</p>
+                    {prod.grupo && <p className="text-[10px] text-sky-300">{prod.grupo}</p>}
+                  </div>
+                  <input
+                    ref={(el) => { inputRefs.current[`pedido_${prod.nombre}`] = el; }}
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="0"
+                    value={pedidosCategorias[tabPedido]?.[prod.nombre] || ''}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/\D/g, '');
+                      setPedidosCategorias({
+                        ...pedidosCategorias,
+                        [tabPedido]: { ...pedidosCategorias[tabPedido], [prod.nombre]: val === '' ? 0 : Number(val) },
+                      });
+                    }}
+                    onKeyDown={(e) => handleKeyDownPedido(e, idx)}
+                    className="w-24 bg-[#0e385e] text-sky-200 font-black text-center text-xs rounded-lg p-2 outline-none border border-[#0066b3]"
+                  />
                 </div>
-                <div className="max-h-52 overflow-y-auto space-y-1.5 pr-1">
-                  {insumosFiltrados.length === 0 ? (
-                    <p className="text-xs text-sky-400 italic text-center py-4">No hay productos disponibles en esta categoría.</p>
-                  ) : (
-                    insumosFiltrados.map((prod, idx) => (
-                      <div key={prod.id || prod.nombre} className="flex justify-between items-center bg-[#051829] p-2 rounded-xl border border-[#0066b3]">
-                        <div>
-                          <p className="text-xs text-white font-bold">{prod.nombre}</p>
-                          {prod.grupo && <p className="text-[10px] text-sky-300">{prod.grupo}</p>}
-                        </div>
-                        <input
-                          ref={(el) => { inputRefs.current[`pedido_${prod.nombre}`] = el; }}
-                          type="text"
-                          inputMode="numeric"
-                          placeholder="0"
-                          value={pedidosCategorias[tabPedido]?.[prod.nombre] || ''}
-                          onChange={(e) => {
-                            const val = e.target.value.replace(/\D/g, '');
-                            setPedidosCategorias({
-                              ...pedidosCategorias,
-                              [tabPedido]: { ...pedidosCategorias[tabPedido], [prod.nombre]: val === '' ? 0 : Number(val) },
-                            });
-                          }}
-                          onKeyDown={(e) => handleKeyDownPedido(e, idx)}
-                          className="w-20 bg-[#0e385e] text-sky-200 font-black text-center text-xs rounded-lg p-1.5 outline-none border border-[#0066b3]"
-                        />
-                      </div>
-                    ))
-                  )}
-                </div>
-                <button
-                  onClick={enviarPedidoBodega}
-                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black py-2.5 rounded-xl text-xs uppercase cursor-pointer shadow-md"
-                >
-                  🚀 Enviar Pedido a Bodega
-                </button>
-              </div>
+              ))
             )}
           </div>
 
-          <div className={`bg-[#0b2b48] border border-amber-500/60 p-4 rounded-2xl space-y-3 shadow-md ${bloqueadoPorApertura ? 'opacity-50 pointer-events-none' : ''}`}>
-            <div className="flex justify-between items-center border-b border-amber-500/40 pb-2">
-              <h2 className="text-xs md:text-sm font-black text-amber-300 flex items-center gap-1.5">
-                💸 Registro de Gastos Directos (Descuenta de Caja)
-              </h2>
-              <span className="text-xs font-black text-amber-400">
-                Total Gastos: $ {sumaGastosTotal.toLocaleString('es-CO')}
-              </span>
-            </div>
+          <textarea
+            placeholder="Observaciones para el pedido a bodega..."
+            value={observacionPedido}
+            onChange={(e) => setObservacionPedido(e.target.value)}
+            className="w-full bg-[#051829] border border-[#0066b3] text-white text-xs p-2.5 rounded-xl outline-none resize-none h-16"
+          />
 
-            <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
-              <input
-                type="text"
-                placeholder="Concepto (ej. 1 kg fresa, plátanos, bolsas...)"
-                value={conceptoGasto}
-                onChange={(e) => setConceptoGasto(e.target.value)}
-                className="sm:col-span-7 bg-[#051829] border border-[#0066b3] text-white text-xs rounded-xl p-2.5 outline-none font-bold"
-              />
-              <input
-                type="text"
-                placeholder="Monto $"
-                value={formatearMoneda(montoGasto)}
-                onChange={(e) => setMontoGasto(desformatearMoneda(e.target.value))}
-                className="sm:col-span-3 bg-[#051829] border border-[#0066b3] text-amber-300 text-xs rounded-xl p-2.5 outline-none font-black text-center"
-              />
-              <button
-                onClick={registrarNuevoGasto}
-                className="sm:col-span-2 bg-amber-600 hover:bg-amber-500 text-white font-black rounded-xl text-xs uppercase cursor-pointer py-2"
-              >
-                + Gasto
-              </button>
-            </div>
+          <button
+            onClick={enviarPedidoBodega}
+            className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black py-3 rounded-xl text-xs uppercase cursor-pointer shadow-md"
+          >
+            🚀 Enviar Pedido a Bodega
+          </button>
+        </div>
+      )}
 
-            {listaGastos.length > 0 && (
-              <div className="max-h-36 overflow-y-auto space-y-1.5 pr-1 border-t border-[#0066b3]/30 pt-2">
+      {/* -------------------------------------------------------------------------- */}
+      {/* MÓDULO 3: GASTOS DIRECTOS */}
+      {/* -------------------------------------------------------------------------- */}
+      {moduloActivo === 'gastos' && (
+        <div className={`bg-[#0b2b48] border border-amber-500/60 p-5 rounded-2xl space-y-4 shadow-md max-w-2xl mx-auto ${bloqueadoPorApertura ? 'opacity-50 pointer-events-none' : ''}`}>
+          <div className="flex justify-between items-center border-b border-amber-500/40 pb-2">
+            <h2 className="text-sm font-black text-amber-300 flex items-center gap-1.5">
+              3. 💸 Registro de Gastos Directos (Descuenta de Caja)
+            </h2>
+            <span className="text-xs font-black text-amber-400">
+              Total Gastos: $ {sumaGastosTotal.toLocaleString('es-CO')}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
+            <input
+              type="text"
+              placeholder="Concepto (ej. 1 kg fresa, plátanos, bolsas...)"
+              value={conceptoGasto}
+              onChange={(e) => setConceptoGasto(e.target.value)}
+              className="sm:col-span-7 bg-[#051829] border border-[#0066b3] text-white text-xs rounded-xl p-3 outline-none font-bold"
+            />
+            <input
+              type="text"
+              placeholder="Monto $"
+              value={formatearMoneda(montoGasto)}
+              onChange={(e) => setMontoGasto(desformatearMoneda(e.target.value))}
+              className="sm:col-span-3 bg-[#051829] border border-[#0066b3] text-amber-300 text-xs rounded-xl p-3 outline-none font-black text-center"
+            />
+            <button
+              onClick={registrarNuevoGasto}
+              className="sm:col-span-2 bg-amber-600 hover:bg-amber-500 text-white font-black rounded-xl text-xs uppercase cursor-pointer py-3"
+            >
+              + Gasto
+            </button>
+          </div>
+
+          <div className="space-y-2 border-t border-[#0066b3]/30 pt-3">
+            <span className="text-xs text-sky-300 font-bold block uppercase">Historial de Salidas de Caja Hoy:</span>
+            {listaGastos.length === 0 ? (
+              <p className="text-xs text-sky-400 italic py-4 text-center">No hay gastos ni salidas registradas hoy.</p>
+            ) : (
+              <div className="max-h-60 overflow-y-auto space-y-2 pr-1">
                 {listaGastos.map((g) => (
-                  <div key={g.id} className="flex justify-between items-center bg-[#051829] p-2 rounded-lg border border-amber-500/30 text-xs">
+                  <div key={g.id} className="flex justify-between items-center bg-[#051829] p-3 rounded-xl border border-amber-500/30 text-xs">
                     <span className="text-white font-bold">🛒 {g.concepto} <small className="text-sky-300 font-normal">({g.hora})</small></span>
                     <span className="text-amber-300 font-black">- $ {g.monto.toLocaleString('es-CO')}</span>
                   </div>
@@ -1943,353 +1994,506 @@ export default function MartinetoPOSPage() {
             )}
           </div>
         </div>
-      </div>
+      )}
 
-      {/* COLUMNAS POS */}
-      <div className={`grid grid-cols-1 lg:grid-cols-12 gap-4 items-start ${bloqueadoPorApertura ? 'opacity-50 pointer-events-none' : ''}`}>
-        
-        {/* COLUMNA 1: MESAS Y RAPPI */}
-        <div className={`${!mesaActivaId ? 'lg:col-span-12' : itemActivoActual && itemActivoActual.items.length > 0 ? 'lg:col-span-3' : 'lg:col-span-4'} bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md transition-all duration-300`}>
-          <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
-            <h2 className="text-xs md:text-sm font-black text-white">🪑 Mesas y Rappi</h2>
+      {/* -------------------------------------------------------------------------- */}
+      {/* MÓDULO 4: VENTAS (MESAS, RAPPI Y COBRO) */}
+      {/* -------------------------------------------------------------------------- */}
+      {moduloActivo === 'ventas' && (
+        <div className={`grid grid-cols-1 lg:grid-cols-12 gap-4 items-start ${bloqueadoPorApertura ? 'opacity-50 pointer-events-none' : ''}`}>
+          
+          {/* COLUMNA 1: MESAS Y RAPPI CON BOTÓN VER CAJA */}
+          <div className={`${!mesaActivaId ? 'lg:col-span-12' : itemActivoActual && itemActivoActual.items.length > 0 ? 'lg:col-span-3' : 'lg:col-span-4'} bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md transition-all duration-300`}>
+            <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
+              <h2 className="text-xs md:text-sm font-black text-white">🪑 Mesas y Rappi</h2>
+              <div className="flex gap-1.5">
+                <button
+                  onClick={() => setMostrarModalConsultaCaja(true)}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[10px] px-2.5 py-1 rounded-lg uppercase cursor-pointer shadow border border-emerald-400"
+                  title="Consultar efectivo en caja, nequi, daviplata y ventas"
+                >
+                  💵 Ver Caja
+                </button>
+                <button
+                  onClick={agregarNuevoRappi}
+                  className="bg-rose-600 hover:bg-rose-500 text-white font-bold text-[10px] px-2.5 py-1 rounded-lg uppercase cursor-pointer shadow"
+                >
+                  + Rappi
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-1 gap-2.5 max-h-[480px] overflow-y-auto pr-1">
+              {pedidosRappi.map((rappi) => {
+                const activa = mesaActivaId === rappi.id;
+                const estaPreparado = rappi.estado === 'Preparando';
+
+                return (
+                  <div
+                    key={rappi.id}
+                    onClick={() => setMesaActivaId(rappi.id)}
+                    className={`p-3 rounded-xl border cursor-pointer transition-all flex justify-between items-center shadow-md ${
+                      activa
+                        ? 'border-white ring-2 ring-white bg-rose-700'
+                        : estaPreparado
+                        ? 'bg-amber-700/90 border-amber-400'
+                        : 'bg-rose-950/80 border-rose-500 hover:bg-rose-900'
+                    }`}
+                  >
+                    <div>
+                      <p className="font-black text-xs text-white uppercase">📦 {rappi.nombre}</p>
+                      <p className="text-[10px] font-bold text-rose-200 mt-0.5">{rappi.estado}</p>
+                    </div>
+                    <p className="text-xs text-emerald-300 font-black">$ {rappi.total.toLocaleString('es-CO')}</p>
+                  </div>
+                );
+              })}
+
+              {mesas.map((mesa) => {
+                const ocupada = mesa.estado === 'Ocupada';
+                const entregado = mesa.estado === 'Entregado';
+                const pagada = mesa.estado === 'Pagada';
+                const activa = mesaActivaId === mesa.id;
+
+                let estiloColor = 'bg-[#051829] border-[#0066b3] hover:border-[#00a4ef]';
+                let textoEstadoColor = 'text-sky-300';
+
+                if (activa) {
+                  estiloColor = 'border-white ring-2 ring-white bg-[#005c99]';
+                  textoEstadoColor = 'text-white';
+                } else if (pagada) {
+                  estiloColor = 'bg-purple-900/90 border-purple-500';
+                  textoEstadoColor = 'text-purple-200';
+                } else if (entregado) {
+                  estiloColor = 'bg-amber-800/90 border-amber-400';
+                  textoEstadoColor = 'text-amber-200';
+                } else if (ocupada) {
+                  estiloColor = 'bg-emerald-800/90 border-emerald-500';
+                  textoEstadoColor = 'text-emerald-200';
+                }
+
+                return (
+                  <div
+                    key={mesa.id}
+                    onClick={() => setMesaActivaId(mesa.id)}
+                    className={`p-3 rounded-xl border cursor-pointer transition-all flex justify-between items-center shadow-md ${estiloColor}`}
+                  >
+                    <div>
+                      <p className="font-black text-xs text-white uppercase">{mesa.nombre}</p>
+                      <p className={`text-[10px] font-bold capitalize mt-0.5 ${textoEstadoColor}`}>{mesa.estado}</p>
+                    </div>
+                    <p className="text-xs text-emerald-300 font-black">$ {mesa.total.toLocaleString('es-CO')}</p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* COLUMNA 2: CATEGORÍAS, PRODUCTOS Y BUSCADOR */}
+          {mesaActivaId && (
+            <div className={`${itemActivoActual && itemActivoActual.items.length > 0 ? 'lg:col-span-5' : 'lg:col-span-8'} bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md transition-all duration-300`}>
+              <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
+                <h2 className="text-xs md:text-sm font-black text-white">📂 Categorías y Productos</h2>
+                <span className="text-xs text-sky-200 font-bold">Activo: <b className="text-emerald-300">{itemActivoActual ? itemActivoActual.nombre : 'Ninguno'}</b></span>
+              </div>
+
+              {/* BARRA DE BÚSQUEDA */}
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="🔍 Buscar producto por nombre..."
+                  value={busquedaProducto}
+                  onChange={(e) => setBusquedaProducto(e.target.value)}
+                  className="w-full bg-[#051829] border-2 border-[#00a4ef] text-white text-xs font-bold rounded-xl p-2.5 pr-8 outline-none shadow-inner"
+                />
+                {busquedaProducto && (
+                  <button
+                    onClick={() => setBusquedaProducto('')}
+                    className="absolute right-3 top-2.5 text-sky-300 hover:text-white font-black text-xs cursor-pointer"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+
+              {/* CATEGORÍAS */}
+              <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-1">
+                <button
+                  onClick={() => setCategoriaVentaSel('TODAS')}
+                  className={`px-3 py-2 rounded-xl text-[11px] font-black uppercase cursor-pointer transition-all ${categoriaVentaSel === 'TODAS' ? 'bg-[#00a4ef] text-white border border-white' : 'bg-[#0e385e] text-sky-200 border border-[#0066b3]'}`}
+                >
+                  🌟 TODAS
+                </button>
+                {listaCategoriasVenta.map((cat) => (
+                  <button
+                    key={cat}
+                    onClick={() => setCategoriaVentaSel(cat)}
+                    className={`px-3 py-2 rounded-xl text-[11px] font-black uppercase cursor-pointer transition-all ${categoriaVentaSel.toLowerCase() === cat.toLowerCase() ? 'bg-[#00a4ef] text-white border border-white' : 'bg-[#0e385e] text-sky-200 border border-[#0066b3]'}`}
+                  >
+                    🏷️ {cat}
+                  </button>
+                ))}
+              </div>
+
+              <div className="max-h-[380px] overflow-y-auto grid grid-cols-2 sm:grid-cols-3 gap-2 pr-1">
+                {productosFiltradosVenta.length === 0 ? (
+                  <p className="text-xs text-sky-400 italic col-span-full py-6 text-center">No hay productos que coincidan con la búsqueda.</p>
+                ) : (
+                  productosFiltradosVenta.map((prod) => {
+                    const esCorralito = (prod.nombre || '').toLowerCase().includes('corralito') || (prod.nombre || '').toLowerCase().includes('waffle');
+
+                    return (
+                      <div key={prod.id || prod.nombre} className="bg-[#0e385e] border border-[#0066b3] p-2.5 rounded-xl flex flex-col justify-between shadow-sm">
+                        <div>
+                          <p className="font-bold text-white text-xs truncate">{prod.nombre}</p>
+                          <p className="text-[10px] text-sky-300 uppercase mt-0.5">{prod.categoriaMostrar}</p>
+                          <p className="text-xs text-emerald-300 font-black mt-1">$ {Number(prod.precio || 0).toLocaleString('es-CO')}</p>
+                        </div>
+
+                        {esCorralito ? (
+                          <div className="grid grid-cols-2 gap-1 mt-2 pt-1 border-t border-[#0066b3]">
+                            <button
+                              onClick={() => agregarProductoAMesa(prod, false)}
+                              className="bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-[9px] py-1 rounded text-center cursor-pointer"
+                            >
+                              🍽️ Mesa
+                            </button>
+                            <button
+                              onClick={() => agregarProductoAMesa(prod, true)}
+                              className="bg-amber-600 hover:bg-amber-500 text-white font-bold text-[9px] py-1 rounded text-center cursor-pointer"
+                              title="Usa tapa extra: descuenta 1 como Venta y 1 como Merma"
+                            >
+                              🛵 Llevar
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => agregarProductoAMesa(prod, false)}
+                            className="w-full bg-[#0066b3] hover:bg-[#0078d4] text-white font-bold text-[10px] py-1.5 rounded-lg mt-2 cursor-pointer"
+                          >
+                            ➕ Agregar
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* COLUMNA 3: FACTURA / DETALLE */}
+          {itemActivoActual && itemActivoActual.items.length > 0 && (
+            <div className="lg:col-span-4 bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md transition-all duration-300">
+              <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
+                <h2 className="text-xs md:text-sm font-black text-white">🧾 Factura / Pedido</h2>
+                <span className="bg-[#051829] text-sky-300 text-[10px] px-2.5 py-1 rounded-lg border border-[#0066b3] uppercase font-bold">
+                  {esRappiActivo ? rappiActivo?.estado : mesaActiva ? mesaActiva.estado : 'Sin Selección'}
+                </span>
+              </div>
+
+              <div className="space-y-3">
+                <div className="max-h-[260px] overflow-y-auto space-y-2 pr-1">
+                  {itemsVisualesAgrupados.map((i: any, idx: number) => {
+                    const estado = i.estadoItem || 'pedido';
+
+                    let badgeBg = 'bg-emerald-800 text-emerald-200 border-emerald-500';
+                    if (estado === 'entregado') badgeBg = 'bg-amber-700 text-amber-200 border-amber-400';
+
+                    return (
+                      <div key={`${i.nombre}_${estado}_${idx}`} className="bg-[#051829] border border-[#0066b3] p-2.5 rounded-xl space-y-2 shadow-sm">
+                        <div className="flex justify-between items-center">
+                          <span className="font-bold text-xs text-white">
+                            {i.cantidad > 1 ? `${i.cantidad}x ` : ''}{i.nombre}
+                          </span>
+                          <span className="text-xs font-black text-emerald-300">
+                            $ {(Number(i.precio || 0) * i.cantidad).toLocaleString('es-CO')}
+                          </span>
+                        </div>
+
+                        <div className="flex justify-between items-center pt-1 border-t border-[#0066b3]/40">
+                          <span className={`text-[9px] px-2 py-0.5 rounded-full uppercase font-black border ${badgeBg}`}>
+                            {estado === 'pedido' ? '🟢 Por Entregar' : '🟡 Entregado'}
+                          </span>
+
+                          <div className="flex gap-1 items-center">
+                            {!esRappiActivo && estado === 'pedido' && (
+                              <>
+                                <button
+                                  onClick={() => marcarItemEntregado(i.nombre, estado)}
+                                  className="bg-amber-600 hover:bg-amber-500 text-white font-bold text-[9px] px-2 py-1 rounded cursor-pointer"
+                                >
+                                  🚀 Marcar Entregado
+                                </button>
+                                <button
+                                  onClick={() => restarProductoDeMesa(i.nombre, estado)}
+                                  className="bg-rose-800 hover:bg-rose-700 text-white font-black text-[12px] px-2 py-0.5 rounded cursor-pointer"
+                                  title="Restar 1 unidad"
+                                >
+                                  −
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {!esRappiActivo && mesaActiva && mesaActiva.items.length > 0 && (
+                  <div className="bg-[#051829] p-2.5 rounded-xl border border-[#0066b3] space-y-1">
+                    <label className="text-[10px] text-sky-200 font-bold block uppercase">
+                      🔄 Cambiar esta cuenta a otra mesa:
+                    </label>
+                    <select
+                      defaultValue=""
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          moverMesaA(Number(e.target.value));
+                          e.target.value = '';
+                        }
+                      }}
+                      className="w-full bg-[#0e385e] text-emerald-300 font-bold text-xs p-2 rounded-lg outline-none cursor-pointer border border-[#0066b3]"
+                    >
+                      <option value="" disabled>
+                        -- Seleccionar Mesa Libre --
+                      </option>
+                      {mesas
+                        .filter((m) => m.id !== mesaActivaId && m.estado === 'Libre')
+                        .map((m) => (
+                          <option key={m.id} value={m.id}>
+                            🪑 Mover a {m.nombre}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                )}
+
+                <div className="bg-[#051829] p-3 rounded-xl border border-[#0066b3] space-y-1">
+                  <div className="flex justify-between items-center text-xs text-white">
+                    <span>Total Cuenta:</span>
+                    <span className="font-bold">$ {itemActivoActual.total.toLocaleString('es-CO')}</span>
+                  </div>
+                  {!esRappiActivo && mesaActiva && (mesaActiva.totalAbonado || 0) > 0 && (
+                    <div className="flex justify-between items-center text-xs text-amber-300">
+                      <span>Abonado / Pagado:</span>
+                      <span className="font-bold">- $ {mesaActiva.totalAbonado.toLocaleString('es-CO')}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between items-center text-sm font-black text-white pt-1 border-t border-[#0066b3]">
+                    <span>Saldo Pendiente:</span>
+                    <span className="text-emerald-400 text-base">
+                      $ {saldoPendienteActual.toLocaleString('es-CO')}
+                    </span>
+                  </div>
+                </div>
+
+                {esRappiActivo ? (
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    {rappiActivo?.estado === 'Preparando' ? (
+                      <button
+                        onClick={marcarRappiPreparado}
+                        className="col-span-2 bg-amber-600 hover:bg-amber-500 text-white font-black py-2.5 rounded-xl text-xs uppercase cursor-pointer shadow-md"
+                      >
+                        🍳 Marcar como Preparado
+                      </button>
+                    ) : (
+                      <button
+                        onClick={entregarRappi}
+                        className="col-span-2 bg-rose-600 hover:bg-rose-500 text-white font-black py-3 rounded-xl text-xs uppercase cursor-pointer shadow-lg transition-all"
+                      >
+                        🚀 Entregar Rappi
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-2 pt-1">
+                    <div className="grid grid-cols-2 gap-2">
+                      {hayProductosPorEntregar && (
+                        <button
+                          onClick={marcarTodosEntregados}
+                          className="bg-blue-600 hover:bg-blue-500 text-white font-black py-2.5 rounded-xl text-[11px] uppercase cursor-pointer shadow-md"
+                        >
+                          🚀 Todo Entregado
+                        </button>
+                      )}
+                      <button
+                        onClick={abrirModalCobro}
+                        className={`${hayProductosPorEntregar ? 'col-span-1' : 'col-span-2'} bg-emerald-600 hover:bg-emerald-500 text-white font-black py-2.5 rounded-xl text-[11px] uppercase cursor-pointer shadow-md`}
+                      >
+                        💳 Pagar / Abonar
+                      </button>
+                    </div>
+
+                    {mesaTotalmentePagada && (
+                      <button
+                        onClick={liberarMesa}
+                        className="w-full bg-purple-700 hover:bg-purple-600 text-white font-black py-2.5 rounded-xl text-[11px] uppercase cursor-pointer shadow-md"
+                      >
+                        🧹 Liberar Mesa
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+        </div>
+      )}
+
+      {/* -------------------------------------------------------------------------- */}
+      {/* MÓDULO 5: CIERRE Y PAGO DE NÓMINA */}
+      {/* -------------------------------------------------------------------------- */}
+      {moduloActivo === 'cierre' && (
+        <div className="bg-[#0b2b48] border border-[#0066b3] p-5 rounded-2xl space-y-4 shadow-md max-w-2xl mx-auto">
+          <h2 className="text-sm font-black text-white border-b border-[#0066b3]/50 pb-2 flex justify-between items-center">
+            <span>5. 🌙 Pago de Nómina y Cierre Final del Día</span>
+            <span className="text-xs text-sky-300 font-bold">
+              Operario: {sesion?.nombre || 'Iris'}{' '}
+              {nominaPagadaEnTurno && <b className="text-emerald-400 ml-1">(✓ PAGADO)</b>}
+            </span>
+          </h2>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-center">
+            <div>
+              <label className="text-[10px] text-sky-300 font-bold block mb-1">Tipo de Día:</label>
+              <select
+                value={tipoDia}
+                onChange={(e) => setTipoDia(e.target.value)}
+                className="w-full bg-[#051829] border border-[#0066b3] text-white text-xs p-2.5 rounded-xl outline-none cursor-pointer font-bold"
+              >
+                <option value="entre_semana">De Lunes a Sábado</option>
+                <option value="festivo">Domingo / Festivo</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="text-[10px] text-sky-300 font-bold block mb-1">Horas Trab. Día:</label>
+              <input
+                type="text"
+                placeholder="0"
+                value={horasDia}
+                onChange={(e) => setHorasDia(e.target.value === '' ? '' : Number(e.target.value.replace(/\D/g, '')))}
+                className="w-full bg-[#051829] border border-[#0066b3] text-white text-xs p-2 rounded-xl text-center font-bold outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="text-[10px] text-sky-300 font-bold block mb-1">Horas Trab. Noche:</label>
+              <input
+                type="text"
+                placeholder="0"
+                value={horasNoche}
+                onChange={(e) => setHorasNoche(e.target.value === '' ? '' : Number(e.target.value.replace(/\D/g, '')))}
+                className="w-full bg-[#051829] border border-[#0066b3] text-white text-xs p-2 rounded-xl text-center font-bold outline-none"
+              />
+            </div>
+          </div>
+
+          <div className="bg-[#051829] p-3 rounded-xl border border-[#00a4ef] flex justify-between items-center text-xs">
+            <div className="text-sky-200">
+              <span className="block font-bold">Valores leídos desde BD:</span>
+              <span className="text-[10px] opacity-80">
+                Subsidio: ${tarifasNominaBD.subsidio.toLocaleString('es-CO')} | Aux. Transporte: ${tarifasNominaBD.transporte.toLocaleString('es-CO')}
+              </span>
+            </div>
+            <div className="text-right">
+              <span className="text-[10px] text-sky-300 font-bold block uppercase">Total Pago Nómina:</span>
+              <span className="text-base font-black text-rose-400">$ {calcularTotalNomina().toLocaleString('es-CO')}</span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
             <button
-              onClick={agregarNuevoRappi}
-              className="bg-rose-600 hover:bg-rose-500 text-white font-bold text-[10px] px-2.5 py-1 rounded-lg uppercase cursor-pointer shadow"
+              onClick={pagarYDescontarNominaDeCaja}
+              className="w-full bg-sky-600 hover:bg-sky-500 text-white font-black py-3 rounded-xl text-xs uppercase cursor-pointer shadow-md transition-all flex items-center justify-center gap-2"
             >
-              + Rappi
+              💸 Pagar Nómina (Descontar de Caja)
             </button>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-1 gap-2.5 max-h-[440px] overflow-y-auto pr-1">
-            {pedidosRappi.map((rappi) => {
-              const activa = mesaActivaId === rappi.id;
-              const estaPreparado = rappi.estado === 'Preparando';
-
-              return (
-                <div
-                  key={rappi.id}
-                  onClick={() => setMesaActivaId(rappi.id)}
-                  className={`p-3 rounded-xl border cursor-pointer transition-all flex justify-between items-center shadow-md ${
-                    activa
-                      ? 'border-white ring-2 ring-white bg-rose-700'
-                      : estaPreparado
-                      ? 'bg-amber-700/90 border-amber-400'
-                      : 'bg-rose-950/80 border-rose-500 hover:bg-rose-900'
-                  }`}
-                >
-                  <div>
-                    <p className="font-black text-xs text-white uppercase">📦 {rappi.nombre}</p>
-                    <p className="text-[10px] font-bold text-rose-200 mt-0.5">{rappi.estado}</p>
-                  </div>
-                  <p className="text-xs text-emerald-300 font-black">$ {rappi.total.toLocaleString('es-CO')}</p>
-                </div>
-              );
-            })}
-
-            {mesas.map((mesa) => {
-              const ocupada = mesa.estado === 'Ocupada';
-              const entregado = mesa.estado === 'Entregado';
-              const pagada = mesa.estado === 'Pagada';
-              const activa = mesaActivaId === mesa.id;
-
-              let estiloColor = 'bg-[#051829] border-[#0066b3] hover:border-[#00a4ef]';
-              let textoEstadoColor = 'text-sky-300';
-
-              if (activa) {
-                estiloColor = 'border-white ring-2 ring-white bg-[#005c99]';
-                textoEstadoColor = 'text-white';
-              } else if (pagada) {
-                estiloColor = 'bg-purple-900/90 border-purple-500';
-                textoEstadoColor = 'text-purple-200';
-              } else if (entregado) {
-                estiloColor = 'bg-amber-800/90 border-amber-400';
-                textoEstadoColor = 'text-amber-200';
-              } else if (ocupada) {
-                estiloColor = 'bg-emerald-800/90 border-emerald-500';
-                textoEstadoColor = 'text-emerald-200';
-              }
-
-              return (
-                <div
-                  key={mesa.id}
-                  onClick={() => setMesaActivaId(mesa.id)}
-                  className={`p-3 rounded-xl border cursor-pointer transition-all flex justify-between items-center shadow-md ${estiloColor}`}
-                >
-                  <div>
-                    <p className="font-black text-xs text-white uppercase">{mesa.nombre}</p>
-                    <p className={`text-[10px] font-bold capitalize mt-0.5 ${textoEstadoColor}`}>{mesa.estado}</p>
-                  </div>
-                  <p className="text-xs text-emerald-300 font-black">$ {mesa.total.toLocaleString('es-CO')}</p>
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="pt-2 border-t border-[#0066b3]">
+            
             <button
               onClick={() => setMostrarModalResumen(true)}
               className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black py-3 rounded-xl text-xs uppercase cursor-pointer shadow-lg transition-all flex items-center justify-center gap-2"
             >
-              📊 Auditoría y Balance del Día
+              🌙 Realizar Cierre del Día
             </button>
           </div>
         </div>
+      )}
 
-        {/* COLUMNA 2: CATEGORÍAS, PRODUCTOS Y BUSCADOR */}
-        {mesaActivaId && (
-          <div className={`${itemActivoActual && itemActivoActual.items.length > 0 ? 'lg:col-span-5' : 'lg:col-span-8'} bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md transition-all duration-300`}>
-            <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
-              <h2 className="text-xs md:text-sm font-black text-white">📂 Categorías y Productos</h2>
-              <span className="text-xs text-sky-200 font-bold">Activo: <b className="text-emerald-300">{itemActivoActual ? itemActivoActual.nombre : 'Ninguno'}</b></span>
-            </div>
-
-            {/* BARRA DE BÚSQUEDA RÁPIDA */}
-            <div className="relative">
-              <input
-                type="text"
-                placeholder="🔍 Buscar producto por nombre (ej. paleta enchilada, dorineto, malteada...)"
-                value={busquedaProducto}
-                onChange={(e) => setBusquedaProducto(e.target.value)}
-                className="w-full bg-[#051829] border-2 border-[#00a4ef] text-white text-xs font-bold rounded-xl p-2.5 pr-8 outline-none shadow-inner"
-              />
-              {busquedaProducto && (
-                <button
-                  onClick={() => setBusquedaProducto('')}
-                  className="absolute right-3 top-2.5 text-sky-300 hover:text-white font-black text-xs cursor-pointer"
-                >
-                  ✕
-                </button>
-              )}
-            </div>
-
-            {/* BOTONES DE CATEGORÍAS */}
-            <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-1">
+      {/* MODAL CONSULTA FLOTANTE DE CAJA Y VENTAS */}
+      {mostrarModalConsultaCaja && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 font-sans">
+          <div className="bg-[#0b2b48] border-2 border-emerald-400 rounded-2xl p-5 max-w-md w-full space-y-4 shadow-2xl text-white">
+            <div className="flex justify-between items-center border-b border-[#0066b3] pb-2">
+              <h3 className="text-sm font-black flex items-center gap-2 uppercase text-emerald-300">
+                💵 Estado de Caja y Ventas en Vivo
+              </h3>
               <button
-                onClick={() => setCategoriaVentaSel('TODAS')}
-                className={`px-3 py-2 rounded-xl text-[11px] font-black uppercase cursor-pointer transition-all ${categoriaVentaSel === 'TODAS' ? 'bg-[#00a4ef] text-white border border-white' : 'bg-[#0e385e] text-sky-200 border border-[#0066b3]'}`}
+                onClick={() => setMostrarModalConsultaCaja(false)}
+                className="text-sky-300 hover:text-white font-black text-sm cursor-pointer"
               >
-                🌟 TODAS
+                ✕
               </button>
-              {listaCategoriasVenta.map((cat) => (
-                <button
-                  key={cat}
-                  onClick={() => setCategoriaVentaSel(cat)}
-                  className={`px-3 py-2 rounded-xl text-[11px] font-black uppercase cursor-pointer transition-all ${categoriaVentaSel.toLowerCase() === cat.toLowerCase() ? 'bg-[#00a4ef] text-white border border-white' : 'bg-[#0e385e] text-sky-200 border border-[#0066b3]'}`}
-                >
-                  🏷️ {cat}
-                </button>
-              ))}
             </div>
 
-            <div className="max-h-[380px] overflow-y-auto grid grid-cols-2 sm:grid-cols-3 gap-2 pr-1">
-              {productosFiltradosVenta.length === 0 ? (
-                <p className="text-xs text-sky-400 italic col-span-full py-6 text-center">No hay productos que coincidan con la búsqueda.</p>
-              ) : (
-                productosFiltradosVenta.map((prod) => {
-                  const esCorralito = (prod.nombre || '').toLowerCase().includes('corralito') || (prod.nombre || '').toLowerCase().includes('waffle');
-
-                  return (
-                    <div key={prod.id || prod.nombre} className="bg-[#0e385e] border border-[#0066b3] p-2.5 rounded-xl flex flex-col justify-between shadow-sm">
-                      <div>
-                        <p className="font-bold text-white text-xs truncate">{prod.nombre}</p>
-                        <p className="text-[10px] text-sky-300 uppercase mt-0.5">{prod.categoriaMostrar}</p>
-                        <p className="text-xs text-emerald-300 font-black mt-1">$ {Number(prod.precio || 0).toLocaleString('es-CO')}</p>
-                      </div>
-
-                      {esCorralito ? (
-                        <div className="grid grid-cols-2 gap-1 mt-2 pt-1 border-t border-[#0066b3]">
-                          <button
-                            onClick={() => agregarProductoAMesa(prod, false)}
-                            className="bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-[9px] py-1 rounded text-center cursor-pointer"
-                          >
-                            🍽️ Mesa
-                          </button>
-                          <button
-                            onClick={() => agregarProductoAMesa(prod, true)}
-                            className="bg-amber-600 hover:bg-amber-500 text-white font-bold text-[9px] py-1 rounded text-center cursor-pointer"
-                            title="Usa tapa extra: descuenta 1 como Venta y 1 como Merma"
-                          >
-                            🛵 Llevar
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => agregarProductoAMesa(prod, false)}
-                          className="w-full bg-[#0066b3] hover:bg-[#0078d4] text-white font-bold text-[10px] py-1.5 rounded-lg mt-2 cursor-pointer"
-                        >
-                          ➕ Agregar
-                        </button>
-                      )}
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* COLUMNA 3: FACTURA Y CONTROL DE ESTADOS */}
-        {itemActivoActual && itemActivoActual.items.length > 0 && (
-          <div className="lg:col-span-4 bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md transition-all duration-300">
-            <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
-              <h2 className="text-xs md:text-sm font-black text-white">🧾 Factura / Pedido por Ítem</h2>
-              <span className="bg-[#051829] text-sky-300 text-[10px] px-2.5 py-1 rounded-lg border border-[#0066b3] uppercase font-bold">
-                {esRappiActivo ? rappiActivo?.estado : mesaActiva ? mesaActiva.estado : 'Sin Selección'}
-              </span>
-            </div>
-
-            <div className="space-y-3">
-              <div className="max-h-[260px] overflow-y-auto space-y-2 pr-1">
-                {itemsVisualesAgrupados.map((i: any, idx: number) => {
-                  const estado = i.estadoItem || 'pedido';
-
-                  let badgeBg = 'bg-emerald-800 text-emerald-200 border-emerald-500';
-                  if (estado === 'entregado') badgeBg = 'bg-amber-700 text-amber-200 border-amber-400';
-
-                  return (
-                    <div key={`${i.nombre}_${estado}_${idx}`} className="bg-[#051829] border border-[#0066b3] p-2.5 rounded-xl space-y-2 shadow-sm">
-                      <div className="flex justify-between items-center">
-                        <span className="font-bold text-xs text-white">
-                          {i.cantidad > 1 ? `${i.cantidad}x ` : ''}{i.nombre}
-                        </span>
-                        <span className="text-xs font-black text-emerald-300">
-                          $ {(Number(i.precio || 0) * i.cantidad).toLocaleString('es-CO')}
-                        </span>
-                      </div>
-
-                      <div className="flex justify-between items-center pt-1 border-t border-[#0066b3]/40">
-                        <span className={`text-[9px] px-2 py-0.5 rounded-full uppercase font-black border ${badgeBg}`}>
-                          {estado === 'pedido' ? '🟢 Por Entregar' : '🟡 Entregado'}
-                        </span>
-
-                        <div className="flex gap-1 items-center">
-                          {!esRappiActivo && estado === 'pedido' && (
-                            <>
-                              <button
-                                onClick={() => marcarItemEntregado(i.nombre, estado)}
-                                className="bg-amber-600 hover:bg-amber-500 text-white font-bold text-[9px] px-2 py-1 rounded cursor-pointer"
-                              >
-                                🚀 Marcar Entregado
-                              </button>
-                              <button
-                                onClick={() => restarProductoDeMesa(i.nombre, estado)}
-                                className="bg-rose-800 hover:bg-rose-700 text-white font-black text-[12px] px-2 py-0.5 rounded cursor-pointer"
-                                title="Restar 1 unidad"
-                              >
-                                −
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {!esRappiActivo && mesaActiva && mesaActiva.items.length > 0 && (
-                <div className="bg-[#051829] p-2.5 rounded-xl border border-[#0066b3] space-y-1">
-                  <label className="text-[10px] text-sky-200 font-bold block uppercase">
-                    🔄 Cambiar esta cuenta a otra mesa:
-                  </label>
-                  <select
-                    defaultValue=""
-                    onChange={(e) => {
-                      if (e.target.value) {
-                        moverMesaA(Number(e.target.value));
-                        e.target.value = '';
-                      }
-                    }}
-                    className="w-full bg-[#0e385e] text-emerald-300 font-bold text-xs p-2 rounded-lg outline-none cursor-pointer border border-[#0066b3]"
-                  >
-                    <option value="" disabled>
-                      -- Seleccionar Mesa Libre --
-                    </option>
-                    {mesas
-                      .filter((m) => m.id !== mesaActivaId && m.estado === 'Libre')
-                      .map((m) => (
-                        <option key={m.id} value={m.id}>
-                          🪑 Mover a {m.nombre}
-                        </option>
-                      ))}
-                  </select>
+            <div className="space-y-2.5 text-xs font-bold">
+              <div className="bg-[#051829] border border-[#0066b3] p-3 rounded-xl space-y-2">
+                <div className="flex justify-between text-sky-200">
+                  <span>💵 Base Apertura Inicial:</span>
+                  <span className="text-emerald-300 font-black">$ {(Number(baseCaja) || 0).toLocaleString('es-CO')}</span>
                 </div>
-              )}
-
-              <div className="bg-[#051829] p-3 rounded-xl border border-[#0066b3] space-y-1">
-                <div className="flex justify-between items-center text-xs text-white">
-                  <span>Total Cuenta:</span>
-                  <span className="font-bold">$ {itemActivoActual.total.toLocaleString('es-CO')}</span>
+                <div className="flex justify-between text-emerald-300 font-black">
+                  <span>💵 Ventas Ingresadas en Efectivo:</span>
+                  <span>+ $ {totalEfectivoIngresado.toLocaleString('es-CO')}</span>
                 </div>
-                {!esRappiActivo && mesaActiva && (mesaActiva.totalAbonado || 0) > 0 && (
-                  <div className="flex justify-between items-center text-xs text-amber-300">
-                    <span>Abonado / Pagado:</span>
-                    <span className="font-bold">- $ {mesaActiva.totalAbonado.toLocaleString('es-CO')}</span>
-                  </div>
-                )}
-                <div className="flex justify-between items-center text-sm font-black text-white pt-1 border-t border-[#0066b3]">
-                  <span>Saldo Pendiente:</span>
-                  <span className="text-emerald-400 text-base">
-                    $ {saldoPendienteActual.toLocaleString('es-CO')}
-                  </span>
+                <div className="flex justify-between text-amber-400 font-black">
+                  <span>💸 Gastos y Nómina Descontados:</span>
+                  <span>- $ {sumaGastosTotal.toLocaleString('es-CO')}</span>
+                </div>
+                <div className="flex justify-between pt-2 border-t border-[#0066b3] text-sm font-black text-emerald-400 bg-[#0e385e] p-2 rounded-lg">
+                  <span>💵 EFECTIVO DISPONIBLE EN CAJA:</span>
+                  <span>$ {cajaDisponibleCalculada.toLocaleString('es-CO')}</span>
                 </div>
               </div>
 
-              {esRappiActivo ? (
-                <div className="grid grid-cols-2 gap-2 pt-1">
-                  {rappiActivo?.estado === 'Preparando' ? (
-                    <button
-                      onClick={marcarRappiPreparado}
-                      className="col-span-2 bg-amber-600 hover:bg-amber-500 text-white font-black py-2.5 rounded-xl text-xs uppercase cursor-pointer shadow-md"
-                    >
-                      🍳 Marcar como Preparado
-                    </button>
-                  ) : (
-                    <button
-                      onClick={entregarRappi}
-                      className="col-span-2 bg-rose-600 hover:bg-rose-500 text-white font-black py-3 rounded-xl text-xs uppercase cursor-pointer shadow-lg transition-all"
-                    >
-                      🚀 Entregar Rappi
-                    </button>
-                  )}
+              <div className="bg-[#051829] border border-[#0066b3] p-3 rounded-xl space-y-2">
+                <span className="text-sky-300 block uppercase font-black border-b border-[#0066b3]/40 pb-1">
+                  💳 Ventas Electrónicas y Otros Medios:
+                </span>
+                <div className="flex justify-between text-purple-300">
+                  <span>💜 Nequi:</span>
+                  <span>$ {totalNequiIngresado.toLocaleString('es-CO')}</span>
                 </div>
-              ) : (
-                <div className="space-y-2 pt-1">
-                  <div className="grid grid-cols-2 gap-2">
-                    {hayProductosPorEntregar && (
-                      <button
-                        onClick={marcarTodosEntregados}
-                        className="bg-blue-600 hover:bg-blue-500 text-white font-black py-2.5 rounded-xl text-[11px] uppercase cursor-pointer shadow-md"
-                        title="Marca todos los pendientes como entregados"
-                      >
-                        🚀 Todo Entregado
-                      </button>
-                    )}
-                    <button
-                      onClick={abrirModalCobro}
-                      className={`${hayProductosPorEntregar ? 'col-span-1' : 'col-span-2'} bg-emerald-600 hover:bg-emerald-500 text-white font-black py-2.5 rounded-xl text-[11px] uppercase cursor-pointer shadow-md`}
-                    >
-                      💳 Pagar / Abonar
-                    </button>
-                  </div>
+                <div className="flex justify-between text-rose-300">
+                  <span>🔴 Daviplata:</span>
+                  <span>$ {totalDaviplataIngresado.toLocaleString('es-CO')}</span>
+                </div>
+                <div className="flex justify-between text-amber-300">
+                  <span>🛵 Rappi:</span>
+                  <span>$ {totalRappiRealizados.toLocaleString('es-CO')}</span>
+                </div>
+              </div>
 
-                  {mesaTotalmentePagada && (
-                    <button
-                      onClick={liberarMesa}
-                      className="w-full bg-purple-700 hover:bg-purple-600 text-white font-black py-2.5 rounded-xl text-[11px] uppercase cursor-pointer shadow-md"
-                    >
-                      🧹 Liberar Mesa
-                    </button>
-                  )}
-                </div>
-              )}
+              <div className="bg-emerald-950/80 border border-emerald-500 p-3 rounded-xl flex justify-between items-center text-sm font-black text-emerald-300">
+                <span>🛍️ TOTAL VENTAS DEL DÍA:</span>
+                <span className="text-base">$ {totalVentasGlobal.toLocaleString('es-CO')}</span>
+              </div>
             </div>
+
+            <button
+              onClick={() => setMostrarModalConsultaCaja(false)}
+              className="w-full bg-[#0078d4] hover:bg-[#0086e6] text-white font-black py-2.5 rounded-xl text-xs uppercase cursor-pointer shadow-md"
+            >
+              Cerrar Consulta
+            </button>
           </div>
-        )}
+        </div>
+      )}
 
-      </div>
-
-      {/* MODAL AUDITORÍA */}
+      {/* MODAL AUDITORÍA / CIERRE FINAL COMPLETO */}
       {mostrarModalResumen && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 font-sans">
           <div className="bg-[#0b2b48] border-2 border-emerald-400 rounded-2xl p-6 max-w-3xl w-full space-y-4 shadow-2xl text-white max-h-[90vh] overflow-y-auto">
@@ -2337,7 +2541,6 @@ export default function MartinetoPOSPage() {
                     <span>• RAPPI: $ {totalRappiRealizados.toLocaleString('es-CO')}</span>
                     <span>• NEQUI: $ {totalNequiIngresado.toLocaleString('es-CO')}</span>
                     <span>• DAVIPLATA: $ {totalDaviplataIngresado.toLocaleString('es-CO')}</span>
-                    <span>• BANCOLOMBIA: $ 0</span>
                   </div>
                 </div>
 
@@ -2347,7 +2550,7 @@ export default function MartinetoPOSPage() {
                 </div>
 
                 <div className="flex justify-between text-amber-400">
-                  <span>💸 Gastos Directos (Efectivo):</span>
+                  <span>💸 Gastos Directos y Nómina (Efectivo):</span>
                   <span>- $ {sumaGastosTotal.toLocaleString('es-CO')}</span>
                 </div>
 
@@ -2378,7 +2581,7 @@ export default function MartinetoPOSPage() {
               </div>
             </div>
 
-            {/* SECCIÓN 2: TABLA DE INVENTARIO */}
+            {/* SECCIÓN 2: TABLA COMPLETA DE INVENTARIO Y COLUMNAS DE MOVIMIENTO */}
             <div className="space-y-2 text-xs font-bold pt-2 border-t border-[#0066b3]">
               <span className="text-sky-300 block uppercase font-black">
                 2. CONTEO FÍSICO REAL DE INVENTARIO (APERTURA + ENTRADAS - MERMAS - VENTAS):
@@ -2503,7 +2706,7 @@ export default function MartinetoPOSPage() {
                     <option value="Paleta">🍦 Paleta</option>
                     <option value="Richi">📦 Richi / Empaque</option>
                     <option value="Produccion">⚙️ Producción</option>
-                    <option value="Insumos">BS Insumos / Toppings</option>
+                    <option value="Insumos">Insumos / Toppings</option>
                     <option value="Aseo">🧹 Aseo</option>
                   </select>
                 </div>
@@ -2673,73 +2876,6 @@ export default function MartinetoPOSPage() {
           </div>
         </div>
       )}
-
-      {/* SECCIÓN NÓMINA */}
-      <div className="bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md">
-        <h2 className="text-xs md:text-sm font-black text-white border-b border-[#0066b3]/50 pb-2 flex justify-between items-center">
-          <span>⚙️ Cambio de Turno / Pago de Nómina</span>
-          <span className="text-xs text-sky-300 font-bold">
-            Operario: {sesion?.nombre || 'Iris'}{' '}
-            {nominaPagadaEnTurno && <b className="text-emerald-400 ml-1">(✓ PAGADO)</b>}
-          </span>
-        </h2>
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-center">
-          <div>
-            <label className="text-[10px] text-sky-300 font-bold block mb-1">Tipo de Día:</label>
-            <select
-              value={tipoDia}
-              onChange={(e) => setTipoDia(e.target.value)}
-              className="w-full bg-[#051829] border border-[#0066b3] text-white text-xs p-2.5 rounded-xl outline-none cursor-pointer font-bold"
-            >
-              <option value="entre_semana">De Lunes a Sábado</option>
-              <option value="festivo">Domingo / Festivo</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="text-[10px] text-sky-300 font-bold block mb-1">Horas Trab. Día:</label>
-            <input
-              type="text"
-              placeholder="0"
-              value={horasDia}
-              onChange={(e) => setHorasDia(e.target.value === '' ? '' : Number(e.target.value.replace(/\D/g, '')))}
-              className="w-full bg-[#051829] border border-[#0066b3] text-white text-xs p-2 rounded-xl text-center font-bold outline-none"
-            />
-          </div>
-
-          <div>
-            <label className="text-[10px] text-sky-300 font-bold block mb-1">Horas Trab. Noche:</label>
-            <input
-              type="text"
-              placeholder="0"
-              value={horasNoche}
-              onChange={(e) => setHorasNoche(e.target.value === '' ? '' : Number(e.target.value.replace(/\D/g, '')))}
-              className="w-full bg-[#051829] border border-[#0066b3] text-white text-xs p-2 rounded-xl text-center font-bold outline-none"
-            />
-          </div>
-        </div>
-
-        <div className="bg-[#051829] p-3 rounded-xl border border-[#00a4ef] flex justify-between items-center text-xs">
-          <div className="text-sky-200">
-            <span className="block font-bold">Valores leídos desde BD:</span>
-            <span className="text-[10px] opacity-80">
-              Subsidio: ${tarifasNominaBD.subsidio.toLocaleString('es-CO')} | Aux. Transporte: ${tarifasNominaBD.transporte.toLocaleString('es-CO')}
-            </span>
-          </div>
-          <div className="text-right">
-            <span className="text-[10px] text-sky-300 font-bold block uppercase">Total Pago:</span>
-            <span className="text-base font-black text-rose-400">$ {calcularTotalNomina().toLocaleString('es-CO')}</span>
-          </div>
-        </div>
-
-        <button
-          onClick={pagarYDescontarNominaDeCaja}
-          className="w-full bg-sky-600 hover:bg-sky-500 text-white font-black py-3 rounded-xl text-xs uppercase cursor-pointer shadow-md transition-all flex items-center justify-center gap-2"
-        >
-          💸 Pagar Nómina (Descontar de Caja)
-        </button>
-      </div>
     </main>
   );
 }

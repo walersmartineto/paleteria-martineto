@@ -17,9 +17,40 @@ const SEDES_DEFAULT: SedeInfo[] = [
   { id: 2, nombre: 'Walers Viva', codigo: 'viva', descripcion: 'Sede CC Viva' },
   { id: 3, nombre: 'Walers Centro', codigo: 'centro', descripcion: 'Sede Sector Centro' },
   { id: 4, nombre: 'Ositos', codigo: 'ositos', descripcion: 'Sede Ositos' },
-  // { id: 6, nombre: 'Walers Producción', codigo: 'produccion', descripcion: 'Planta de Producción Central' },
   { id: 99, nombre: 'Administración Global', codigo: 'admin', descripcion: 'Panel de Control Central' },
 ];
+
+// RUTA DE LOGOS PARA LAS SEDES
+const LOGOS_SEDES: { [codigo: string]: string } = {
+  ositos: '/ositos.png.jpeg',
+};
+
+// EMOJIS PARA USUARIOS
+const obtenerEmojiUsuario = (nombre: string) => {
+  const nombreLimpio = nombre.toLowerCase();
+  
+  if (nombreLimpio.includes('iris') || nombreLimpio.includes('ingeniera')) return '💻';
+  if (nombreLimpio.includes('admin')) return '⚙️';
+  if (nombreLimpio.includes('juliana noriega')) return '🌸';
+  if (nombreLimpio.includes('juliana suspes')) return '🍦';
+  if (nombreLimpio.includes('mary')) return '✨';
+  if (nombreLimpio.includes('maye')) return '🌺';
+  if (nombreLimpio.includes('rudy')) return '🎯';
+  if (nombreLimpio.includes('sofi')) return '⭐';
+  if (nombreLimpio.includes('valentina')) return '🍓';
+  if (nombreLimpio.includes('william')) return '🚀';
+
+  return '👤';
+};
+
+// EMOJIS DE RESPALDO PARA LAS OTRAS SEDES
+const obtenerEmojiSedeFallback = (codigo: string) => {
+  const cod = codigo.toLowerCase();
+  if (cod === 'martineto') return '🍨🪑';
+  if (cod === 'viva' || cod === 'centro') return '🍦';
+  if (cod === 'admin') return '⚙️';
+  return '🏢';
+};
 
 export default function LoginPage() {
   const router = useRouter();
@@ -55,7 +86,6 @@ export default function LoginPage() {
       const listaUsuarios = await obtenerUsuariosOperadores();
 
       if (listaSedes && listaSedes.length > 0) {
-        // Ocultar Sede Global y Producción
         const sedesFiltradas = listaSedes.filter(
           (s) => s.id !== 0 && s.codigo !== 'global' && s.codigo !== 'produccion'
         );
@@ -64,7 +94,6 @@ export default function LoginPage() {
         setSedes(SEDES_DEFAULT);
       }
 
-      // Ocultar a Mireya de la lista de usuarios
       const usuariosFiltrados = (listaUsuarios || []).filter(
         (u) => !u.nombre_completo.toLowerCase().includes('mireya')
       );
@@ -116,15 +145,12 @@ export default function LoginPage() {
       const sedeNombre = sedeObj ? sedeObj.nombre : 'Sede General';
       const sedeCodigo = sedeObj ? sedeObj.codigo : 'viva';
 
-      // REGLA DE PERMISOS:
-      // Si el rol es operador, solo tiene permitido ingresar a Puntos de Venta (POS)
       if (tipoUsuario === 'operador' && sedeCodigo === 'admin') {
         setErrorMensaje('⛔ Un usuario Operador solo tiene acceso a Puntos de Venta.');
         setCargando(false);
         return;
       }
 
-      // Si no es operador (ej. administrador) o entra a una sede POS
       if (sedeCodigo === 'admin') {
         if (typeof window !== 'undefined') {
           localStorage.setItem(
@@ -227,9 +253,14 @@ export default function LoginPage() {
         
         <div className="absolute top-0 left-0 right-0 h-2 bg-gradient-to-r from-purple-500 via-[#00a4ef] to-emerald-400"></div>
 
+        {/* ENCABEZADO CON LA IMAGEN DE LOGIN CORREGIDA */}
         <div className="text-center space-y-2 pt-2">
-          <div className="w-16 h-16 rounded-2xl bg-[#003d6d] border border-[#0066b3] flex items-center justify-center text-3xl mx-auto shadow-lg">
-            🍦
+          <div className="w-20 h-20 rounded-2xl bg-[#003d6d] border border-[#0066b3] flex items-center justify-center p-2 mx-auto shadow-lg overflow-hidden">
+            <img
+              src="/login.png.jpeg"
+              alt="Walers POS Logo"
+              className="w-full h-full object-contain"
+            />
           </div>
           <h1 className="text-xl md:text-2xl font-black text-white tracking-wider">WALERS POS</h1>
           <p className="text-xs text-sky-200 font-medium">Ingreso de Personal y Asistencia</p>
@@ -254,13 +285,14 @@ export default function LoginPage() {
               <option value="">-- Elige Sede o Administración --</option>
               {sedes
                 .filter((s) => s.id !== 0 && s.codigo !== 'global' && s.codigo !== 'produccion')
-                .map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.codigo === 'admin'
-                      ? '⚙️ ADMINISTRACIÓN GLOBAL'
-                      : `🏢 ${s.nombre}`}
-                  </option>
-                ))}
+                .map((s) => {
+                  const logoSede = LOGOS_SEDES[s.codigo];
+                  return (
+                    <option key={s.id} value={s.id}>
+                      {logoSede ? '🧸' : obtenerEmojiSedeFallback(s.codigo)} {s.codigo === 'admin' ? 'ADMINISTRACIÓN GLOBAL' : s.nombre}
+                    </option>
+                  );
+                })}
             </select>
           </div>
 
@@ -276,7 +308,7 @@ export default function LoginPage() {
               <option value="">-- Selecciona Usuario --</option>
               {usuarios.map((u) => (
                 <option key={u.id} value={u.id}>
-                  {u.nombre_completo}
+                  {obtenerEmojiUsuario(u.nombre_completo)} {u.nombre_completo}
                 </option>
               ))}
             </select>
@@ -370,7 +402,7 @@ export default function LoginPage() {
                   <option value="">-- Elige tu nombre --</option>
                   {usuarios.map((u) => (
                     <option key={u.id} value={u.id}>
-                      {u.nombre_completo}
+                      {obtenerEmojiUsuario(u.nombre_completo)} {u.nombre_completo}
                     </option>
                   ))}
                 </select>

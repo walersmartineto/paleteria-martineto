@@ -205,7 +205,7 @@ export default function OsitosPage() {
 
   const totalVentasCalculado = (Number(efectivoCaja) || 0) + (Number(nequi) || 0) + (Number(daviplata) || 0);
 
-  const SEDE_ID_OSITOS = 4; // Ajusta según tu base de datos
+  const SEDE_ID_OSITOS = 4;
 
   const listaLugaresCompraUnica = Array.from(
     new Set([
@@ -391,7 +391,9 @@ export default function OsitosPage() {
   function handleKeyDownCierre(e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>, siguienteInputKey: string) {
     if (e.key === 'Enter') {
       e.preventDefault();
-      inputsRef.current[siguienteInputKey]?.focus();
+      if (siguienteInputKey && inputsRef.current[siguienteInputKey]) {
+        inputsRef.current[siguienteInputKey]?.focus();
+      }
     }
   }
 
@@ -708,17 +710,25 @@ export default function OsitosPage() {
     <main className="min-h-screen bg-[#004e8c] text-[#f1f5f9] p-4 font-sans max-w-6xl mx-auto space-y-4 relative">
       {/* Header Banner */}
       <header className="bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl flex justify-between items-center shadow-lg">
-        <div>
-          <h1 className="text-base md:text-lg font-black text-white tracking-wide flex items-center gap-2">
-            <span className="w-3 h-3 rounded-full bg-[#00a4ef] inline-block shadow-sm"></span>
-            🧸 12 FRIENDLY BEARS
-          </h1>
-          <p className="text-xs text-sky-200 font-medium">
-            Operador en Turno: <b className="text-white font-bold">{sesion?.nombre || 'Operador'}</b>
-            <span className="ml-2 text-sky-100 font-bold uppercase bg-[#003d6d] px-2 py-0.5 rounded-md border border-[#0066b3]">
-              ({esTurnoCierre ? 'Día Completo / Cierre' : 'Mañana / Apertura'})
-            </span>
-          </p>
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-[#003d6d] border border-[#0066b3] p-1 flex items-center justify-center overflow-hidden shrink-0 shadow">
+            <img
+              src="/ositos.png.jpeg"
+              alt="12 Friendly Bears"
+              className="w-full h-full object-contain"
+            />
+          </div>
+          <div>
+            <h1 className="text-base md:text-lg font-black text-white tracking-wide flex items-center gap-2">
+              12 FRIENDLY BEARS
+            </h1>
+            <p className="text-xs text-sky-200 font-medium">
+              Operador en Turno: <b className="text-white font-bold">{sesion?.nombre || 'Operador'}</b>
+              <span className="ml-2 text-sky-100 font-bold uppercase bg-[#003d6d] px-2 py-0.5 rounded-md border border-[#0066b3]">
+                ({esTurnoCierre ? 'Día Completo / Cierre' : 'Mañana / Apertura'})
+              </span>
+            </p>
+          </div>
         </div>
         <button
           onClick={cerrarSesion}
