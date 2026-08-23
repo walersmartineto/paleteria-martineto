@@ -3,7 +3,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  registrarBaseCajaMartineto,
   registrarMovimientoMartineto,
 } from '@/lib/martinetoQueries';
 import { supabase } from '@/lib/supabase';
@@ -11,7 +10,6 @@ import { supabase } from '@/lib/supabase';
 const LISTA_EMPAQUES_MARTINETO = [
   'Total Paletas',
   'Caja Mostac',
-  'Muñeco Gold',
   'Muñeco Lego',
   'Vaso Soft',
   'Corralito',
@@ -148,10 +146,24 @@ export default function MartinetoPOSPage() {
   });
 
   const [cargando, setCargando] = useState(true);
-  const SEDE_ID_MARTINETO = 1;
+  const SEDE_ID_MARTINETO = 4; // Configurado estrictamente con ID 4
 
   const inputRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
   const bloqueadoPorApertura = !baseGuardada || !aperturaRealizada;
+
+  const listaEmpaquesFiltrados = LISTA_EMPAQUES_MARTINETO.filter((i) => i !== 'Total Paletas');
+
+  const insumosFiltrados = productosInsumosBD.filter((prod) => {
+    const cat = String(prod?.categoriaLimpia || '');
+
+    if (tabPedido === 'paletas') return cat.includes('paleta');
+    if (tabPedido === 'richi') return cat.includes('richi') || cat.includes('empaque') || cat.includes('plástico');
+    if (tabPedido === 'produccion') return cat.includes('produccion') || cat.includes('prod');
+    if (tabPedido === 'insumos') return cat.includes('insumo') || cat.includes('topping');
+    if (tabPedido === 'aseo') return cat.includes('aseo') || cat.includes('limpieza');
+
+    return true;
+  });
 
   const listaLugaresCompraUnica = Array.from(
     new Set([
@@ -170,14 +182,33 @@ export default function MartinetoPOSPage() {
     }
     const ses = JSON.parse(sesionLocal);
     setSesion(ses);
-    cargarInicial();
+    cargarInicial(ses);
   }, [router]);
 
-  async function cargarInicial() {
+  async function cargarInicial(sesionActual: any) {
     setCargando(true);
     setErrorLecturaBD(null);
 
     try {
+      // 1. Obtener el turno activo del día (Día Completo o el correspondiente) para Martineto si no viene en la sesión
+      let turnoIdActual = sesionActual?.turno_id;
+      if (!turnoIdActual) {
+        const { data: turnoData } = await supabase
+          .from('turno_trabajo')
+          .select('id, nombre')
+          .or(`sede_id.eq.${SEDE_ID_MARTINETO},sede_id.is.null`)
+          .order('id', { ascending: false })
+          .limit(1);
+
+        if (turnoData && turnoData.length > 0) {
+          turnoIdActual = turnoData[0].id;
+          // Actualizamos la sesión local con el turno encontrado
+          sesionActual.turno_id = turnoIdActual;
+          sesionActual.turno_nombre = turnoData[0].nombre;
+          setSesion({ ...sesionActual });
+        }
+      }
+
       const { data: configTarifas } = await supabase
         .from('configuracion_tarifa')
         .select('*')
@@ -413,22 +444,21 @@ export default function MartinetoPOSPage() {
     return coincideCategoria && coincideTexto;
   });
 
-  const insumosFiltrados = productosInsumosBD.filter((prod) => {
-    const cat = String(prod?.categoriaLimpia || '');
-
-    if (tabPedido === 'paletas') return cat.includes('paleta');
-    if (tabPedido === 'richi') return cat.includes('richi') || cat.includes('empaque') || cat.includes('plástico');
-    if (tabPedido === 'produccion') return cat.includes('produccion') || cat.includes('prod');
-    if (tabPedido === 'insumos') return cat.includes('insumo') || cat.includes('topping');
-    if (tabPedido === 'aseo') return cat.includes('aseo') || cat.includes('limpieza');
-
-    return true;
-  });
-
-  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>, currentIndex: number, keysList: string[], prefix: string = '') {
+  function handleKeyDownTotalPaletas(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'Enter') {
       e.preventDefault();
-      const nextKey = keysList[currentIndex + 1];
+      const primerEmpaque = listaEmpaquesFiltrados[0];
+      if (primerEmpaque && inputRefs.current?.[primerEmpaque]) {
+        inputRefs.current[primerEmpaque]?.focus();
+        inputRefs.current[primerEmpaque]?.select();
+      }
+    }
+  }
+
+  function handleKeyDownEmpaques(e: React.KeyboardEvent<HTMLInputElement>, currentIndex: number, prefix: string = '') {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const nextKey = listaEmpaquesFiltrados[currentIndex + 1];
       const targetRefKey = prefix ? `${prefix}_${nextKey}` : nextKey;
       if (nextKey && inputRefs.current?.[targetRefKey]) {
         inputRefs.current[targetRefKey]?.focus();
@@ -437,16 +467,49 @@ export default function MartinetoPOSPage() {
     }
   }
 
+  function handleKeyDownPedido(e: React.KeyboardEvent<HTMLInputElement>, currentIndex: number) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const siguienteProd = insumosFiltrados[currentIndex + 1];
+      if (siguienteProd) {
+        const refKey = `pedido_${siguienteProd.nombre}`;
+        const inputElem = inputRefs.current[refKey];
+        if (inputElem) {
+          inputElem.focus();
+          inputElem.select();
+        }
+      }
+    }
+  }
+
   async function handleGuardarBase() {
     const monto = baseCaja === '' ? 0 : Number(baseCaja);
-    const usuarioId = sesion?.usuario_id || sesion?.id;
-    const exito = await registrarBaseCajaMartineto(SEDE_ID_MARTINETO, usuarioId, monto, sesion?.turno_id);
-    if (exito) {
-      setBaseGuardada(true);
-      alert('¡Base inicial guardada correctamente!');
-    } else {
-      alert('Error al guardar la base.');
+    const usuarioId = sesion?.usuario_id || sesion?.id || null;
+    const turnoId = sesion?.turno_id ? Number(sesion.turno_id) : null;
+
+    if (monto <= 0) {
+      alert('⚠️ Ingresa un monto de base válido mayor a 0.');
+      return;
     }
+
+    const { error } = await supabase.from('caja').insert([
+      {
+        sede_id: SEDE_ID_MARTINETO,
+        usuario_id: usuarioId ? Number(usuarioId) : null,
+        turno_id: turnoId,
+        monto_apertura: monto,
+        diferencia: 0,
+        estado: 'abierta'
+      }
+    ]);
+
+    if (error) {
+      alert('❌ Error al guardar la base en la caja: ' + error.message);
+      return;
+    }
+
+    setBaseGuardada(true);
+    alert('✅ ¡Base inicial de caja guardada correctamente para Martineto (Sede 4)!');
   }
 
   async function handleGuardarInventario() {
@@ -476,7 +539,7 @@ export default function MartinetoPOSPage() {
       {},
       detalleEmpaquesLimpio,
       observacionesInventario,
-      sesion?.turno_id
+      sesion?.turno_id ? Number(sesion.turno_id) : undefined
     );
 
     if (exito) {
@@ -1547,11 +1610,13 @@ export default function MartinetoPOSPage() {
 
     setGuardandoCierre(true);
     const usuarioId = sesion?.usuario_id || sesion?.id;
+    const turnoId = sesion?.turno_id ? Number(sesion.turno_id) : null;
 
     try {
       const payloadCaja = {
         sede_id: SEDE_ID_MARTINETO,
         usuario_id: usuarioId ? Number(usuarioId) : null,
+        turno_id: turnoId,
         monto_apertura: Number(baseCaja) || 0,
         efectivo_cierre: efecContado,
         nequi: totalNequiIngresado,
@@ -1563,32 +1628,41 @@ export default function MartinetoPOSPage() {
       const { error: errCaja } = await supabase.from('caja').insert([payloadCaja]);
       if (errCaja) throw new Error(`Error guardando en caja: ${errCaja.message}`);
 
-      const listaDetalleInventario = listaAuditoriaInventario.map((item) => {
-        const cantContadaReal = Number(conteoFisicoProductos[item.nombre]) || 0;
-        return {
-          nombre_producto: item.nombre,
-          apertura: item.apertura,
-          entradas: item.entradas,
-          mermas: item.mermas,
-          vendidas: item.vendidos,
-          calculadas: item.calculado,
-          contadas_cierre: cantContadaReal,
-          diferencia: cantContadaReal - item.calculado,
-        };
+      // Registrar movimiento de CIERRE en inventario_diario usando la función auxiliar
+      const detallePaletasCierre: { [key: string]: number } = {};
+      const detalleEmpaquesCierre: { [key: string]: number } = {};
+      let totalPaletasCierreNum = 0;
+
+      listaAuditoriaInventario.forEach((item) => {
+        const cantFinal = Number(conteoFisicoProductos[item.nombre]) || 0;
+        if (item.nombre === 'Total Paletas') {
+          totalPaletasCierreNum = cantFinal;
+        } else if (LISTA_EMPAQUES_MARTINETO.includes(item.nombre)) {
+          detalleEmpaquesCierre[item.nombre] = cantFinal;
+        } else {
+          detallePaletasCierre[item.nombre] = cantFinal;
+        }
       });
 
-      const payloadInventarioDia = {
-        sede_id: SEDE_ID_MARTINETO,
-        usuario_id: usuarioId ? String(usuarioId) : null,
-        fecha: new Date().toISOString().split('T')[0],
-        movimientos: listaDetalleInventario,
-      };
+      const exitoInv = await registrarMovimientoMartineto(
+        SEDE_ID_MARTINETO,
+        usuarioId,
+        'cierre',
+        totalPaletasCierreNum,
+        detallePaletasCierre,
+        detalleEmpaquesCierre,
+        'Cierre de turno y cuadre de inventario físico',
+        turnoId || undefined
+      );
 
-      const { error: errInv } = await supabase.from('inventario_dia').insert([payloadInventarioDia]);
-      if (errInv) throw new Error(`Error guardando en inventario_dia: ${errInv.message}`);
+      if (!exitoInv) throw new Error('Error guardando el movimiento de cierre en inventario_diario.');
 
       alert('✅ ¡CIERRE TOTAL DEL DÍA GUARDADO CON ÉXITO EN LA BASE DE DATOS!');
       setMostrarModalResumen(false);
+      
+      // Limpiar sesión y redirigir al login igual que las demás sedes
+      localStorage.removeItem('martineto_session');
+      router.push('/login');
     } catch (err: any) {
       alert('⚠️ ' + err.message);
     } finally {
@@ -1614,7 +1688,7 @@ export default function MartinetoPOSPage() {
             🍦 MARTINETO POS (Sede Principal)
           </h1>
           <p className="text-xs text-sky-200 mt-1">
-            Operador en Turno: <b className="text-white">{sesion?.nombre || 'Iris'}</b> ({sesion?.turno_nombre || 'MAÑANA / APERTURA'})
+            Operador en Turno: <b className="text-white">{sesion?.nombre || 'Iris'}</b> ({sesion?.turno_nombre || 'DÍA COMPLETO'})
           </p>
         </div>
         <button
@@ -1697,7 +1771,7 @@ export default function MartinetoPOSPage() {
                 placeholder="0"
                 value={totalPaletasInventario}
                 onChange={(e) => setTotalPaletasInventario(e.target.value === '' ? '' : Number(e.target.value.replace(/\D/g, '')))}
-                onKeyDown={(e) => handleKeyDown(e, -1, LISTA_EMPAQUES_MARTINETO)}
+                onKeyDown={handleKeyDownTotalPaletas}
                 className="w-28 bg-[#0e385e] text-sky-200 font-black text-center text-sm rounded-lg p-2 outline-none border border-[#0066b3]"
               />
             </div>
@@ -1705,7 +1779,7 @@ export default function MartinetoPOSPage() {
 
           <div className="space-y-1.5 max-h-[220px] overflow-y-auto pr-1">
             <span className="text-xs text-sky-300 font-bold block uppercase">CONTEO DE EMPAQUES Y VASOS (Presiona ENTER para avanzar):</span>
-            {LISTA_EMPAQUES_MARTINETO.filter(i => i !== 'Total Paletas').map((item, idx) => (
+            {listaEmpaquesFiltrados.map((item, idx) => (
               <div key={item} className="flex justify-between items-center bg-[#051829] p-2 rounded-lg border border-[#0066b3]">
                 <span className="text-xs text-white font-bold flex items-center gap-1.5">📦 {item}:</span>
                 <input
@@ -1720,7 +1794,7 @@ export default function MartinetoPOSPage() {
                       [item]: e.target.value === '' ? '' : Number(e.target.value.replace(/\D/g, '')),
                     })
                   }
-                  onKeyDown={(e) => handleKeyDown(e, idx, LISTA_EMPAQUES_MARTINETO.filter(i => i !== 'Total Paletas'))}
+                  onKeyDown={(e) => handleKeyDownEmpaques(e, idx)}
                   className="w-24 bg-[#0e385e] text-sky-200 font-black text-center text-xs rounded p-1.5 outline-none border border-[#0066b3]"
                 />
               </div>
@@ -1788,13 +1862,14 @@ export default function MartinetoPOSPage() {
                   {insumosFiltrados.length === 0 ? (
                     <p className="text-xs text-sky-400 italic text-center py-4">No hay productos disponibles en esta categoría.</p>
                   ) : (
-                    insumosFiltrados.map((prod) => (
+                    insumosFiltrados.map((prod, idx) => (
                       <div key={prod.id || prod.nombre} className="flex justify-between items-center bg-[#051829] p-2 rounded-xl border border-[#0066b3]">
                         <div>
                           <p className="text-xs text-white font-bold">{prod.nombre}</p>
                           {prod.grupo && <p className="text-[10px] text-sky-300">{prod.grupo}</p>}
                         </div>
                         <input
+                          ref={(el) => { inputRefs.current[`pedido_${prod.nombre}`] = el; }}
                           type="text"
                           inputMode="numeric"
                           placeholder="0"
@@ -1806,6 +1881,7 @@ export default function MartinetoPOSPage() {
                               [tabPedido]: { ...pedidosCategorias[tabPedido], [prod.nombre]: val === '' ? 0 : Number(val) },
                             });
                           }}
+                          onKeyDown={(e) => handleKeyDownPedido(e, idx)}
                           className="w-20 bg-[#0e385e] text-sky-200 font-black text-center text-xs rounded-lg p-1.5 outline-none border border-[#0066b3]"
                         />
                       </div>
@@ -2344,7 +2420,7 @@ export default function MartinetoPOSPage() {
                               [item.nombre]: e.target.value === '' ? '' : Number(e.target.value.replace(/\D/g, '')),
                             })
                           }
-                          onKeyDown={(e) => handleKeyDown(e, idx, LISTA_EMPAQUES_MARTINETO, 'cierre')}
+                          onKeyDown={(e) => handleKeyDownEmpaques(e, idx, 'cierre')}
                           className="w-full bg-[#051829] text-sky-200 font-black text-center text-xs rounded p-1 outline-none border border-[#0066b3]"
                         />
                       </span>

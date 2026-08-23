@@ -2,17 +2,16 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { supabase } from '@/lib/supabase';
 import {
-  obtenerTarifasCentro,
-  registrarMovimientoCentro,
-  registrarBaseCajaCentro,
-  crearPedidoInsumosCentro,
+  obtenerTarifasViva,
+  registrarBaseCajaViva,
+  crearPedidoInsumosViva,
   obtenerUsuariosOperarios,
   registrarNominaYCambioTurno,
-  obtenerSaboresCentro,
-  TarifasCentro,
-} from '@/lib/centroQueries';
-import { supabase } from '@/lib/supabase';
+  obtenerSaboresViva,
+  TarifasViva,
+} from '@/lib/vivaQueries';
 
 const LUGARES_COMPRA_INICIALES = [
   'Avicampo',
@@ -25,7 +24,6 @@ const LUGARES_COMPRA_INICIALES = [
   'Plasticos Richi',
 ];
 
-// LISTA DE EMPAQUES / APERTURA
 const LISTA_EMPAQUES_CENTRO = [
   'Caja Mostac',
   'Muñeco Gold',
@@ -35,78 +33,50 @@ const LISTA_EMPAQUES_CENTRO = [
   'Vaso Malteada',
 ];
 
-// PLÁSTICOS RICHI
 const LISTA_PLASTICOS_RICHI = [
+  'Bolsa Blanca',
+  'Bolsa de Papel',
   'Cucharitas',
-  'Bolsas para llevar',
-  'Bolsas de papel',
-  'Tapas vaso malteada',
-  'Tapas helado 8 oz',
   'Vaso agua',
-  'Vasos de helado',
-  'Vaso Lego',
-  'Vaso malteada',
-  'Vaso soft',
 ];
 
-// PRODUCCIÓN
-const LISTA_PRODUCCION = [
-  'Helado malteada',
-  'Mezcla',
-  'Sirope',
-];
-
-// INSUMOS Y MATERIA
 const LISTA_INSUMOS_MATERIA = [
-  'Arequipe',
-  'Barquillos',
-  'Bocadillo Beleño',
-  'Bulbos',
   'Capacillos',
-  'Chantilly',
-  'Chocolate de cobertura',
-  'Chocolatina',
-  'Chocorramo',
-  'Cocoa',
+  'Chamoy',
+  'Chip chocolate',
+  'Chocolate cobertura Blanco',
+  'Chocolate Cobertura Negro',
   'Flips',
-  'Gansitos',
+  'Galleta oreo',
   'Gomitas',
-  'Grajeas',
   'Grasa',
-  'Jalea de fresa',
-  'Leche – 32 bolsas',
-  'Leche – 8 bolsas',
-  'Leche – 1 bolsa',
-  'Legos',
-  'Lluvia de chocolate',
-  'Marmut',
-  'Merengón',
+  'Leche condensada',
+  'Mani',
   'Nerds',
-  'Pingüinos',
-  'Plato Mostacilla',
+  'Nutella',
+  'Pepitas colores',
+  'Pistacho',
+  'Plato Mostac',
   'Quipitos',
   'Sal limón',
-  'Salsa de chocolate',
-  'Salsa de mora',
   'Semillas de girasol',
+  'Servilletas',
   'Tajín',
-  'Yogo Yogo de fresa',
-  'Zumo de limón',
+  'Zumo de Limon',
 ];
 
-// ASEO
 const LISTA_ASEO = [
+  'Antibacterial',
   'Bolsas de basura',
   'Clorox',
   'Escoba',
   'Esponjillas',
-  'Guantes para aseo',
-  'Guantes de nitrilo',
-  'Jabón de manos',
+  'Guantes de Nitrilo',
+  'Jabon de Manos',
   'Jabón loza',
   'Jabón en polvo',
-  'Limpia pisos',
-  'Líquido verde',
+  'Limpia Pisos',
+  'Liquido Verde',
   'Papel higiénico',
   'Tapabocas',
   'Toallas de papel',
@@ -114,7 +84,6 @@ const LISTA_ASEO = [
   'Trapitos',
 ];
 
-// FUNCIONES DE FORMATO DE MONEDA
 const formatearMoneda = (val: number | string): string => {
   if (val === '' || val === null || val === undefined) return '';
   const num = typeof val === 'string' ? Number(val.replace(/\D/g, '')) : val;
@@ -131,7 +100,7 @@ export default function CentroPage() {
   const router = useRouter();
   const [sesion, setSesion] = useState<any>(null);
 
-  const [tarifas, setTarifas] = useState<TarifasCentro>({
+  const [tarifas, setTarifas] = useState<TarifasViva>({
     subsidio: 9600,
     transporte: 8400,
     horaDiaEntreSemana: 7200,
@@ -145,25 +114,25 @@ export default function CentroPage() {
   const [aperturaRealizada, setAperturaRealizada] = useState(false);
   const [cierreRealizado, setCierreRealizado] = useState(false);
 
-  // INVENTARIO
+  const [efectivoTurnoManana, setEfectivoTurnoManana] = useState<number | null>(null);
+
   const [tipoMovimiento, setTipoMovimiento] = useState<string>('apertura');
-  const [totalPaletasInventario, setTotalPaletasInventario] = useState<number | ''>('');
+  const [totalPaletasApertura, setTotalPaletasApertura] = useState<number | ''>('');
   const [saboresCentro, setSaboresCentro] = useState<any[]>([]);
-  const [cantidadesEmpaques, setCantidadesEmpaques] = useState<{ [item: string]: number | '' }>({});
+  const [cantidadesSabores, setCantidadesSabores] = useState<{ [saborId: number]: number | '' }>({});
+  
+  const [cantidadesEmpaquesCentro, setCantidadesEmpaquesCentro] = useState<{ [item: string]: number | '' }>({});
   const [observaciones, setObservaciones] = useState<string>('');
 
-  // REQUISICIÓN DE PEDIDOS
   const [mostrarModuloPedidos, setMostrarModuloPedidos] = useState(false);
-  const [categoriaPedido, setCategoriaPedido] = useState<'paletas' | 'richi' | 'produccion' | 'insumos' | 'aseo'>('paletas');
+  const [categoriaPedido, setCategoriaPedido] = useState<'paletas' | 'richi' | 'insumos' | 'aseo'>('paletas');
   const [cantidadesPedidoPaletas, setCantidadesPedidoPaletas] = useState<{ [saborId: number]: number | '' }>({});
   const [cantidadesRichi, setCantidadesRichi] = useState<{ [item: string]: number | '' }>({});
-  const [cantidadesProduccion, setCantidadesProduccion] = useState<{ [item: string]: number | '' }>({});
   const [cantidadesInsumos, setCantidadesInsumos] = useState<{ [item: string]: number | '' }>({});
   const [cantidadesAseo, setCantidadesAseo] = useState<{ [item: string]: number | '' }>({});
   const [otroInsumoTexto, setOtroInsumoTexto] = useState('');
   const [obsPedido, setObsPedido] = useState('');
 
-  // ESTADOS MODAL CREAR NUEVO PRODUCTO / INSUMO EN BD
   const [productosInsumosBD, setProductosInsumosBD] = useState<any[]>([]);
   const [mostrarModalNuevoProd, setMostrarModalNuevoProd] = useState(false);
   const [nuevoProdNombre, setNuevoProdNombre] = useState('');
@@ -174,7 +143,6 @@ export default function CentroPage() {
   const [esProductoGlobal, setEsProductoGlobal] = useState(true);
   const [guardandoProducto, setGuardandoProducto] = useState(false);
 
-  // NÓMINA Y ARQUEO DE CAJA
   const [tipoDia, setTipoDia] = useState<'entre_semana' | 'domingo_festivo'>('entre_semana');
   const [horasDia, setHorasDia] = useState<number | ''>('');
   const [horasNoche, setHorasNoche] = useState<number | ''>('');
@@ -184,7 +152,6 @@ export default function CentroPage() {
   const [gastos, setGastos] = useState<number | ''>('');
   const [motivoGasto, setMotivoGasto] = useState<string>('');
 
-  // MODAL CAMBIO DE TURNO
   const [mostrarModalCambioTurno, setMostrarModalCambioTurno] = useState(false);
   const [listaOperarios, setListaOperarios] = useState<any[]>([]);
   const [operarioEntranteId, setOperarioEntranteId] = useState<string>('');
@@ -205,7 +172,7 @@ export default function CentroPage() {
 
   const totalVentasCalculado = (Number(efectivoCaja) || 0) + (Number(nequi) || 0) + (Number(daviplata) || 0);
 
-  const SEDE_ID_CENTRO = 3;
+  const SEDE_ID_CENTRO = 2;
 
   const listaLugaresCompraUnica = Array.from(
     new Set([
@@ -217,11 +184,13 @@ export default function CentroPage() {
   ).sort();
 
   const paletasFiltradas = saboresCentro.filter((p) => {
-    const cat = String(p.categoria || '').toLowerCase();
-    const grp = String(p.grupo || '').toLowerCase();
+    const cat = String(p.categoria || '').trim().toLowerCase();
+    const grp = String(p.grupo || '').trim().toLowerCase();
     const nom = String(p.nombre || '').toLowerCase();
 
-    const esNoPaleta =
+    const esPaletaCategoria = cat === 'paleta' || cat === '';
+
+    const esExcluido =
       cat.includes('aseo') ||
       cat.includes('insumo') ||
       cat.includes('materia') ||
@@ -235,10 +204,12 @@ export default function CentroPage() {
       nom.includes('sal limón') ||
       nom.includes('girasol');
 
-    return !esNoPaleta;
+    return esPaletaCategoria && !esExcluido;
   });
 
-  const totalPaletasSuma = Number(totalPaletasInventario) || 0;
+  const totalPaletasSuma = tipoMovimiento === 'apertura'
+    ? (Number(totalPaletasApertura) || 0)
+    : Object.values(cantidadesSabores).reduce((acc: number, val) => acc + (Number(val) || 0), 0);
 
   const esTurnoCierre = (() => {
     if (!sesion) return false;
@@ -255,11 +226,9 @@ export default function CentroPage() {
     const ses = JSON.parse(sesionLocal);
     setSesion(ses);
 
-    const str = JSON.stringify(ses).toLowerCase();
-    if (str.includes('cierre') || str.includes('tarde')) {
-      setBaseGuardada(true);
-      setAperturaRealizada(true);
-      setTipoMovimiento('nuevas');
+    const efectivoMananaGuardado = localStorage.getItem('martineto_efectivo_manana_centro');
+    if (efectivoMananaGuardado) {
+      setEfectivoTurnoManana(Number(efectivoMananaGuardado));
     }
 
     cargarInicial();
@@ -268,18 +237,23 @@ export default function CentroPage() {
   async function cargarInicial() {
     setCargando(true);
     const [configTarifas, operarios, listaSabores] = await Promise.all([
-      obtenerTarifasCentro(),
+      obtenerTarifasViva(),
       obtenerUsuariosOperarios(),
-      obtenerSaboresCentro(),
+      obtenerSaboresViva(),
     ]);
 
     setTarifas(configTarifas);
     setListaOperarios(operarios);
-    setSaboresCentro(listaSabores);
+    setSaboresCentro(listaSabores || []);
 
-    const inicialesPedido: { [saborId: number]: number | '' } = {};
-    listaSabores.forEach((s) => (inicialesPedido[s.id] = ''));
-    setCantidadesPedidoPaletas(inicialesPedido);
+    const iniciales: { [saborId: number]: number | '' } = {};
+    (listaSabores || []).forEach((s: any) => (iniciales[s.id] = ''));
+    setCantidadesSabores(iniciales);
+    setCantidadesPedidoPaletas({ ...iniciales });
+
+    const empaquesIniciales: { [item: string]: number | '' } = {};
+    LISTA_EMPAQUES_CENTRO.forEach((item) => (empaquesIniciales[item] = ''));
+    setCantidadesEmpaquesCentro(empaquesIniciales);
 
     const { data: prodsInsumosBD } = await supabase
       .from('producto')
@@ -308,27 +282,16 @@ export default function CentroPage() {
         ? dondeComprarPersonalizado.trim()
         : nuevoProdDondeComprar.trim();
 
-    if (!nombreLimpio) {
-      alert('⚠️ El nombre del producto/insumo es obligatorio.');
-      return;
-    }
-
-    if (!dondeComprarFinal) {
-      alert('⚠️ Debe especificar el lugar de compra o proveedor.');
+    if (!nombreLimpio || !dondeComprarFinal) {
+      alert('⚠️ Nombre y lugar de compra son obligatorios.');
       return;
     }
 
     setGuardandoProducto(true);
-
-    const grupoAInsertar =
-      nuevoProdCategoria === 'Paleta'
-        ? nuevoProdGrupo.trim() || 'Paleta'
-        : nuevoProdCategoria;
-
     const payload = {
       nombre: nombreLimpio,
       categoria: nuevoProdCategoria,
-      grupo: grupoAInsertar,
+      grupo: nuevoProdCategoria === 'Paleta' ? nuevoProdGrupo.trim() || 'Paleta' : nuevoProdCategoria,
       donde_comprar: dondeComprarFinal,
       sede_id: esProductoGlobal ? 0 : SEDE_ID_CENTRO,
       activo: true,
@@ -343,7 +306,6 @@ export default function CentroPage() {
     }
 
     alert(`✅ ¡Insumo "${nombreLimpio}" creado con éxito!`);
-
     if (data && data.length > 0) {
       const nuevoObj = {
         ...data[0],
@@ -354,7 +316,6 @@ export default function CentroPage() {
       };
       setProductosInsumosBD((prev) => [...prev, nuevoObj]);
       setSaboresCentro((prev) => [...prev, nuevoObj]);
-      setCantidadesPedidoPaletas((prev) => ({ ...prev, [data[0].id]: '' }));
     }
 
     setNuevoProdNombre('');
@@ -365,15 +326,35 @@ export default function CentroPage() {
     setGuardandoProducto(false);
   }
 
-  function handleEmpaqueCantidadChange(item: string, rawVal: string) {
+  function handleSaborCantidadChange(saborId: number, rawVal: string) {
     const val = rawVal === '' ? '' : Math.max(0, Number(rawVal));
-    setCantidadesEmpaques((prev) => ({ ...prev, [item]: val }));
+    setCantidadesSabores((prev) => ({ ...prev, [saborId]: val }));
   }
 
-  function handleKeyDownTotal(e: React.KeyboardEvent<HTMLInputElement>) {
+  function handleEmpaqueCantidadChange(item: string, rawVal: string) {
+    const val = rawVal === '' ? '' : Math.max(0, Number(rawVal));
+    setCantidadesEmpaquesCentro((prev) => ({ ...prev, [item]: val }));
+  }
+
+  function handleKeyDownSabor(e: React.KeyboardEvent<HTMLInputElement>, index: number) {
     if (e.key === 'Enter') {
       e.preventDefault();
-      inputsRef.current[`empaque_${LISTA_EMPAQUES_CENTRO[0]}`]?.focus();
+      if (index < paletasFiltradas.length - 1) {
+        const siguienteSabor = paletasFiltradas[index + 1];
+        inputsRef.current[`sabor_${siguienteSabor.id}`]?.focus();
+      } else {
+        inputsRef.current[`empaque_${LISTA_EMPAQUES_CENTRO[0]}`]?.focus();
+      }
+    }
+  }
+
+  function handleKeyDownEmpaque(e: React.KeyboardEvent<HTMLInputElement>, index: number) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (index < LISTA_EMPAQUES_CENTRO.length - 1) {
+        const siguienteItem = LISTA_EMPAQUES_CENTRO[index + 1];
+        inputsRef.current[`empaque_${siguienteItem}`]?.focus();
+      }
     }
   }
 
@@ -414,17 +395,17 @@ export default function CentroPage() {
 
     const sesionActual = sesion || JSON.parse(localStorage.getItem('martineto_session') || '{}');
     const usuarioId = sesionActual?.usuario_id || sesionActual?.id;
-    const sedeId = sesionActual?.sede_id || SEDE_ID_CENTRO;
-    const turnoId = sesionActual?.turno_id || sesionActual?.turnoId;
+    const sedeId = SEDE_ID_CENTRO;
+    const turnoId = sesionActual?.turno_id || sesionActual?.turnoId || null;
 
     if (!usuarioId) {
-      alert('⚠️ No hay una sesión de usuario activa. Vuelve a iniciar sesión.');
+      alert('⚠️ No hay sesión de usuario válida.');
       return;
     }
 
     setGuardando(true);
     try {
-      const exito = await registrarBaseCajaCentro(sedeId, usuarioId, monto, turnoId);
+      const exito = await registrarBaseCajaViva(sedeId, usuarioId, monto, turnoId);
       if (exito) {
         setBaseGuardada(true);
         alert('¡Base inicial guardada con éxito en la tabla CAJA!');
@@ -440,63 +421,91 @@ export default function CentroPage() {
   }
 
   async function handleGuardarInventario() {
-    if (!sesion) return;
+    if (!sesion) {
+      alert('⚠️ No hay sesión activa.');
+      return;
+    }
 
     if (!baseGuardada) {
       alert('⚠️ Primero debes guardar la Base Inicial de Caja.');
       return;
     }
 
-    if (totalPaletasSuma < 0) {
-      alert('Ingresa una cantidad total de paletas válida.');
-      return;
+    const detallePaletasObj: { [saborNombre: string]: number } = {};
+    if (tipoMovimiento === 'apertura') {
+      detallePaletasObj['Total Apertura'] = Number(totalPaletasApertura) || 0;
+    } else {
+      Object.entries(cantidadesSabores).forEach(([saborId, cant]) => {
+        const num = Number(cant) || 0;
+        if (num > 0) {
+          const saborObj = saboresCentro.find((s) => s.id === Number(saborId));
+          if (saborObj) detallePaletasObj[saborObj.nombre] = num;
+        }
+      });
     }
 
-    const detallePaletasObj: { [key: string]: number } = {};
-
     const detalleEmpaquesObj: { [itemNombre: string]: number } = {};
-    Object.entries(cantidadesEmpaques).forEach(([item, cant]) => {
-      if (Number(cant) > 0) {
-        detalleEmpaquesObj[item] = Number(cant);
-      }
+    Object.entries(cantidadesEmpaquesCentro).forEach(([item, cant]) => {
+      const num = Number(cant) || 0;
+      if (num > 0) detalleEmpaquesObj[item] = num;
     });
 
-    const usuarioId = sesion?.usuario_id || sesion?.id;
-    const sedeId = sesion?.sede_id || SEDE_ID_CENTRO;
+    const usuarioId = sesion?.usuario_id || sesion?.id || 1;
+    const sedeId = SEDE_ID_CENTRO;
 
     setGuardando(true);
     try {
-      const exito = await registrarMovimientoCentro(
-        sedeId,
-        usuarioId,
-        tipoMovimiento,
-        totalPaletasSuma,
-        detallePaletasObj,
-        detalleEmpaquesObj,
-        observaciones,
-        sesion?.turno_id
-      );
+      const payloadInventario: any = {
+        sede_id: sedeId,
+        usuario_id: usuarioId,
+        tipo_movimiento: tipoMovimiento,
+        total_paletas: totalPaletasSuma,
+        detalle_paletas: detallePaletasObj,
+        detalle_empaques: detalleEmpaquesObj,
+        observacion: observaciones || null,
+      };
+
+      if (sesion?.turno_id && !isNaN(Number(sesion.turno_id))) {
+        payloadInventario.turno_id = Number(sesion.turno_id);
+      }
+
+      const { data, error } = await supabase
+        .from('inventario_diario')
+        .insert([payloadInventario])
+        .select();
+
       setGuardando(false);
 
-      if (exito) {
-        alert(`¡Registro de [${tipoMovimiento.toUpperCase()}] guardado con éxito! (Total: ${totalPaletasSuma} paletas)`);
-        
-        if (tipoMovimiento === 'apertura') {
-          setAperturaRealizada(true);
-          setTipoMovimiento('nuevas');
-        } else if (tipoMovimiento === 'cierre') {
-          setCierreRealizado(true);
-        }
-
-        setTotalPaletasInventario('');
-        setCantidadesEmpaques({});
-        setObservaciones('');
-      } else {
-        alert('⚠️ Error al registrar el inventario en la base de datos.');
+      if (error) {
+        console.error('Error insertando en inventario_diario:', error);
+        alert(`❌ Error de Supabase: ${error.message}`);
+        return;
       }
-    } catch (err) {
+
+      alert(`✅ ¡Apertura/Inventario guardado con éxito! (ID en BD: ${data?.[0]?.id || 'OK'})`);
+      
+      if (tipoMovimiento === 'apertura') {
+        setAperturaRealizada(true);
+        setTipoMovimiento('nuevas');
+      } else if (tipoMovimiento === 'cierre') {
+        setCierreRealizado(true);
+      }
+
+      setTotalPaletasApertura('');
+      const limpias: { [saborId: number]: number | '' } = {};
+      saboresCentro.forEach((s) => (limpias[s.id] = ''));
+      setCantidadesSabores(limpias);
+
+      const empaquesLimpios: { [item: string]: number | '' } = {};
+      LISTA_EMPAQUES_CENTRO.forEach((item) => (empaquesLimpios[item] = ''));
+      setCantidadesEmpaquesCentro(empaquesLimpios);
+
+      setObservaciones('');
+
+    } catch (err: any) {
       setGuardando(false);
       console.error('Error guardando inventario:', err);
+      alert(`❌ Error inesperado: ${err?.message || 'Error de conexión'}`);
     }
   }
 
@@ -517,11 +526,6 @@ export default function CentroPage() {
       if (Number(cant) > 0) richiObj[item] = Number(cant);
     });
 
-    const produccionObj: { [key: string]: number } = {};
-    Object.entries(cantidadesProduccion).forEach(([item, cant]) => {
-      if (Number(cant) > 0) produccionObj[item] = Number(cant);
-    });
-
     const insumosObj: { [key: string]: number } = {};
     Object.entries(cantidadesInsumos).forEach(([item, cant]) => {
       if (Number(cant) > 0) insumosObj[item] = Number(cant);
@@ -532,14 +536,11 @@ export default function CentroPage() {
       if (Number(cant) > 0) aseoObj[item] = Number(cant);
     });
 
-    if (otroInsumoTexto.trim()) {
-      insumosObj[`Otro: ${otroInsumoTexto.trim()}`] = 1;
-    }
+    if (otroInsumoTexto.trim()) insumosObj[`Otro: ${otroInsumoTexto.trim()}`] = 1;
 
     const totalItemsCount = 
       Object.keys(paletasObj).length + 
       Object.keys(richiObj).length + 
-      Object.keys(produccionObj).length + 
       Object.keys(insumosObj).length + 
       Object.keys(aseoObj).length;
 
@@ -549,25 +550,23 @@ export default function CentroPage() {
       return;
     }
 
-    const usuarioId = sesion?.usuario_id || sesion?.id;
-    const sedeId = sesion?.sede_id || SEDE_ID_CENTRO;
+    const usuarioId = sesion?.usuario_id || sesion?.id || 1;
+    const sedeId = SEDE_ID_CENTRO;
 
     try {
-      const ok = await crearPedidoInsumosCentro({
+      const ok = await crearPedidoInsumosViva({
         sedeId,
         usuarioId,
         paletas: paletasObj,
         richi: richiObj,
-        produccion: produccionObj,
         insumos: insumosObj,
         aseo: aseoObj,
         observaciones: obsPedido,
       });
 
       if (ok) {
-        alert('¡Pedido de Centro registrado correctamente!');
+        alert('¡Pedido de Sede Centro registrado correctamente!');
         setCantidadesRichi({});
-        setCantidadesProduccion({});
         setCantidadesInsumos({});
         setCantidadesAseo({});
         const limpiasPaletas: { [saborId: number]: number | '' } = {};
@@ -603,8 +602,8 @@ export default function CentroPage() {
     const dav = Number(daviplata) || 0;
     const gst = Number(gastos) || 0;
 
-    const usuarioId = sesion?.usuario_id || sesion?.id;
-    const sedeId = sesion?.sede_id || SEDE_ID_CENTRO;
+    const usuarioId = sesion?.usuario_id || sesion?.id || 1;
+    const sedeId = SEDE_ID_CENTRO;
 
     const datosPayload: any = {
       sedeId,
@@ -615,7 +614,7 @@ export default function CentroPage() {
       subsidio: tarifas.subsidio,
       transporte: tarifas.transporte,
       totalPagado: totalNomina,
-      efectivoCaja: esTurnoCierre ? efCaja : 0,
+      efectivoCaja: efCaja,
       nequi: esTurnoCierre ? neq : 0,
       daviplata: esTurnoCierre ? dav : 0,
       gastos: esTurnoCierre ? gst : 0,
@@ -628,11 +627,18 @@ export default function CentroPage() {
     if (ok) {
       if (esTurnoCierre) {
         alert(`¡Cierre de jornada completado con éxito!\n\nNómina: $ ${totalNomina.toLocaleString('es-CO')}\nTotal Recaudado: $ ${totalVentasCalculado.toLocaleString('es-CO')}\nGastos: $ ${gst.toLocaleString('es-CO')}\n\n¡Hasta mañana!`);
+        localStorage.removeItem('martineto_efectivo_manana_centro');
         cerrarSesion();
       } else {
-        alert(`¡Nómina del operador saliente registrada con éxito!\nTotal Pagado: $ ${totalNomina.toLocaleString('es-CO')}\n\nA continuación, ingresa el operario que recibe el turno.`);
+        setEfectivoTurnoManana(efCaja);
+        localStorage.setItem('martineto_efectivo_manana_centro', efCaja.toString());
+
+        alert(`¡Nómina registrada con éxito!\n\nEfectivo dejado en caja para la tarde: $ ${efCaja.toLocaleString('es-CO')}\n\nA continuación, ingresa el operario que recibe el turno.`);
         setHorasDia('');
         setHorasNoche('');
+        setEfectivoCaja('');
+        setNequi('');
+        setDaviplata('');
         setMostrarModalCambioTurno(true);
       }
     } else {
@@ -665,7 +671,7 @@ export default function CentroPage() {
       const nuevaSesion = {
         usuario_id: operarioEncontrado.id,
         nombre: operarioEncontrado.nombre,
-        sede_id: sesion?.sede_id || SEDE_ID_CENTRO,
+        sede_id: SEDE_ID_CENTRO,
         turno: turnoNormalizado,
       };
 
@@ -691,6 +697,7 @@ export default function CentroPage() {
 
   function cerrarSesion() {
     localStorage.removeItem('martineto_session');
+    localStorage.removeItem('martineto_efectivo_manana_centro');
     router.push('/login');
   }
 
@@ -706,7 +713,6 @@ export default function CentroPage() {
 
   return (
     <main className="min-h-screen bg-[#004e8c] text-[#f1f5f9] p-4 font-sans max-w-6xl mx-auto space-y-4 relative">
-      {/* Header Banner */}
       <header className="bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl flex justify-between items-center shadow-lg">
         <div>
           <h1 className="text-base md:text-lg font-black text-white tracking-wide flex items-center gap-2">
@@ -728,32 +734,47 @@ export default function CentroPage() {
         </button>
       </header>
 
-      {/* 1. Base Inicial de Caja */}
-      <div className="bg-[#0b2b48] border border-emerald-400/50 p-4 rounded-2xl space-y-2 shadow-md">
-        <span className="text-xs md:text-sm font-black text-emerald-300 block">
-          💵 Paso 1: Base Inicial para Empezar el Día (Efectivo en Caja):
-        </span>
-        <div className="flex gap-3">
-          <input
-            type="text"
-            placeholder="Monto en efectivo $"
-            value={formatearMoneda(baseCaja)}
-            onChange={(e) => setBaseCaja(desformatearMoneda(e.target.value))}
-            onFocus={(e) => e.target.select()}
-            disabled={baseGuardada}
-            className="w-full bg-[#051829] border border-[#0066b3] text-emerald-300 font-black text-sm md:text-base rounded-xl p-3 outline-none focus:border-emerald-400"
-          />
-          <button
-            onClick={handleGuardarBase}
-            disabled={baseGuardada}
-            className={`font-bold px-6 rounded-xl text-xs md:text-sm whitespace-nowrap transition-all shadow-sm ${
-              baseGuardada
-                ? 'bg-emerald-950 text-emerald-300 border border-emerald-600 cursor-not-allowed'
-                : 'bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer'
-            }`}
-          >
-            {baseGuardada ? '✓ Base Guardada' : 'Guardar Base'}
-          </button>
+      {/* Base Inicial de Caja y Efectivo de Cambio de Turno */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="bg-[#0b2b48] border border-emerald-400/50 p-4 rounded-2xl space-y-2 shadow-md">
+          <span className="text-xs md:text-sm font-black text-emerald-300 block">
+            💵 Paso 1: Base Inicial del Día (Efectivo en Caja):
+          </span>
+          <div className="flex gap-3">
+            <input
+              type="text"
+              placeholder="Monto en efectivo $"
+              value={formatearMoneda(baseCaja)}
+              onChange={(e) => setBaseCaja(desformatearMoneda(e.target.value))}
+              onFocus={(e) => e.target.select()}
+              disabled={baseGuardada}
+              className="w-full bg-[#051829] border border-[#0066b3] text-emerald-300 font-black text-sm md:text-base rounded-xl p-3 outline-none focus:border-emerald-400"
+            />
+            <button
+              onClick={handleGuardarBase}
+              disabled={baseGuardada}
+              className={`font-bold px-6 rounded-xl text-xs md:text-sm whitespace-nowrap transition-all shadow-sm ${
+                baseGuardada
+                  ? 'bg-emerald-950 text-emerald-300 border border-emerald-600 cursor-not-allowed'
+                  : 'bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer'
+              }`}
+            >
+              {baseGuardada ? '✓ Base Guardada' : 'Guardar Base'}
+            </button>
+          </div>
+        </div>
+
+        {/* CUADRO DEL EFECTIVO RECIBIDO POR CAMBIO DE TURNO DE LA MAÑANA */}
+        <div className="bg-[#0b2b48] border border-amber-400/50 p-4 rounded-2xl space-y-1 shadow-md flex flex-col justify-center">
+          <span className="text-xs font-black text-amber-300 block uppercase">
+            ☀️ Efectivo Recibido del Turno Mañana:
+          </span>
+          <div className="bg-[#051829] border border-amber-500/40 p-2.5 rounded-xl flex justify-between items-center">
+            <span className="text-xs text-sky-200 font-bold">Efectivo disponible en caja para la tarde:</span>
+            <span className="text-sm font-black text-amber-300 bg-[#0e385e] px-3 py-1 rounded-lg border border-amber-500/40">
+              {efectivoTurnoManana !== null ? `$ ${efectivoTurnoManana.toLocaleString('es-CO')}` : 'Sin cambio de turno previo'}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -793,37 +814,83 @@ export default function CentroPage() {
             </select>
           </div>
 
-          <div className="bg-[#0e385e] p-3 rounded-xl border border-[#0066b3]/60 space-y-2">
-            <span className="text-[10px] text-sky-300 font-extrabold uppercase block">
-              Cantidad Total para [{tipoMovimiento.toUpperCase()}]:
-            </span>
-            <div className="flex justify-between items-center bg-[#051829] p-2.5 rounded-lg border border-[#0066b3]">
-              <span className="text-xs text-white font-bold">🍦 Total Paletas:</span>
-              <input 
-                type="number" 
-                placeholder="0" 
-                value={totalPaletasInventario} 
-                onChange={(e) => setTotalPaletasInventario(e.target.value === '' ? '' : Math.max(0, Number(e.target.value)))} 
-                onKeyDown={handleKeyDownTotal}
-                onFocus={(e) => e.target.select()} 
-                className="w-24 bg-[#0e385e] text-sky-200 font-black text-center text-sm rounded-lg p-2 outline-none focus:border-[#00a4ef] border border-[#0066b3] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+          {/* SI ES APERTURA: SOLO CAMPO DE TOTAL GENERAL DE PALETAS */}
+          {tipoMovimiento === 'apertura' ? (
+            <div className="bg-[#051829] border border-[#0066b3] p-4 rounded-xl space-y-2">
+              <span className="text-xs font-black text-emerald-300 block uppercase">
+                📥 Total de Paletas de Apertura (General):
+              </span>
+              <input
+                type="number"
+                placeholder="0"
+                value={totalPaletasApertura}
+                onChange={(e) => setTotalPaletasApertura(e.target.value === '' ? '' : Math.max(0, Number(e.target.value)))}
+                onFocus={(e) => e.target.select()}
+                className="w-full bg-[#0e385e] border border-emerald-400 text-emerald-300 font-black text-lg text-center rounded-xl p-3 outline-none focus:border-emerald-300 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
               />
+              <p className="text-[10px] text-sky-300 text-center font-medium">
+                Ingresa la cantidad global de paletas con la que inicia la sede en este turno.
+              </p>
             </div>
-          </div>
+          ) : (
+            /* SI ES OTRO MOVIMIENTO: LISTADO DETALLADO POR SABORES */
+            <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1 border border-[#0066b3]/50 p-2.5 rounded-xl bg-[#051829]">
+              <span className="text-[10px] text-sky-300 font-bold uppercase block mb-1">Ingresar Cantidad por Sabor:</span>
+              {paletasFiltradas.length === 0 ? (
+                <p className="text-xs text-amber-200 text-center py-4 font-semibold">
+                  ⚠️ No se encontraron paletas registradas. Haz clic en "➕ Crear Producto" a la derecha para agregar nuevos.
+                </p>
+              ) : (
+                paletasFiltradas.map((s, idx) => (
+                  <div key={s.id} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2 shadow-sm">
+                    <div className="truncate">
+                      <p className="font-bold text-xs text-white truncate">{s.nombre}</p>
+                      <span className="text-[10px] font-semibold text-sky-300 block -mt-0.5 capitalize">
+                        {s.grupo || s.categoria || 'Paleta'}
+                      </span>
+                    </div>
+                    <input
+                      ref={(el) => { inputsRef.current[`sabor_${s.id}`] = el; }}
+                      type="number"
+                      placeholder="0"
+                      value={cantidadesSabores[s.id] ?? ''}
+                      onChange={(e) => handleSaborCantidadChange(s.id, e.target.value)}
+                      onKeyDown={(e) => handleKeyDownSabor(e, idx)}
+                      onFocus={(e) => e.target.select()}
+                      className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    />
+                  </div>
+                ))
+              )}
+            </div>
+          )}
 
+          {/* TOTAL DINÁMICO SOLO CUANDO NO ES APERTURA (EN APERTURA SE USA EL CAMPO SUPERIOR DIRECTO) */}
+          {tipoMovimiento !== 'apertura' && (
+            <div className="bg-[#0e385e] p-3 rounded-2xl border border-[#0066b3] flex justify-between items-center shadow-inner">
+              <span className="text-xs font-black text-sky-200 uppercase">
+                Total Paletas ({tipoMovimiento.toUpperCase()}):
+              </span>
+              <span className="text-xl font-black text-white bg-[#051829] px-4 py-1.5 rounded-xl border border-[#0066b3] shadow">
+                {totalPaletasSuma}
+              </span>
+            </div>
+          )}
+
+          {/* LISTA DE EMPAQUES Y ENVASES DE CENTRO */}
           <div className="bg-[#0e385e] p-3 rounded-xl border border-[#0066b3]/60 space-y-2">
-            <span className="text-[10px] text-sky-300 font-extrabold uppercase block">Conteo de Empaques y Vasos:</span>
-            <div className="space-y-1.5 max-h-[220px] overflow-y-auto pr-1">
+            <span className="text-[10px] text-sky-300 font-extrabold uppercase block">📦 Conteo de Empaques y Envases (Centro):</span>
+            <div className="space-y-1.5 max-h-[200px] overflow-y-auto pr-1">
               {LISTA_EMPAQUES_CENTRO.map((item, idx) => (
-                <div key={item} className="flex justify-between items-center bg-[#051829] p-2 rounded-lg border border-[#0066b3]">
-                  <span className="text-xs text-white font-bold">📦 {item}:</span>
+                <div key={item} className="flex justify-between items-center bg-[#051829] p-2 rounded-lg border border-[#0066b3]/60">
+                  <span className="text-xs text-white font-bold">{item}:</span>
                   <input 
                     ref={(el) => { inputsRef.current[`empaque_${item}`] = el; }}
                     type="number" 
                     placeholder="0" 
-                    value={cantidadesEmpaques[item] ?? ''} 
-                    onChange={(e) => handleEmpaqueCantidadChange(item, e.target.value)} 
-                    onKeyDown={(e) => handleKeyDownPedido(e, idx, LISTA_EMPAQUES_CENTRO, 'empaque')}
+                    value={cantidadesEmpaquesCentro[item] ?? ''} 
+                    onChange={(e) => handleEmpaqueCantidadChange(item, e.target.value)}
+                    onKeyDown={(e) => handleKeyDownEmpaque(e, idx)}
                     onFocus={(e) => e.target.select()} 
                     className="w-24 bg-[#0e385e] text-sky-200 font-black text-center text-sm rounded-lg p-1.5 outline-none focus:border-[#00a4ef] border border-[#0066b3] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
                   />
@@ -855,7 +922,6 @@ export default function CentroPage() {
         {/* COLUMNA DERECHA: PEDIDOS Y CIERRE DE CAJA / NÓMINA */}
         <div className={`space-y-4 transition-opacity ${bloqueadoPorApertura ? 'opacity-50 pointer-events-none select-none' : 'opacity-100'}`}>
           
-          {/* MÓDULO PEDIDOS */}
           <div className="bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md">
             <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
               <h2 className="text-xs md:text-sm font-black text-white flex items-center gap-1.5">
@@ -881,10 +947,9 @@ export default function CentroPage() {
 
             {mostrarModuloPedidos && (
               <div className="space-y-3 pt-1">
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-1 text-[10px]">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[10px]">
                   <button type="button" onClick={() => setCategoriaPedido('paletas')} className={`py-2 px-1 rounded-xl font-bold border text-center transition-all cursor-pointer ${categoriaPedido === 'paletas' ? 'bg-[#0078d4] text-white border-[#00a4ef] shadow' : 'bg-[#051829] text-sky-200 border-[#0066b3]'}`}>🍦 Paletas</button>
                   <button type="button" onClick={() => setCategoriaPedido('richi')} className={`py-2 px-1 rounded-xl font-bold border text-center transition-all cursor-pointer ${categoriaPedido === 'richi' ? 'bg-[#0078d4] text-white border-[#00a4ef] shadow' : 'bg-[#051829] text-sky-200 border-[#0066b3]'}`}>🛍️ Richi</button>
-                  <button type="button" onClick={() => setCategoriaPedido('produccion')} className={`py-2 px-1 rounded-xl font-bold border text-center transition-all cursor-pointer ${categoriaPedido === 'produccion' ? 'bg-[#0078d4] text-white border-[#00a4ef] shadow' : 'bg-[#051829] text-sky-200 border-[#0066b3]'}`}>⚙️ Prod</button>
                   <button type="button" onClick={() => setCategoriaPedido('insumos')} className={`py-2 px-1 rounded-xl font-bold border text-center transition-all cursor-pointer ${categoriaPedido === 'insumos' ? 'bg-[#0078d4] text-white border-[#00a4ef] shadow' : 'bg-[#051829] text-sky-200 border-[#0066b3]'}`}>🍫 Insumos</button>
                   <button type="button" onClick={() => setCategoriaPedido('aseo')} className={`py-2 px-1 rounded-xl font-bold border text-center transition-all cursor-pointer ${categoriaPedido === 'aseo' ? 'bg-[#0078d4] text-white border-[#00a4ef] shadow' : 'bg-[#051829] text-sky-200 border-[#0066b3]'}`}>🧹 Aseo</button>
                 </div>
@@ -892,38 +957,32 @@ export default function CentroPage() {
                 {categoriaPedido === 'paletas' && (
                   <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 border border-[#0066b3]/50 p-2.5 rounded-xl bg-[#051829]">
                     <span className="text-[10px] text-sky-300 font-bold uppercase block">Seleccionar Sabores a Solicitar a Bodega:</span>
-                    {paletasFiltradas.length === 0 ? (
-                      <p className="text-xs text-amber-200 text-center py-4 font-semibold">
-                        ⚠️ No se encontraron sabores de paletas. Haz clic en "➕ Crear Producto" arriba para agregar nuevos.
-                      </p>
-                    ) : (
-                      paletasFiltradas.map((s, idx) => (
-                        <div key={s.id} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2">
-                          <div className="truncate">
-                            <p className="font-bold text-xs text-white truncate">{s.nombre}</p>
-                            <span className="text-[10px] font-semibold text-sky-300 block -mt-0.5 capitalize">
-                              {s.grupo || s.categoria || 'Paleta'}
-                            </span>
-                          </div>
-                          <input
-                            ref={(el) => { inputsRef.current[`pedido_paleta_${s.id}`] = el; }}
-                            type="number"
-                            placeholder="0"
-                            value={cantidadesPedidoPaletas[s.id] ?? ''}
-                            onChange={(e) => handleCantidadPedidoChange(s.id, e.target.value)}
-                            onKeyDown={(e) => handleKeyDownPedido(e, idx, paletasFiltradas, 'pedido_paleta')}
-                            onFocus={(e) => e.target.select()}
-                            className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                          />
+                    {paletasFiltradas.map((s, idx) => (
+                      <div key={s.id} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2">
+                        <div className="truncate">
+                          <p className="font-bold text-xs text-white truncate">{s.nombre}</p>
+                          <span className="text-[10px] font-semibold text-sky-300 block -mt-0.5 capitalize">
+                            {s.grupo || s.categoria || 'Paleta'}
+                          </span>
                         </div>
-                      ))
-                    )}
+                        <input
+                          ref={(el) => { inputsRef.current[`pedido_paleta_${s.id}`] = el; }}
+                          type="number"
+                          placeholder="0"
+                          value={cantidadesPedidoPaletas[s.id] ?? ''}
+                          onChange={(e) => handleCantidadPedidoChange(s.id, e.target.value)}
+                          onKeyDown={(e) => handleKeyDownPedido(e, idx, paletasFiltradas, 'pedido_paleta')}
+                          onFocus={(e) => e.target.select()}
+                          className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
+                      </div>
+                    ))}
                   </div>
                 )}
 
                 {categoriaPedido === 'richi' && (
                   <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 border border-[#0066b3]/50 p-2.5 rounded-xl bg-[#051829]">
-                    <span className="text-[10px] text-sky-300 font-bold uppercase block">Plásticos Richi / Empaques</span>
+                    <span className="text-[10px] text-sky-300 font-bold uppercase block">Plásticos Richi</span>
                     {LISTA_PLASTICOS_RICHI.map((item, idx) => (
                       <div key={item} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2">
                         <span className="text-xs font-bold text-white truncate">{item}</span>
@@ -942,30 +1001,9 @@ export default function CentroPage() {
                   </div>
                 )}
 
-                {categoriaPedido === 'produccion' && (
-                  <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 border border-[#0066b3]/50 p-2.5 rounded-xl bg-[#051829]">
-                    <span className="text-[10px] text-sky-300 font-bold uppercase block">Producción</span>
-                    {LISTA_PRODUCCION.map((item, idx) => (
-                      <div key={item} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2">
-                        <span className="text-xs font-bold text-white truncate">{item}</span>
-                        <input 
-                          ref={(el) => { inputsRef.current[`pedido_prod_${item}`] = el; }}
-                          type="number" 
-                          placeholder="0" 
-                          value={cantidadesProduccion[item] ?? ''} 
-                          onChange={(e) => handleItemGenericoChange(item, e.target.value, setCantidadesProduccion)} 
-                          onKeyDown={(e) => handleKeyDownPedido(e, idx, LISTA_PRODUCCION, 'pedido_prod')}
-                          onFocus={(e) => e.target.select()} 
-                          className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
-                        />
-                      </div>
-                    ))}
-                  </div>
-                )}
-
                 {categoriaPedido === 'insumos' && (
                   <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 border border-[#0066b3]/50 p-2.5 rounded-xl bg-[#051829]">
-                    <span className="text-[10px] text-sky-300 font-bold uppercase block">Insumos y Materia</span>
+                    <span className="text-[10px] text-sky-300 font-bold uppercase block">Insumos y Toppings</span>
                     {LISTA_INSUMOS_MATERIA.map((item, idx) => (
                       <div key={item} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2">
                         <span className="text-xs font-bold text-white truncate">{item}</span>
@@ -1018,11 +1056,10 @@ export default function CentroPage() {
           {/* ARQUEO DE CAJA Y NÓMINA */}
           <div className="bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-4 shadow-md">
             <h2 className="text-xs md:text-sm font-black text-white border-b border-[#0066b3]/50 pb-2 flex justify-between">
-              <span>{esTurnoCierre ? '🌙 Cierre de Jornada y Arqueo' : '👥 Cambio de Turno / Nómina'}</span>
+              <span>{esTurnoCierre ? '🌙 Cierre de Jornada y Arqueo' : '👥 Cambio de Turno / Arqueo y Nómina'}</span>
               <span className="text-[10px] text-sky-200 font-bold bg-[#003d6d] px-2 py-0.5 rounded-md border border-[#0066b3]">{esTurnoCierre ? 'Fin de Día' : 'Fin de Turno'}</span>
             </h2>
 
-            {/* SECCIÓN NÓMINA */}
             <div className="space-y-2 bg-[#051829] p-3 rounded-xl border border-[#0066b3]">
               <span className="text-[10px] font-black text-sky-300 uppercase block">1. Nómina del Operador:</span>
               
@@ -1056,7 +1093,7 @@ export default function CentroPage() {
                     placeholder="0" 
                     value={horasNoche} 
                     onChange={(e) => setHorasNoche(e.target.value === '' ? '' : Number(e.target.value))} 
-                    onKeyDown={(e) => handleKeyDownCierre(e, esTurnoCierre ? 'cierre_efectivo' : '')}
+                    onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_efectivo')}
                     onFocus={(e) => e.target.select()} 
                     className="w-full bg-[#0e385e] border border-[#0066b3] text-white font-bold text-center rounded-lg p-2 outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
                   />
@@ -1069,91 +1106,100 @@ export default function CentroPage() {
               </div>
             </div>
 
-            {/* SECCIÓN RECAUDO EN CAJA */}
-            {esTurnoCierre && (
-              <div className="space-y-2 bg-[#051829] p-3 rounded-xl border border-[#0066b3]">
-                <span className="text-[10px] font-black text-emerald-300 uppercase block">2. Arqueo de Caja Final del Día:</span>
-                
-                <div className="grid grid-cols-3 gap-2 text-[10px]">
-                  <div>
-                    <span className="text-emerald-300 block mb-1 font-bold">💵 Efectivo ($)</span>
-                    <input 
-                      ref={(el) => { inputsRef.current['cierre_efectivo'] = el; }}
-                      type="text" 
-                      placeholder="$ 0" 
-                      value={formatearMoneda(efectivoCaja)} 
-                      onChange={(e) => setEfectivoCaja(desformatearMoneda(e.target.value))} 
-                      onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_nequi')}
-                      onFocus={(e) => e.target.select()} 
-                      className="w-full bg-[#0e385e] border border-[#0066b3] text-emerald-300 font-bold text-center rounded-lg p-2 outline-none focus:border-emerald-400" 
-                    />
-                  </div>
-                  <div>
-                    <span className="text-sky-200 block mb-1 font-bold">📲 Nequi ($)</span>
-                    <input 
-                      ref={(el) => { inputsRef.current['cierre_nequi'] = el; }}
-                      type="text" 
-                      placeholder="$ 0" 
-                      value={formatearMoneda(nequi)} 
-                      onChange={(e) => setNequi(desformatearMoneda(e.target.value))} 
-                      onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_daviplata')}
-                      onFocus={(e) => e.target.select()} 
-                      className="w-full bg-[#0e385e] border border-[#0066b3] text-sky-200 font-bold text-center rounded-lg p-2 outline-none focus:border-[#00a4ef]" 
-                    />
-                  </div>
-                  <div>
-                    <span className="text-fuchsia-300 block mb-1 font-bold">📱 Daviplata ($)</span>
-                    <input 
-                      ref={(el) => { inputsRef.current['cierre_daviplata'] = el; }}
-                      type="text" 
-                      placeholder="$ 0" 
-                      value={formatearMoneda(daviplata)} 
-                      onChange={(e) => setDaviplata(desformatearMoneda(e.target.value))} 
-                      onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_gastos')}
-                      onFocus={(e) => e.target.select()} 
-                      className="w-full bg-[#0e385e] border border-[#0066b3] text-fuchsia-200 font-bold text-center rounded-lg p-2 outline-none focus:border-fuchsia-400" 
-                    />
-                  </div>
+            <div className="space-y-2 bg-[#051829] p-3 rounded-xl border border-[#0066b3]">
+              <span className="text-[10px] font-black text-emerald-300 uppercase block">
+                2. DINERO EN CAJA / ARQUEO ({esTurnoCierre ? 'CIERRE DE DÍA' : 'ENTREGA DE TURNO'}):
+              </span>
+              
+              <div className="grid grid-cols-3 gap-2 text-[10px]">
+                <div>
+                  <span className="text-emerald-300 block mb-1 font-bold">💵 Efectivo ($)</span>
+                  <input 
+                    ref={(el) => { inputsRef.current['cierre_efectivo'] = el; }}
+                    type="text" 
+                    placeholder="$ 0" 
+                    value={formatearMoneda(efectivoCaja)} 
+                    onChange={(e) => setEfectivoCaja(desformatearMoneda(e.target.value))} 
+                    onKeyDown={(e) => handleKeyDownCierre(e, esTurnoCierre ? 'cierre_nequi' : 'cierre_gastos')}
+                    onFocus={(e) => e.target.select()} 
+                    className="w-full bg-[#0e385e] border border-[#0066b3] text-emerald-300 font-bold text-center rounded-lg p-2 outline-none focus:border-emerald-400" 
+                  />
                 </div>
-
-                {/* GASTOS Y MOTIVO */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[10px] pt-1">
-                  <div>
-                    <span className="text-amber-300 block mb-1 font-bold">🧾 Total Gastos ($)</span>
-                    <input 
-                      ref={(el) => { inputsRef.current['cierre_gastos'] = el; }}
-                      type="text" 
-                      placeholder="$ 0" 
-                      value={formatearMoneda(gastos)} 
-                      onChange={(e) => setGastos(desformatearMoneda(e.target.value))} 
-                      onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_motivo_gasto')}
-                      onFocus={(e) => e.target.select()} 
-                      className="w-full bg-[#0e385e] border border-[#0066b3] text-amber-300 font-bold text-center rounded-lg p-2 outline-none focus:border-amber-400" 
-                    />
-                  </div>
-                  <div>
-                    <span className="text-sky-200 block mb-1 font-bold">📝 Motivo del Gasto</span>
-                    <input 
-                      ref={(el) => { inputsRef.current['cierre_motivo_gasto'] = el; }}
-                      type="text" 
-                      placeholder="Ej. Compra de hielo, bolsas..." 
-                      value={motivoGasto} 
-                      onChange={(e) => setMotivoGasto(e.target.value)} 
-                      onFocus={(e) => e.target.select()} 
-                      className="w-full bg-[#0e385e] border border-[#0066b3] text-white text-xs rounded-lg p-2 outline-none focus:border-[#00a4ef]" 
-                    />
-                  </div>
+                <div>
+                  <span className={`block mb-1 font-bold ${esTurnoCierre ? 'text-sky-200' : 'text-slate-500'}`}>📲 Nequi ($)</span>
+                  <input 
+                    ref={(el) => { inputsRef.current['cierre_nequi'] = el; }}
+                    type="text" 
+                    placeholder={esTurnoCierre ? "$ 0" : "N/A (Sólo Cierre)"} 
+                    value={esTurnoCierre ? formatearMoneda(nequi) : ''} 
+                    onChange={(e) => setNequi(desformatearMoneda(e.target.value))} 
+                    disabled={!esTurnoCierre}
+                    onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_daviplata')}
+                    onFocus={(e) => e.target.select()} 
+                    className={`w-full border font-bold text-center rounded-lg p-2 outline-none ${
+                      esTurnoCierre 
+                        ? 'bg-[#0e385e] border-[#0066b3] text-sky-200 focus:border-[#00a4ef]' 
+                        : 'bg-[#051829] border-[#003d6d] text-slate-500 cursor-not-allowed'
+                    }`}
+                  />
                 </div>
-
-                {/* TOTAL ARQUEADO CALCULADO */}
-                <div className="flex justify-between items-center bg-[#0e385e] p-2.5 rounded-xl border border-emerald-400/50 text-xs font-bold mt-2">
-                  <span className="text-emerald-300 uppercase font-black">Total Recaudado (Ventas):</span>
-                  <span className="text-base font-black text-emerald-300 bg-[#051829] px-3 py-1 rounded-lg border border-emerald-500/50">
-                    $ {totalVentasCalculado.toLocaleString('es-CO')}
-                  </span>
+                <div>
+                  <span className={`block mb-1 font-bold ${esTurnoCierre ? 'text-fuchsia-300' : 'text-slate-500'}`}>📱 Daviplata ($)</span>
+                  <input 
+                    ref={(el) => { inputsRef.current['cierre_daviplata'] = el; }}
+                    type="text" 
+                    placeholder={esTurnoCierre ? "$ 0" : "N/A (Sólo Cierre)"} 
+                    value={esTurnoCierre ? formatearMoneda(daviplata) : ''} 
+                    onChange={(e) => setDaviplata(desformatearMoneda(e.target.value))} 
+                    disabled={!esTurnoCierre}
+                    onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_gastos')}
+                    onFocus={(e) => e.target.select()} 
+                    className={`w-full border font-bold text-center rounded-lg p-2 outline-none ${
+                      esTurnoCierre 
+                        ? 'bg-[#0e385e] border-[#0066b3] text-fuchsia-200 focus:border-fuchsia-400' 
+                        : 'bg-[#051829] border-[#003d6d] text-slate-500 cursor-not-allowed'
+                    }`}
+                  />
                 </div>
               </div>
-            )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[10px] pt-1">
+                <div>
+                  <span className="text-amber-300 block mb-1 font-bold">🧾 Total Gastos ($)</span>
+                  <input 
+                    ref={(el) => { inputsRef.current['cierre_gastos'] = el; }}
+                    type="text" 
+                    placeholder="$ 0" 
+                    value={formatearMoneda(gastos)} 
+                    onChange={(e) => setGastos(desformatearMoneda(e.target.value))} 
+                    onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_motivo_gasto')}
+                    onFocus={(e) => e.target.select()} 
+                    className="w-full bg-[#0e385e] border border-[#0066b3] text-amber-300 font-bold text-center rounded-lg p-2 outline-none focus:border-amber-400" 
+                  />
+                </div>
+                <div>
+                  <span className="text-sky-200 block mb-1 font-bold">📝 Motivo del Gasto</span>
+                  <input 
+                    ref={(el) => { inputsRef.current['cierre_motivo_gasto'] = el; }}
+                    type="text" 
+                    placeholder="Ej. Compra de hielo, bolsas..." 
+                    value={motivoGasto} 
+                    onChange={(e) => setMotivoGasto(e.target.value)} 
+                    onFocus={(e) => e.target.select()} 
+                    className="w-full bg-[#0e385e] border border-[#0066b3] text-white text-xs rounded-lg p-2 outline-none focus:border-[#00a4ef]" 
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-between items-center bg-[#0e385e] p-2.5 rounded-xl border border-emerald-400/50 text-xs font-bold mt-2">
+                <span className="text-emerald-300 uppercase font-black">
+                  {esTurnoCierre ? 'Total Recaudado (Ventas):' : 'Efectivo en Caja:'}
+                </span>
+                <span className="text-base font-black text-emerald-300 bg-[#051829] px-3 py-1 rounded-lg border border-emerald-500/50">
+                  $ {(esTurnoCierre ? totalVentasCalculado : Number(efectivoCaja) || 0).toLocaleString('es-CO')}
+                </span>
+              </div>
+            </div>
 
             <button
               onClick={handleGuardarNominaTurno}
@@ -1301,7 +1347,7 @@ export default function CentroPage() {
                 🔄
               </div>
               <h3 className="text-lg font-black text-white tracking-wide">
-                Recepción de Turno — Sede Centro
+                Recepción de Turno
               </h3>
               <p className="text-xs text-sky-200 font-medium">
                 Selecciona al operario entrante e ingresa sus credenciales
@@ -1360,7 +1406,7 @@ export default function CentroPage() {
               <button
                 type="button"
                 onClick={() => setMostrarModalCambioTurno(false)}
-                className="w-1/3 bg-[#051829] hover:bg-[#0e385e] text-sky-200 font-bold py-3 rounded-xl text-xs transition-colors border border-[#0066b3]"
+                className="w-1/3 bg-[#051829] hover:bg-[#0e385e] text-sky-200 font-bold py-3 rounded-xl text-xs transition-colors border border-[#0066b3] cursor-pointer"
               >
                 Cancelar
               </button>

@@ -13,23 +13,28 @@ export default function AdminPage() {
   const [fechaSeleccionada, setFechaSeleccionada] = useState<string>(fechaHoy);
   const [sedeSeleccionada, setSedeSeleccionada] = useState<string>('todos');
 
-  // Control de Módulos Principales (Acordeones Grandes de Nivel 1)
-  const [moduloAbierto, setModuloAbierto] = useState<string | null>('logistica'); // 'logistica' | 'cierres' | 'inventario' | etc.
+  // Control de Módulos Principales
+  const [moduloAbierto, setModuloAbierto] = useState<string | null>(null);
 
-  // Sub-control interno dentro de Logística
+  // Sub-control interno de Logística
   const [subPestanaLogistica, setSubPestanaLogistica] = useState<'compras' | 'despachos'>('compras');
+
+  // Sub-control interno de Cierres
+  const [subPestanaCierres, setSubPestanaCierres] = useState<'caja' | 'descuadres'>('caja');
 
   // Estados de Datos
   const [pedidos, setPedidos] = useState<any[]>([]);
   const [productosBD, setProductosBD] = useState<any[]>([]);
   const [registrosCaja, setRegistrosCaja] = useState<any[]>([]);
+  const [inventarioMovimientos, setInventarioMovimientos] = useState<any[]>([]);
   const [cargando, setCargando] = useState<boolean>(true);
   const [editandoProveedor, setEditandoProveedor] = useState<{ [nombre: string]: string }>({});
 
-  // Acordeones internos de nivel 2
+  // Acordeones internos
   const [acordeonesCompras, setAcordeonesCompras] = useState<{ [key: string]: boolean }>({});
   const [acordeonesDespachos, setAcordeonesDespachos] = useState<{ [key: string]: boolean }>({});
   const [acordeonesCierres, setAcordeonesCierres] = useState<{ [key: string]: boolean }>({ global: true });
+  const [acordeonesDescuadres, setAcordeonesDescuadres] = useState<{ [key: string]: boolean }>({});
 
   useEffect(() => {
     cargarDatosAdmin();
@@ -40,6 +45,11 @@ export default function AdminPage() {
     try {
       const inicioDia = `${fechaSeleccionada}T00:00:00`;
       const finDia = `${fechaSeleccionada}T23:59:59`;
+
+      // Calcular fecha de ayer para auditoría de descuadres
+      const fechaObj = new Date(fechaSeleccionada + 'T00:00:00');
+      fechaObj.setDate(fechaObj.getDate() - 1);
+      const fechaAyerStr = fechaObj.toISOString().split('T')[0];
 
       // 1. Pedidos
       const { data: pedidosData } = await supabase
@@ -53,16 +63,29 @@ export default function AdminPage() {
         .from('producto')
         .select('id, nombre, donde_comprar');
 
-      // 3. Cierres de caja
-      const { data: cajaData } = await supabase
+      // 3. Cierres de caja (Filtrado por fecha estricta YYYY-MM-DD)
+      const { data: cajaDataRaw } = await supabase
         .from('caja')
-        .select('*')
-        .gte('created_at', inicioDia)
-        .lte('created_at', finDia);
+        .select('*');
+
+      const cajaData = (cajaDataRaw || []).filter(row => row.fecha && String(row.fecha).startsWith(fechaSeleccionada));
+
+      // 4. Inventario diario
+      const { data: invData } = await supabase
+        .from('inventario_diario')
+        .select('*');
+
+      // Filtramos movimientos correspondientes a la fecha seleccionada o al día anterior
+      const invDataFiltrado = (invData || []).filter(row => {
+        if (!row.fecha) return false;
+        const fStr = String(row.fecha);
+        return fStr.startsWith(fechaSeleccionada) || fStr.startsWith(fechaAyerStr);
+      });
 
       setPedidos(pedidosData || []);
       setProductosBD(prodData || []);
-      setRegistrosCaja(cajaData || []);
+      setRegistrosCaja(cajaData);
+      setInventarioMovimientos(invDataFiltrado);
     } catch (err) {
       console.error('Error cargando datos:', err);
     } finally {
@@ -158,6 +181,63 @@ export default function AdminPage() {
     return mapa;
   })();
 
+  // --- CONSULTA DE DESCUADRES (Cierre de Ayer vs Apertura de Hoy) ---
+  const auditoriaDescuadres = (() => {
+    const fechaObj = new Date(fechaSeleccionada + 'T00:00:00');
+    fechaObj.setDate(fechaObj.getDate() - 1);
+    const fechaAyerStr = fechaObj.toISOString().split('T')[0];
+
+    const mapaSedDescuadres: { [sedeName: string]: { diferencias: { producto: string; cierreAyer: number; aperturaHoy: number; dif: number }[]; sedeId: number } } = {};
+
+    const sedesIds = [1, 2, 3, 4];
+    sedesIds.forEach(idSede => {
+      const nombreSede = idSede === 1 ? 'Sede Martineto' : idSede === 2 ? 'Sede Centro' : idSede === 3 ? 'Sede Viva' : 'Sede Ositos';
+      if (sedeSeleccionada !== 'todos' && String(idSede) !== sedeSeleccionada) return;
+
+      // Cierre de ayer por coincidencia exacta de YYYY-MM-DD
+      const registroCierreAyer = inventarioMovimientos.find(m => 
+        Number(m.sede_id) === idSede && 
+        String(m.tipo_movimiento || '').toLowerCase().includes('cierre') && 
+        m.fecha && String(m.fecha).startsWith(fechaAyerStr)
+      );
+
+      // Apertura de hoy por coincidencia exacta de YYYY-MM-DD
+      const registroAperturaHoy = inventarioMovimientos.find(m => 
+        Number(m.sede_id) === idSede && 
+        String(m.tipo_movimiento || '').toLowerCase().includes('apertura') && 
+        m.fecha && String(m.fecha).startsWith(fechaSeleccionada)
+      );
+
+      const jsonCierreAyer = registroCierreAyer?.inventario_json || registroCierreAyer?.datos_json || {};
+      const jsonAperturaHoy = registroAperturaHoy?.inventario_json || registroAperturaHoy?.datos_json || {};
+
+      const todosProductosSet = new Set([...Object.keys(jsonCierreAyer), ...Object.keys(jsonAperturaHoy)]);
+      const diferenciasLista: { producto: string; cierreAyer: number; aperturaHoy: number; dif: number }[] = [];
+
+      todosProductosSet.forEach(prodName => {
+        const valCierre = Number(jsonCierreAyer[prodName]) || 0;
+        const valApertura = Number(jsonAperturaHoy[prodName]) || 0;
+        const dif = valApertura - valCierre;
+
+        diferenciasLista.push({
+          producto: prodName,
+          cierreAyer: valCierre,
+          aperturaHoy: valApertura,
+          dif: dif
+        });
+      });
+
+      if (diferenciasLista.length > 0) {
+        mapaSedDescuadres[nombreSede] = {
+          sedeId: idSede,
+          diferencias: diferenciasLista
+        };
+      }
+    });
+
+    return mapaSedDescuadres;
+  })();
+
   // --- ACCIONES ---
   async function guardarProveedorInteligente(nombreProducto: string, idProd?: number) {
     const nuevoProv = editandoProveedor[nombreProducto];
@@ -210,9 +290,7 @@ export default function AdminPage() {
       {cargando ? <div className="text-center py-10 text-xs font-bold text-sky-200">Cargando datos...</div> : (
         <div className="space-y-3">
 
-          {/* ======================================================== */}
-          {/* MÓDULO 1: GESTIÓN LOGÍSTICA (COMPRAS Y DESPACHOS) */}
-          {/* ======================================================== */}
+          {/* MÓDULO 1: GESTIÓN LOGÍSTICA */}
           <div className="border border-[#0066b3] bg-[#0b2b48] rounded-2xl overflow-hidden shadow-lg">
             <button 
               onClick={() => toggleModulo('logistica')}
@@ -228,14 +306,11 @@ export default function AdminPage() {
 
             {moduloAbierto === 'logistica' && (
               <div className="p-3 pt-0 space-y-3 border-t border-[#0066b3]/30 bg-[#031d35]/60">
-                
-                {/* SUB-PESTAÑAS INTERNAS DE LOGÍSTICA */}
                 <div className="grid grid-cols-2 gap-2 pt-3">
                   <button onClick={() => setSubPestanaLogistica('compras')} className={`py-2 rounded-xl font-extrabold text-[11px] uppercase border ${subPestanaLogistica === 'compras' ? 'bg-[#0078d4] border-[#00a4ef]' : 'bg-[#0b2b48] border-[#0066b3]'}`}>🛒 Por Comprar</button>
                   <button onClick={() => setSubPestanaLogistica('despachos')} className={`py-2 rounded-xl font-extrabold text-[11px] uppercase border ${subPestanaLogistica === 'despachos' ? 'bg-[#0078d4] border-[#00a4ef]' : 'bg-[#0b2b48] border-[#0066b3]'}`}>🚚 Por Entregar</button>
                 </div>
 
-                {/* VISTA COMPRAS */}
                 {subPestanaLogistica === 'compras' && (
                   Object.keys(consolidadoCompras).length === 0 ? (
                     <p className="text-center text-xs text-sky-300 py-6 font-semibold">No hay compras pendientes.</p>
@@ -282,7 +357,6 @@ export default function AdminPage() {
                   )
                 )}
 
-                {/* VISTA DESPACHOS */}
                 {subPestanaLogistica === 'despachos' && (
                   <div className="space-y-2">
                     <select value={sedeSeleccionada} onChange={(e) => setSedeSeleccionada(e.target.value)} className="w-full bg-[#031d35] border border-[#0066b3] text-white font-bold text-xs p-2 rounded-lg outline-none">
@@ -330,16 +404,14 @@ export default function AdminPage() {
             )}
           </div>
 
-          {/* ======================================================== */}
-          {/* MÓDULO 2: AUDITORÍA Y CIERRES DE CAJA */}
-          {/* ======================================================== */}
+          {/* MÓDULO 2: AUDITORÍA Y CIERRES DE CAJA / DESCUADRES */}
           <div className="border border-[#0066b3] bg-[#0b2b48] rounded-2xl overflow-hidden shadow-lg">
             <button 
               onClick={() => toggleModulo('cierres')}
               className="w-full p-4 flex justify-between items-center text-xs font-black uppercase text-emerald-300 bg-[#0b2b48] cursor-pointer"
             >
               <span className="flex items-center gap-2">
-                <span>{moduloAbierto === 'cierres' ? '▼' : '▶'}</span> 💰 2. CIERRES DE CAJA Y VENTAS
+                <span>{moduloAbierto === 'cierres' ? '▼' : '▶'}</span> 💰 2. CIERRES DE CAJA Y DESCUADRES
               </span>
               <span className="bg-[#031d35] text-emerald-300 font-bold text-[10px] px-2 py-0.5 rounded border border-[#0066b3]">
                 ${(CierreGlobal.totalVenta - CierreGlobal.gastos).toLocaleString()}
@@ -349,7 +421,12 @@ export default function AdminPage() {
             {moduloAbierto === 'cierres' && (
               <div className="p-3 pt-0 space-y-3 border-t border-[#0066b3]/30 bg-[#031d35]/60">
                 
-                <div className="pt-3">
+                <div className="grid grid-cols-2 gap-2 pt-3">
+                  <button onClick={() => setSubPestanaCierres('caja')} className={`py-2 rounded-xl font-extrabold text-[11px] uppercase border ${subPestanaCierres === 'caja' ? 'bg-emerald-700 border-emerald-400 text-white' : 'bg-[#0b2b48] border-[#0066b3] text-sky-300'}`}>💵 Cierres de Caja</button>
+                  <button onClick={() => setSubPestanaCierres('descuadres')} className={`py-2 rounded-xl font-extrabold text-[11px] uppercase border ${subPestanaCierres === 'descuadres' ? 'bg-emerald-700 border-emerald-400 text-white' : 'bg-[#0b2b48] border-[#0066b3] text-sky-300'}`}>🔍 Descuadres</button>
+                </div>
+
+                <div className="pt-1">
                   <select value={sedeSeleccionada} onChange={(e) => setSedeSeleccionada(e.target.value)} className="w-full bg-[#031d35] border border-[#0066b3] text-white font-bold text-xs p-2 rounded-lg outline-none">
                     <option value="todos">🌐 Ver Todas las Sedes (Global)</option>
                     <option value="1">Sede Martineto</option>
@@ -359,72 +436,154 @@ export default function AdminPage() {
                   </select>
                 </div>
 
-                {/* RESUMEN GLOBAL */}
-                {sedeSeleccionada === 'todos' && (
-                  <div className="border border-emerald-500/50 bg-[#0b2b48] rounded-xl overflow-hidden">
-                    <button onClick={() => setAcordeonesCierres(prev => ({ ...prev, global: !prev.global }))} className="w-full p-3 flex justify-between items-center text-xs font-black uppercase text-emerald-300 bg-emerald-950/40">
-                      <span>{acordeonesCierres.global ? '▼' : '▶'} CONSOLIDADO GLOBAL</span>
-                      <span className="text-white">${CierreGlobal.totalVenta.toLocaleString()}</span>
-                    </button>
-                    {acordeonesCierres.global && (
-                      <div className="p-3 space-y-1.5 bg-[#031d35] text-xs border-t border-emerald-500/30">
-                        <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>💵 Efectivo:</span><span className="font-bold text-emerald-400">${CierreGlobal.efectivo.toLocaleString()}</span></div>
-                        <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>📲 Nequi:</span><span className="font-bold text-sky-300">${CierreGlobal.nequi.toLocaleString()}</span></div>
-                        <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>💳 Daviplata:</span><span className="font-bold text-rose-300">${CierreGlobal.daviplata.toLocaleString()}</span></div>
-                        <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>📉 Gastos:</span><span className="font-bold text-amber-400">-${CierreGlobal.gastos.toLocaleString()}</span></div>
-                        <div className="flex justify-between py-1.5 text-xs font-black border-t border-emerald-400 mt-1 text-white"><span>💰 VENTA NETO GLOBAL:</span><span className="text-emerald-300">${(CierreGlobal.totalVenta - CierreGlobal.gastos).toLocaleString()}</span></div>
-                      </div>
+                {/* VISTA 1: CIERRES DE CAJA */}
+                {subPestanaCierres === 'caja' && (
+                  <div className="space-y-3">
+                    {sedeSeleccionada === 'todos' ? (
+                      <>
+                        {/* RESUMEN GLOBAL */}
+                        <div className="border border-emerald-500/50 bg-[#0b2b48] rounded-xl overflow-hidden">
+                          <button onClick={() => setAcordeonesCierres(prev => ({ ...prev, global: !prev.global }))} className="w-full p-3 flex justify-between items-center text-xs font-black uppercase text-emerald-300 bg-emerald-950/40">
+                            <span>{acordeonesCierres.global ? '▼' : '▶'} CONSOLIDADO GLOBAL</span>
+                            <span className="text-white">${CierreGlobal.totalVenta.toLocaleString()}</span>
+                          </button>
+                          {acordeonesCierres.global && (
+                            <div className="p-3 space-y-1.5 bg-[#031d35] text-xs border-t border-emerald-500/30">
+                              <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>💵 Efectivo:</span><span className="font-bold text-emerald-400">${CierreGlobal.efectivo.toLocaleString()}</span></div>
+                              <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>📲 Nequi:</span><span className="font-bold text-sky-300">${CierreGlobal.nequi.toLocaleString()}</span></div>
+                              <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>💳 Daviplata:</span><span className="font-bold text-rose-300">${CierreGlobal.daviplata.toLocaleString()}</span></div>
+                              <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>📉 Gastos:</span><span className="font-bold text-amber-400">-${CierreGlobal.gastos.toLocaleString()}</span></div>
+                              <div className="flex justify-between py-1.5 text-xs font-black border-t border-emerald-400 mt-1 text-white"><span>💰 VENTA NETO GLOBAL:</span><span className="text-emerald-300">${(CierreGlobal.totalVenta - CierreGlobal.gastos).toLocaleString()}</span></div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* LISTADO POR SEDES */}
+                        {Object.keys(cierresPorSede).length === 0 ? (
+                          <p className="text-center text-xs text-sky-300 py-6 font-semibold">No se encontraron cierres de caja en esta fecha.</p>
+                        ) : (
+                          Object.entries(cierresPorSede).map(([nombreSede, dataSede]) => {
+                            const abierto = !!acordeonesCierres[nombreSede];
+                            return (
+                              <div key={nombreSede} className="border border-[#0066b3] bg-[#0b2b48] rounded-xl overflow-hidden">
+                                <button onClick={() => setAcordeonesCierres(prev => ({ ...prev, [nombreSede]: !abierto }))} className="w-full p-3 flex justify-between items-center text-xs font-bold text-white uppercase">
+                                  <span>{abierto ? '▼' : '▶'} {nombreSede}</span>
+                                  <span className="text-emerald-300 font-bold">${dataSede.totalVenta.toLocaleString()}</span>
+                                </button>
+                                {abierto && (
+                                  <div className="p-3 space-y-1 bg-[#031d35] text-xs border-t border-[#0066b3]/30">
+                                    <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>💵 Efectivo:</span><span className="font-bold text-emerald-400">${dataSede.efectivo.toLocaleString()}</span></div>
+                                    <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>📲 Nequi:</span><span className="font-bold text-sky-300">${dataSede.nequi.toLocaleString()}</span></div>
+                                    <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>💳 Daviplata:</span><span className="font-bold text-rose-300">${dataSede.daviplata.toLocaleString()}</span></div>
+                                    <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>📉 Gastos:</span><span className="font-bold text-amber-400">-${dataSede.gastos.toLocaleString()}</span></div>
+                                    {dataSede.motivosGastos.length > 0 && (
+                                      <div className="bg-[#0b2b48] p-2 rounded text-[10px] my-1 border border-amber-500/30">
+                                        <span className="text-amber-300 font-bold block">Notas de Gastos:</span>
+                                        {dataSede.motivosGastos.map((m: string, idx: number) => <p key={idx} className="text-sky-200">• {m}</p>)}
+                                      </div>
+                                    )}
+                                    <div className="flex justify-between py-1 font-black border-t border-sky-500/40 text-white"><span>💰 VENTA NETO:</span><span className="text-emerald-300">${(dataSede.totalVenta - dataSede.gastos).toLocaleString()}</span></div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })
+                        )}
+                      </>
+                    ) : (
+                      /* DESPLIEGUE DIRECTO SI SELECCIONÓ UNA SEDE ESPECÍFICA */
+                      (() => {
+                        const datosSedeSeleccionada = Object.values(cierresPorSede)[0];
+
+                        if (!datosSedeSeleccionada) {
+                          return <p className="text-center text-xs text-sky-300 py-6 font-semibold">No se encontraron cierres de caja para esta sede en esta fecha.</p>;
+                        }
+
+                        return (
+                          <div className="border border-emerald-500/50 bg-[#031d35] p-3 rounded-xl space-y-1.5 text-xs shadow-md">
+                            <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>💵 Efectivo:</span><span className="font-bold text-emerald-400">${datosSedeSeleccionada.efectivo.toLocaleString()}</span></div>
+                            <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>📲 Nequi:</span><span className="font-bold text-sky-300">${datosSedeSeleccionada.nequi.toLocaleString()}</span></div>
+                            <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>💳 Daviplata:</span><span className="font-bold text-rose-300">${datosSedeSeleccionada.daviplata.toLocaleString()}</span></div>
+                            <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>📉 Gastos:</span><span className="font-bold text-amber-400">-${datosSedeSeleccionada.gastos.toLocaleString()}</span></div>
+                            {datosSedeSeleccionada.motivosGastos.length > 0 && (
+                              <div className="bg-[#0b2b48] p-2 rounded text-[10px] my-1 border border-amber-500/30">
+                                <span className="text-amber-300 font-bold block">Notas de Gastos:</span>
+                                {datosSedeSeleccionada.motivosGastos.map((m: string, idx: number) => <p key={idx} className="text-sky-200">• {m}</p>)}
+                              </div>
+                            )}
+                            <div className="flex justify-between py-1.5 text-xs font-black border-t border-emerald-400 mt-1 text-white"><span>💰 VENTA NETO:</span><span className="text-emerald-300">${(datosSedeSeleccionada.totalVenta - datosSedeSeleccionada.gastos).toLocaleString()}</span></div>
+                          </div>
+                        );
+                      })()
                     )}
                   </div>
                 )}
 
-                {/* DETALLE POR SEDE */}
-                {Object.keys(cierresPorSede).length === 0 ? (
-                  <p className="text-center text-xs text-sky-300 py-6 font-semibold">No se encontraron cierres de caja en esta fecha.</p>
-                ) : (
-                  Object.entries(cierresPorSede).map(([nombreSede, dataSede]) => {
-                    const abierto = !!acordeonesCierres[nombreSede];
-                    return (
-                      <div key={nombreSede} className="border border-[#0066b3] bg-[#0b2b48] rounded-xl overflow-hidden">
-                        <button onClick={() => setAcordeonesCierres(prev => ({ ...prev, [nombreSede]: !abierto }))} className="w-full p-3 flex justify-between items-center text-xs font-bold text-white uppercase">
-                          <span>{abierto ? '▼' : '▶'} {nombreSede}</span>
-                          <span className="text-emerald-300 font-bold">${dataSede.totalVenta.toLocaleString()}</span>
-                        </button>
-                        {abierto && (
-                          <div className="p-3 space-y-1 bg-[#031d35] text-xs border-t border-[#0066b3]/30">
-                            <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>💵 Efectivo:</span><span className="font-bold text-emerald-400">${dataSede.efectivo.toLocaleString()}</span></div>
-                            <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>📲 Nequi:</span><span className="font-bold text-sky-300">${dataSede.nequi.toLocaleString()}</span></div>
-                            <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>💳 Daviplata:</span><span className="font-bold text-rose-300">${dataSede.daviplata.toLocaleString()}</span></div>
-                            <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>📉 Gastos:</span><span className="font-bold text-amber-400">-${dataSede.gastos.toLocaleString()}</span></div>
-                            {dataSede.motivosGastos.length > 0 && (
-                              <div className="bg-[#0b2b48] p-2 rounded text-[10px] my-1 border border-amber-500/30">
-                                <span className="text-amber-300 font-bold block">Notas de Gastos:</span>
-                                {dataSede.motivosGastos.map((m: string, idx: number) => <p key={idx} className="text-sky-200">• {m}</p>)}
+                {/* VISTA 2: DESCUADRES */}
+                {subPestanaCierres === 'descuadres' && (
+                  <div className="space-y-2">
+                    <p className="text-[11px] text-sky-200 italic px-1">
+                      Comparativa del Cierre del día anterior vs. la Apertura de hoy ({fechaSeleccionada}).
+                    </p>
+
+                    {Object.keys(auditoriaDescuadres).length === 0 ? (
+                      <p className="text-center text-xs text-sky-300 py-6 font-semibold">No hay movimientos registrados para comparar entre ayer y hoy.</p>
+                    ) : (
+                      Object.entries(auditoriaDescuadres).map(([nombreSede, infoSede]) => {
+                        const abierto = !!acordeonesDescuadres[nombreSede];
+                        const tieneDescuadre = infoSede.diferencias.some(d => d.dif !== 0);
+
+                        return (
+                          <div key={nombreSede} className={`border rounded-xl overflow-hidden ${tieneDescuadre ? 'border-amber-500 bg-[#0b2b48]' : 'border-[#0066b3] bg-[#0b2b48]'}`}>
+                            <button onClick={() => setAcordeonesDescuadres(prev => ({ ...prev, [nombreSede]: !abierto }))} className="w-full p-3 flex justify-between items-center text-xs font-bold text-white uppercase">
+                              <span className="flex items-center gap-1.5">
+                                <span>{abierto ? '▼' : '▶'}</span> {nombreSede}
+                              </span>
+                              <span className={`text-[10px] px-2 py-0.5 rounded font-black ${tieneDescuadre ? 'bg-amber-950 text-amber-300 border border-amber-500' : 'bg-emerald-950 text-emerald-300'}`}>
+                                {tieneDescuadre ? '⚠️ Con Diferencias' : '✅ Cuadrado'}
+                              </span>
+                            </button>
+
+                            {abierto && (
+                              <div className="p-3 pt-0 bg-[#031d35] text-xs space-y-2 border-t border-[#0066b3]/30">
+                                <div className="grid grid-cols-4 font-black text-[10px] text-sky-300 border-b border-[#0066b3]/40 pb-1 mt-2">
+                                  <span>PRODUCTO</span>
+                                  <span className="text-center">CIERRE AYER</span>
+                                  <span className="text-center">APERT. HOY</span>
+                                  <span className="text-right">DIFERENCIA</span>
+                                </div>
+                                <div className="space-y-1.5 pt-1 max-h-48 overflow-y-auto pr-1">
+                                  {infoSede.diferencias.map((item, idx) => (
+                                    <div key={idx} className="grid grid-cols-4 items-center text-[11px] border-b border-[#0066b3]/20 py-1 text-white">
+                                      <span className="truncate pr-1">{item.producto}</span>
+                                      <span className="text-center text-sky-200">{item.cierreAyer}</span>
+                                      <span className="text-center text-cyan-200">{item.aperturaHoy}</span>
+                                      <span className={`text-right font-black ${item.dif === 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                                        {item.dif > 0 ? `+${item.dif}` : item.dif}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
                               </div>
                             )}
-                            <div className="flex justify-between py-1 font-black border-t border-sky-500/40 text-white"><span>💰 VENTA NETO:</span><span className="text-emerald-300">${(dataSede.totalVenta - dataSede.gastos).toLocaleString()}</span></div>
                           </div>
-                        )}
-                      </div>
-                    );
-                  })
+                        );
+                      })
+                    )}
+                  </div>
                 )}
 
               </div>
             )}
           </div>
 
-          {/* ======================================================== */}
-          {/* MÓDULO 3: CONTROL DE INVENTARIOS Y STOCK (PRÓXIMO) */}
-          {/* ======================================================== */}
+          {/* MÓDULO 3: INVENTARIOS Y STOCK GENERAL */}
           <div className="border border-[#0066b3]/60 bg-[#0b2b48]/60 rounded-2xl p-4 flex justify-between items-center text-xs font-bold text-sky-300 opacity-80">
             <span>📦 3. INVENTARIOS Y STOCK GENERAL</span>
             <span className="bg-[#031d35] text-[10px] px-2 py-0.5 rounded border border-[#0066b3]">Próxima Consulta</span>
           </div>
 
-          {/* ======================================================== */}
-          {/* MÓDULO 4: NÓMINA Y HORARIOS (PRÓXIMO) */}
-          {/* ======================================================== */}
+          {/* MÓDULO 4: NÓMINA Y REGISTRO DE TURNOS */}
           <div className="border border-[#0066b3]/60 bg-[#0b2b48]/60 rounded-2xl p-4 flex justify-between items-center text-xs font-bold text-sky-300 opacity-80">
             <span>👥 4. NÓMINA Y REGISTRO DE TURNOS</span>
             <span className="bg-[#031d35] text-[10px] px-2 py-0.5 rounded border border-[#0066b3]">Próxima Consulta</span>

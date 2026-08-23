@@ -45,18 +45,27 @@ export async function actualizarEstadoMesa(mesaId: number, estado: string): Prom
 
 export async function registrarBaseCajaMartineto(sedeId: number, usuarioId: number, montoApertura: number, turnoId?: number): Promise<boolean> {
   try {
+    // Forzamos estrictamente el sedeId a 4 para Martineto por seguridad
+    const sedeFinal = 4;
+
     const { error } = await supabase.from('caja').insert([
       {
-        sede_id: sedeId,
+        sede_id: sedeFinal,
         usuario_id: usuarioId,
         turno_id: turnoId || null,
         monto_apertura: montoApertura,
         estado: 'abierta',
-        fecha: new Date().toISOString(),
+        diferencia: 0,
       },
     ]);
-    return !error;
+    
+    if (error) {
+      console.error('Error en registrarBaseCajaMartineto:', error.message);
+      return false;
+    }
+    return true;
   } catch (err) {
+    console.error('Excepción en registrarBaseCajaMartineto:', err);
     return false;
   }
 }
@@ -72,8 +81,10 @@ export async function registrarMovimientoMartineto(
   turnoId?: number
 ): Promise<boolean> {
   try {
+    const sedeFinal = 4; // Forzamos estrictamente a 4 para Martineto
+
     const payload: any = {
-      sede_id: sedeId,
+      sede_id: sedeFinal,
       usuario_id: usuarioId,
       tipo_movimiento: tipoMovimiento,
       total_paletas: totalPaletas,
@@ -85,8 +96,14 @@ export async function registrarMovimientoMartineto(
     if (turnoId) payload.turno_id = turnoId;
 
     const { error } = await supabase.from('inventario_diario').insert([payload]);
-    return !error;
+    
+    if (error) {
+      console.error('Error en registrarMovimientoMartineto:', error.message);
+      return false;
+    }
+    return true;
   } catch (err) {
+    console.error('Excepción en registrarMovimientoMartineto:', err);
     return false;
   }
 }
