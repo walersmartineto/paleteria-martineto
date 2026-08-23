@@ -13,68 +13,6 @@ import {
 } from '@/lib/vivaQueries';
 import { supabase } from '@/lib/supabase';
 
-const LUGARES_COMPRA_INICIALES = [
-  'Avicampo',
-  'Carnaval del Dulce',
-  'Chispazo',
-  'D1',
-  'Flesman',
-  'Makro',
-  'Plaza de Mercado',
-  'Plasticos Richi',
-];
-
-const LISTA_PLASTICOS_RICHI = [
-  'Bolsa Blanca',
-  'Bolsa de Papel',
-  'Cucharitas',
-  'Vaso agua',
-];
-
-const LISTA_INSUMOS_MATERIA = [
-  'Capacillos',
-  'Chamoy',
-  'Chip chocolate',
-  'Chocolate cobertura Blanco',
-  'Chocolate Cobertura Negro',
-  'Flips',
-  'Galleta oreo',
-  'Gomitas',
-  'Grasa',
-  'Leche condensada',
-  'Mani',
-  'Nerds',
-  'Nutella',
-  'Pepitas colores',
-  'Pistacho',
-  'Plato Mostac',
-  'Quipitos',
-  'Sal limón',
-  'Semillas de girasol',
-  'Servilletas',
-  'Tajín',
-  'Zumo de Limon',
-];
-
-const LISTA_ASEO = [
-  'Antibacterial',
-  'Bolsas de basura',
-  'Clorox',
-  'Escoba',
-  'Esponjillas',
-  'Guantes de Nitrilo',
-  'Jabon de Manos',
-  'Jabón loza',
-  'Jabón en polvo',
-  'Limpia Pisos',
-  'Liquido Verde',
-  'Papel higiénico',
-  'Tapabocas',
-  'Toallas de papel',
-  'Trapero',
-  'Trapitos',
-];
-
 // FUNCIONES DE FORMATO DE MONEDA
 const formatearMoneda = (val: number | string): string => {
   if (val === '' || val === null || val === undefined) return '';
@@ -92,13 +30,14 @@ export default function VivaPage() {
   const router = useRouter();
   const [sesion, setSesion] = useState<any>(null);
 
+  // ESTADO DE TARIFAS (SE CARGA DINÁMICAMENTE DESDE configuracion_tarifa)
   const [tarifas, setTarifas] = useState<TarifasViva>({
-    subsidio: 9600,
-    transporte: 8400,
-    horaDiaEntreSemana: 7200,
-    horaNocheEntreSemana: 10700,
-    horaDiaFestivo: 12700,
-    horaNocheFestivo: 15200,
+    subsidio: 0,
+    transporte: 0,
+    horaDiaEntreSemana: 0,
+    horaNocheEntreSemana: 0,
+    horaDiaFestivo: 0,
+    horaNocheFestivo: 0,
   });
 
   const [baseCaja, setBaseCaja] = useState<number | ''>('');
@@ -132,7 +71,7 @@ export default function VivaPage() {
   const [nuevoProdNombre, setNuevoProdNombre] = useState('');
   const [nuevoProdCategoria, setNuevoProdCategoria] = useState('Paleta');
   const [nuevoProdGrupo, setNuevoProdGrupo] = useState('');
-  const [nuevoProdDondeComprar, setNuevoProdDondeComprar] = useState('Plaza de Mercado');
+  const [nuevoProdDondeComprar, setNuevoProdDondeComprar] = useState('');
   const [dondeComprarPersonalizado, setDondeComprarPersonalizado] = useState('');
   const [esProductoGlobal, setEsProductoGlobal] = useState(true);
   const [guardandoProducto, setGuardandoProducto] = useState(false);
@@ -170,39 +109,40 @@ export default function VivaPage() {
 
   const SEDE_ID_VIVA = 1;
 
+  // OBTENER LUGARES DE COMPRA EXCLUSIVAMENTE DESDE LA BASE DE DATOS
   const listaLugaresCompraUnica = Array.from(
-    new Set([
-      ...LUGARES_COMPRA_INICIALES,
-      ...productosInsumosBD
+    new Set(
+      productosInsumosBD
         .map((p) => p.donde_comprar)
-        .filter((lugar): lugar is string => Boolean(lugar && lugar.trim() !== '')),
-    ])
-  ).sort();
+        .filter((lugar): lugar is string => Boolean(lugar && lugar.trim() !== ''))
+        .map((lugar) => {
+          const l = lugar.trim();
+          return l.charAt(0).toUpperCase() + l.slice(1).toLowerCase();
+        })
+    )
+  )
+    .filter((lugar) => !lugar.toLowerCase().includes('hermanita'))
+    .sort();
 
-  // FILTRO ESTRICTO: Solo categoría Paleta (o vacía si se asume por defecto), excluyendo insumos/aseo
+  // FILTROS DINÁMICOS DESDE LA BD
   const paletasFiltradas = saboresViva.filter((p) => {
     const cat = String(p.categoria || '').trim().toLowerCase();
-    const grp = String(p.grupo || '').trim().toLowerCase();
-    const nom = String(p.nombre || '').toLowerCase();
+    return cat === 'paleta' || cat === '';
+  });
 
-    // Debe pertenecer estrictamente a la categoría paleta
-    const esPaletaCategoria = cat === 'paleta' || cat === '';
+  const richiFiltrados = productosInsumosBD.filter((p) => {
+    const cat = String(p.categoriaLimpia || '');
+    return cat.includes('richi') || cat.includes('empaque');
+  });
 
-    const esExcluido =
-      cat.includes('aseo') ||
-      cat.includes('insumo') ||
-      cat.includes('materia') ||
-      cat.includes('empaque') ||
-      cat.includes('richi') ||
-      grp.includes('aseo') ||
-      grp.includes('insumo') ||
-      grp.includes('richi') ||
-      nom.includes('antibacterial') ||
-      nom.includes('servilleta') ||
-      nom.includes('sal limón') ||
-      nom.includes('girasol');
+  const insumosFiltrados = productosInsumosBD.filter((p) => {
+    const cat = String(p.categoriaLimpia || '');
+    return cat.includes('insumo') || cat.includes('topping') || cat.includes('materia');
+  });
 
-    return esPaletaCategoria && !esExcluido;
+  const aseoFiltrados = productosInsumosBD.filter((p) => {
+    const cat = String(p.categoriaLimpia || '');
+    return cat.includes('aseo');
   });
 
   const totalPaletasSuma = Object.values(cantidadesSabores).reduce(
@@ -235,13 +175,33 @@ export default function VivaPage() {
 
   async function cargarInicial() {
     setCargando(true);
-    const [configTarifas, operarios, listaSabores] = await Promise.all([
-      obtenerTarifasViva(),
+
+    // Consulta de configuracion_tarifa directa desde Supabase
+    const { data: configBD } = await supabase
+      .from('configuracion_tarifa')
+      .select('*')
+      .single();
+
+    if (configBD) {
+      setTarifas({
+        subsidio: Number(configBD.subsidio) || 0,
+        transporte: Number(configBD.transporte) || 0,
+        horaDiaEntreSemana: Number(configBD.hora_dia_entre_semana) || 0,
+        horaNocheEntreSemana: Number(configBD.hora_noche_entre_semana) || 0,
+        horaDiaFestivo: Number(configBD.hora_dia_festivo) || 0,
+        horaNocheFestivo: Number(configBD.hora_noche_festivo) || 0,
+      });
+    } else {
+      // Fallback a función auxiliar en caso de que falle la lectura directa
+      const configTarifasAux = await obtenerTarifasViva();
+      if (configTarifasAux) setTarifas(configTarifasAux);
+    }
+
+    const [operarios, listaSabores] = await Promise.all([
       obtenerUsuariosOperarios(),
       obtenerSaboresViva(),
     ]);
 
-    setTarifas(configTarifas);
     setListaOperarios(operarios);
     setSaboresViva(listaSabores || []);
 
@@ -256,15 +216,29 @@ export default function VivaPage() {
       .or(`sede_id.eq.${SEDE_ID_VIVA},sede_id.eq.0,sede_id.is.null`);
 
     if (prodsInsumosBD) {
-      setProductosInsumosBD(
-        prodsInsumosBD.map((p: any) => ({
-          ...p,
-          nombre: p.nombre || p.Nombre || '',
-          categoriaLimpia: String(p.categoria || p.Categoria || 'general').trim().toLowerCase(),
-          grupoLimpio: String(p.grupo || p.Grupo || '').trim().toLowerCase(),
-          donde_comprar: p.donde_comprar || '',
-        }))
-      );
+      const mapeados = prodsInsumosBD.map((p: any) => ({
+        ...p,
+        nombre: p.nombre || p.Nombre || '',
+        categoriaLimpia: String(p.categoria || p.Categoria || 'general').trim().toLowerCase(),
+        grupoLimpio: String(p.grupo || p.Grupo || '').trim().toLowerCase(),
+        donde_comprar: p.donde_comprar || '',
+      }));
+      setProductosInsumosBD(mapeados);
+
+      const lugaresUnicos = Array.from(
+        new Set(
+          mapeados
+            .map((p: any) => p.donde_comprar)
+            .filter((l: string) => Boolean(l && l.trim() !== ''))
+            .map((l: string) => l.trim().charAt(0).toUpperCase() + l.trim().slice(1).toLowerCase())
+        )
+      ).filter((l: string) => !l.toLowerCase().includes('hermanita'));
+
+      if (lugaresUnicos.length > 0) {
+        setNuevoProdDondeComprar(lugaresUnicos[0]);
+      } else {
+        setNuevoProdDondeComprar('Otro');
+      }
     }
 
     setCargando(false);
@@ -310,12 +284,13 @@ export default function VivaPage() {
         donde_comprar: data[0].donde_comprar || '',
       };
       setProductosInsumosBD((prev) => [...prev, nuevoObj]);
-      setSaboresViva((prev) => [...prev, nuevoObj]);
+      if (nuevoProdCategoria === 'Paleta') {
+        setSaboresViva((prev) => [...prev, nuevoObj]);
+      }
     }
 
     setNuevoProdNombre('');
     setNuevoProdGrupo('');
-    setNuevoProdDondeComprar(LUGARES_COMPRA_INICIALES[0]);
     setDondeComprarPersonalizado('');
     setMostrarModalNuevoProd(false);
     setGuardandoProducto(false);
@@ -457,7 +432,7 @@ export default function VivaPage() {
         return;
       }
 
-      alert(`✅ ¡Apertura/Inventario guardado con éxito! (ID en BD: ${data?.[0]?.id || 'OK'})`);
+      alert(`✅ ¡Apertura/Inventario guardado con éxito! `);
       
       if (tipoMovimiento === 'apertura') {
         setAperturaRealizada(true);
@@ -788,7 +763,7 @@ export default function VivaPage() {
             <span className="text-[10px] text-sky-300 font-bold uppercase block mb-1">Ingresar Cantidad por Sabor:</span>
             {paletasFiltradas.length === 0 ? (
               <p className="text-xs text-amber-200 text-center py-4 font-semibold">
-                ⚠️ No se encontraron paletas registradas. Haz clic en "➕ Crear Producto" a la derecha para agregar nuevos.
+                ⚠️ No se encontraron paletas registradas.
               </p>
             ) : (
               paletasFiltradas.map((s, idx) => (
@@ -896,7 +871,7 @@ export default function VivaPage() {
 
                 {categoriaPedido === 'paletas' && (
                   <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 border border-[#0066b3]/50 p-2.5 rounded-xl bg-[#051829]">
-                    <span className="text-[10px] text-sky-300 font-bold uppercase block">Seleccionar Sabores a Solicitar a Bodega:</span>
+                    <span className="text-[10px] text-sky-300 font-bold uppercase block">Seleccionar Sabores a Solicitar:</span>
                     {paletasFiltradas.map((s, idx) => (
                       <div key={s.id} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2">
                         <div className="truncate">
@@ -922,64 +897,76 @@ export default function VivaPage() {
 
                 {categoriaPedido === 'richi' && (
                   <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 border border-[#0066b3]/50 p-2.5 rounded-xl bg-[#051829]">
-                    <span className="text-[10px] text-sky-300 font-bold uppercase block">Plásticos Richi</span>
-                    {LISTA_PLASTICOS_RICHI.map((item, idx) => (
-                      <div key={item} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2">
-                        <span className="text-xs font-bold text-white truncate">{item}</span>
-                        <input 
-                          ref={(el) => { inputsRef.current[`pedido_richi_${item}`] = el; }}
-                          type="number" 
-                          placeholder="0" 
-                          value={cantidadesRichi[item] ?? ''} 
-                          onChange={(e) => handleItemGenericoChange(item, e.target.value, setCantidadesRichi)} 
-                          onKeyDown={(e) => handleKeyDownPedido(e, idx, LISTA_PLASTICOS_RICHI, 'pedido_richi')}
-                          onFocus={(e) => e.target.select()} 
-                          className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
-                        />
-                      </div>
-                    ))}
+                    <span className="text-[10px] text-sky-300 font-bold uppercase block">Empaques / Richi:</span>
+                    {richiFiltrados.length === 0 ? (
+                      <p className="text-xs text-amber-200 text-center py-4 font-semibold">No hay empaques guardados en la BD.</p>
+                    ) : (
+                      richiFiltrados.map((item, idx) => (
+                        <div key={item.id} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2">
+                          <span className="text-xs font-bold text-white truncate">{item.nombre}</span>
+                          <input 
+                            ref={(el) => { inputsRef.current[`pedido_richi_${item.id}`] = el; }}
+                            type="number" 
+                            placeholder="0" 
+                            value={cantidadesRichi[item.nombre] ?? ''} 
+                            onChange={(e) => handleItemGenericoChange(item.nombre, e.target.value, setCantidadesRichi)} 
+                            onKeyDown={(e) => handleKeyDownPedido(e, idx, richiFiltrados, 'pedido_richi')}
+                            onFocus={(e) => e.target.select()} 
+                            className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                          />
+                        </div>
+                      ))
+                    )}
                   </div>
                 )}
 
                 {categoriaPedido === 'insumos' && (
                   <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 border border-[#0066b3]/50 p-2.5 rounded-xl bg-[#051829]">
-                    <span className="text-[10px] text-sky-300 font-bold uppercase block">Insumos y Toppings</span>
-                    {LISTA_INSUMOS_MATERIA.map((item, idx) => (
-                      <div key={item} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2">
-                        <span className="text-xs font-bold text-white truncate">{item}</span>
-                        <input 
-                          ref={(el) => { inputsRef.current[`pedido_ins_${item}`] = el; }}
-                          type="number" 
-                          placeholder="0" 
-                          value={cantidadesInsumos[item] ?? ''} 
-                          onChange={(e) => handleItemGenericoChange(item, e.target.value, setCantidadesInsumos)} 
-                          onKeyDown={(e) => handleKeyDownPedido(e, idx, LISTA_INSUMOS_MATERIA, 'pedido_ins')}
-                          onFocus={(e) => e.target.select()} 
-                          className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
-                        />
-                      </div>
-                    ))}
+                    <span className="text-[10px] text-sky-300 font-bold uppercase block">Insumos y Toppings:</span>
+                    {insumosFiltrados.length === 0 ? (
+                      <p className="text-xs text-amber-200 text-center py-4 font-semibold">No hay insumos guardados en la BD.</p>
+                    ) : (
+                      insumosFiltrados.map((item, idx) => (
+                        <div key={item.id} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2">
+                          <span className="text-xs font-bold text-white truncate">{item.nombre}</span>
+                          <input 
+                            ref={(el) => { inputsRef.current[`pedido_ins_${item.id}`] = el; }}
+                            type="number" 
+                            placeholder="0" 
+                            value={cantidadesInsumos[item.nombre] ?? ''} 
+                            onChange={(e) => handleItemGenericoChange(item.nombre, e.target.value, setCantidadesInsumos)} 
+                            onKeyDown={(e) => handleKeyDownPedido(e, idx, insumosFiltrados, 'pedido_ins')}
+                            onFocus={(e) => e.target.select()} 
+                            className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                          />
+                        </div>
+                      ))
+                    )}
                   </div>
                 )}
 
                 {categoriaPedido === 'aseo' && (
                   <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 border border-[#0066b3]/50 p-2.5 rounded-xl bg-[#051829]">
-                    <span className="text-[10px] text-sky-300 font-bold uppercase block">Implementos de Aseo</span>
-                    {LISTA_ASEO.map((item, idx) => (
-                      <div key={item} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2">
-                        <span className="text-xs font-bold text-white truncate">{item}</span>
-                        <input 
-                          ref={(el) => { inputsRef.current[`pedido_aseo_${item}`] = el; }}
-                          type="number" 
-                          placeholder="0" 
-                          value={cantidadesAseo[item] ?? ''} 
-                          onChange={(e) => handleItemGenericoChange(item, e.target.value, setCantidadesAseo)} 
-                          onKeyDown={(e) => handleKeyDownPedido(e, idx, LISTA_ASEO, 'pedido_aseo')}
-                          onFocus={(e) => e.target.select()} 
-                          className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
-                        />
-                      </div>
-                    ))}
+                    <span className="text-[10px] text-sky-300 font-bold uppercase block">Implementos de Aseo:</span>
+                    {aseoFiltrados.length === 0 ? (
+                      <p className="text-xs text-amber-200 text-center py-4 font-semibold">No hay artículos de aseo guardados en la BD.</p>
+                    ) : (
+                      aseoFiltrados.map((item, idx) => (
+                        <div key={item.id} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2">
+                          <span className="text-xs font-bold text-white truncate">{item.nombre}</span>
+                          <input 
+                            ref={(el) => { inputsRef.current[`pedido_aseo_${item.id}`] = el; }}
+                            type="number" 
+                            placeholder="0" 
+                            value={cantidadesAseo[item.nombre] ?? ''} 
+                            onChange={(e) => handleItemGenericoChange(item.nombre, e.target.value, setCantidadesAseo)} 
+                            onKeyDown={(e) => handleKeyDownPedido(e, idx, aseoFiltrados, 'pedido_aseo')}
+                            onFocus={(e) => e.target.select()} 
+                            className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                          />
+                        </div>
+                      ))
+                    )}
                   </div>
                 )}
 

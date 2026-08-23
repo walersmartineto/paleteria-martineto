@@ -17,7 +17,7 @@ const SEDES_DEFAULT: SedeInfo[] = [
   { id: 2, nombre: 'Walers Viva', codigo: 'viva', descripcion: 'Sede CC Viva' },
   { id: 3, nombre: 'Walers Centro', codigo: 'centro', descripcion: 'Sede Sector Centro' },
   { id: 4, nombre: 'Ositos', codigo: 'ositos', descripcion: 'Sede Ositos' },
-  { id: 6, nombre: 'Walers Producción', codigo: 'produccion', descripcion: 'Planta de Producción Central' },
+  // { id: 6, nombre: 'Walers Producción', codigo: 'produccion', descripcion: 'Planta de Producción Central' },
   { id: 99, nombre: 'Administración Global', codigo: 'admin', descripcion: 'Panel de Control Central' },
 ];
 
@@ -55,16 +55,21 @@ export default function LoginPage() {
       const listaUsuarios = await obtenerUsuariosOperadores();
 
       if (listaSedes && listaSedes.length > 0) {
-        // Ocultar Sede Global (id 0 o codigo 'global')
-        const sedesSinGlobal = listaSedes.filter(
-          (s) => s.id !== 0 && s.codigo !== 'global'
+        // Ocultar Sede Global y Producción
+        const sedesFiltradas = listaSedes.filter(
+          (s) => s.id !== 0 && s.codigo !== 'global' && s.codigo !== 'produccion'
         );
-        setSedes(sedesSinGlobal);
+        setSedes(sedesFiltradas);
       } else {
         setSedes(SEDES_DEFAULT);
       }
 
-      setUsuarios(listaUsuarios || []);
+      // Ocultar a Mireya de la lista de usuarios
+      const usuariosFiltrados = (listaUsuarios || []).filter(
+        (u) => !u.nombre_completo.toLowerCase().includes('mireya')
+      );
+      setUsuarios(usuariosFiltrados);
+
     } catch (err) {
       console.warn('Error al cargar datos de Supabase, usando sedes por defecto:', err);
       setSedes(SEDES_DEFAULT);
@@ -106,19 +111,28 @@ export default function LoginPage() {
 
       const usuarioId = usuario.id;
       const nombreCompleto = usuario.nombre_completo || 'Usuario';
-      const tipoUsuario = usuario.tipo_usuario || 'operador';
+      const tipoUsuario = (usuario.tipo_usuario || 'operador').toLowerCase();
       const sedeId = sedeObj ? sedeObj.id : Number(sedeSeleccionada);
       const sedeNombre = sedeObj ? sedeObj.nombre : 'Sede General';
       const sedeCodigo = sedeObj ? sedeObj.codigo : 'viva';
 
-      if (tipoUsuario === 'administrador' || sedeCodigo === 'admin') {
+      // REGLA DE PERMISOS:
+      // Si el rol es operador, solo tiene permitido ingresar a Puntos de Venta (POS)
+      if (tipoUsuario === 'operador' && sedeCodigo === 'admin') {
+        setErrorMensaje('⛔ Un usuario Operador solo tiene acceso a Puntos de Venta.');
+        setCargando(false);
+        return;
+      }
+
+      // Si no es operador (ej. administrador) o entra a una sede POS
+      if (sedeCodigo === 'admin') {
         if (typeof window !== 'undefined') {
           localStorage.setItem(
             'martineto_session',
             JSON.stringify({
               usuario_id: usuarioId,
               nombre: nombreCompleto,
-              rol: 'administrador',
+              rol: tipoUsuario,
               sede_id: sedeId,
               sede_codigo: 'admin',
               turno: tipoTurno,
@@ -161,10 +175,8 @@ export default function LoginPage() {
         router.push('/centro');
       } else if (sedeCodigo === 'ositos') {
         router.push('/ositos');
-      } else if (sedeCodigo === 'produccion') {
-        router.push('/produccion');
       } else {
-        router.push('/admin');
+        router.push('/pos');
       }
     } catch (errGlobal) {
       console.error('Error durante el login:', errGlobal);
@@ -241,20 +253,14 @@ export default function LoginPage() {
             >
               <option value="">-- Elige Sede o Administración --</option>
               {sedes
-                .filter((s) => s.id !== 0 && s.codigo !== 'global')
-                .map((s) => {
-                  let icono = '🏢';
-                  if (s.codigo === 'admin') icono = '⚙️';
-                  if (s.codigo === 'produccion') icono = '🏭';
-
-                  return (
-                    <option key={s.id} value={s.id}>
-                      {s.codigo === 'admin'
-                        ? '⚙️ ADMINISTRACIÓN GLOBAL'
-                        : `${icono} ${s.nombre}`}
-                    </option>
-                  );
-                })}
+                .filter((s) => s.id !== 0 && s.codigo !== 'global' && s.codigo !== 'produccion')
+                .map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.codigo === 'admin'
+                      ? '⚙️ ADMINISTRACIÓN GLOBAL'
+                      : `🏢 ${s.nombre}`}
+                  </option>
+                ))}
             </select>
           </div>
 
@@ -278,7 +284,7 @@ export default function LoginPage() {
 
           <div>
             <label className="text-[11px] font-extrabold text-sky-200 block mb-1 uppercase tracking-wider">
-              ⏰ Turno (Solo Operadores / Producción):
+              ⏰ Turno:
             </label>
             <select
               value={tipoTurno}
