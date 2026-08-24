@@ -10,13 +10,14 @@ import { supabase } from '@/lib/supabase';
 const LISTA_EMPAQUES_MARTINETO = [
   'Total Paletas',
   'Caja Mostac',
-  'Muñeco Lego',
-  'Vaso Soft',
   'Corralito',
   'Doritos',
   'Frascos Chamoy',
-  'Vaso Gomita Enchilada',
+  'Helado de Oblea',
+  'Muñeco Lego',
   'Vaso 12 onzas',
+  'Vaso Gomita Enchilada',
+  'Vaso Soft',
 ];
 
 const LUGARES_COMPRA_INICIALES = [
@@ -865,6 +866,19 @@ export default function MartinetoPOSPage() {
           }, 0)
         );
       }, 0);
+    } else if (nombreEmpaque === 'Helado de Oblea') {
+      vendidasCerradas = ventasDiaBD.reduce((accV, v) => {
+        return (
+          accV +
+          (v.items || []).reduce((accI: number, i: any) => {
+            const n = (i.nombre || '').toLowerCase();
+            if (n.includes('oblea') || n.includes('helado de oblea')) {
+              return accI + Number(i.cantidad || 1);
+            }
+            return accI;
+          }, 0)
+        );
+      }, 0);
     } else if (nombreEmpaque === 'Caja Mostac') {
       vendidasCerradas = ventasDiaBD.reduce((accV, v) => {
         return (
@@ -950,6 +964,14 @@ export default function MartinetoPOSPage() {
         }
         return acc;
       }, 0);
+    } else if (nombreEmpaque === 'Helado de Oblea') {
+      ocupadasEnMesas = todasLasMesasYPedidos.reduce((acc, i) => {
+        const n = (i.nombre || '').toLowerCase();
+        if (n.includes('oblea') || n.includes('helado de oblea')) {
+          return acc + Number(i.cantidad || 1);
+        }
+        return acc;
+      }, 0);
     } else if (nombreEmpaque === 'Caja Mostac') {
       ocupadasEnMesas = todasLasMesasYPedidos.reduce((acc, i) => {
         const n = (i.nombre || '').toLowerCase();
@@ -1004,7 +1026,13 @@ export default function MartinetoPOSPage() {
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '');
 
-    if (nombreNorm.includes('paleta enchilada') || nombreNorm.includes('mostac')) {
+    if (nombreNorm.includes('oblea') || nombreNorm.includes('helado de oblea')) {
+      const dispOblea = calcularDisponibilidadActual('Helado de Oblea');
+      if (dispOblea <= 0) {
+        alert('⚠️ No hay stock disponible de Helado de Oblea (Disponibles: 0).');
+        return;
+      }
+    } else if (nombreNorm.includes('paleta enchilada') || nombreNorm.includes('mostac')) {
       const dispPaletas = calcularDisponibilidadActual('Total Paletas');
       const dispMostac = calcularDisponibilidadActual('Caja Mostac');
 
@@ -1482,7 +1510,7 @@ export default function MartinetoPOSPage() {
 
   const cajaDisponibleCalculada = (Number(baseCaja) || 0) + totalEfectivoIngresado - sumaGastosTotal;
 
-  // AUDITORÍA DE INVENTARIO CON CAJA MOSTAC
+  // AUDITORÍA DE INVENTARIO
   const listaAuditoriaInventario = LISTA_EMPAQUES_MARTINETO.map((nombreProd) => {
     let cantApertura = 0;
 
@@ -1562,6 +1590,20 @@ export default function MartinetoPOSPage() {
           return accI;
         }, 0);
         return accV + vasosEnVenta;
+      }, 0);
+    } else if (nombreProd === 'Helado de Oblea') {
+      cantVendidas = ventasDiaBD.reduce((accV, v) => {
+        const items = v.items || [];
+        return (
+          accV +
+          items.reduce((accI: number, i: any) => {
+            const n = (i.nombre || '').toLowerCase();
+            if (n.includes('oblea') || n.includes('helado de oblea')) {
+              return accI + Number(i.cantidad || 1);
+            }
+            return accI;
+          }, 0)
+        );
       }, 0);
     } else if (nombreProd === 'Caja Mostac') {
       cantVendidas = ventasDiaBD.reduce((accV, v) => {
@@ -1888,7 +1930,7 @@ export default function MartinetoPOSPage() {
           </div>
 
           <div className="space-y-1.5 max-h-[300px] overflow-y-auto pr-1">
-            <span className="text-xs text-sky-300 font-bold block uppercase">CONTEO DE EMPAQUES Y VASOS (Presiona ENTER para avanzar):</span>
+            <span className="text-xs text-sky-300 font-bold block uppercase">CONTEO DE EMPAQUES (ORDEN ALFABÉTICO):</span>
             {listaEmpaquesFiltrados.map((item, idx) => (
               <div key={item} className="flex justify-between items-center bg-[#051829] p-2.5 rounded-lg border border-[#0066b3]">
                 <span className="text-xs text-white font-bold flex items-center gap-1.5">📦 {item}:</span>
@@ -2419,7 +2461,7 @@ export default function MartinetoPOSPage() {
                               <>
                                 <button
                                   onClick={() => marcarItemEntregado(i.nombre, estado)}
-                                  className="bg-amber-600 hover:bg-amber-500 text-white font-bold text-[9px] px-2 py-1 rounded cursor-pointer"
+                                  className="bg-amber-600 hover:bg-amber-500 text-white font-bold text-[9px] py-1 rounded cursor-pointer"
                                 >
                                   🚀 Marcar Entregado
                                 </button>
