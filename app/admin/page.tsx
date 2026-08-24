@@ -48,6 +48,8 @@ export default function AdminPage() {
   const [acordeonesCierres, setAcordeonesCierres] = useState<{ [key: string]: boolean }>({ global: true });
   const [acordeonesDescuadres, setAcordeonesDescuadres] = useState<{ [key: string]: boolean }>({});
   const [acordeonesInventario, setAcordeonesInventario] = useState<{ [key: string]: boolean }>({});
+  const [acordeonesResumenSedes, setAcordeonesResumenSedes] = useState<{ [key: string]: boolean }>({ global: true });
+  const [acordeonesConsolidadoCompras, setAcordeonesConsolidadoCompras] = useState<{ [key: string]: boolean }>({ global: true });
 
   useEffect(() => {
     cargarDatosAdmin();
@@ -598,110 +600,146 @@ export default function AdminPage() {
                 </div>
 
                 {subPestanaLogistica === 'compras' && (
-                  <div className="space-y-4">
-                    <select value={sedeSeleccionada} onChange={(e) => setSedeSeleccionada(e.target.value)} className="w-full bg-[#031d35] border border-[#0066b3] text-white font-bold text-xs p-2 rounded-lg outline-none">
-                      <option value="todos">🌐 Todas las Sedes</option>
-                      {sedesBD.map(s => (
-                        <option key={s.id} value={String(s.id)}>{s.nombre}</option>
-                      ))}
-                    </select>
+                  <div className="space-y-4 pt-1">
 
-                    <div className="space-y-2">
-                      <span className="text-[11px] font-black text-sky-300 uppercase block px-1 flex items-center gap-2">
-                        🛒 CONSOLIDADO POR LUGAR DE COMPRA
+                    {/* CONSOLIDADO POR LUGAR DE COMPRA (CON OJITO PRINCIPAL Y PROVEEDORES) */}
+                    <div className="border border-[#0066b3] bg-[#0b2b48] rounded-xl overflow-hidden shadow-sm">
+                      <button 
+                        onClick={() => setAcordeonesConsolidadoCompras(prev => ({ ...prev, global: !prev.global }))} 
+                        className="w-full p-3 flex justify-between items-center text-xs font-black uppercase text-sky-300 cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2">
+                          <span>{acordeonesConsolidadoCompras.global ? '👁️‍🗨️' : '👁️'}</span> 🛒 CONSOLIDADO POR LUGAR DE COMPRA
+                        </span>
                         {tieneProductosPorComprar && (
                           <span className="relative flex h-2 w-2">
                             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
                             <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-400"></span>
                           </span>
                         )}
-                      </span>
+                      </button>
 
-                      {Object.keys(consolidadoCompras).length === 0 ? (
-                        <p className="text-center text-xs text-sky-300 py-4 font-semibold">No hay compras pendientes para el rango seleccionado.</p>
-                      ) : (
-                        Object.entries(consolidadoCompras).map(([proveedor, dataProv]) => {
-                          const abierto = !!acordeonesCompras[proveedor];
-                          const esAlerta = proveedor.includes('Faltan datos');
-                          const itemsArray = Object.entries(dataProv.items);
+                      {acordeonesConsolidadoCompras.global && (
+                        <div className="p-3 pt-0 space-y-2 border-t border-[#0066b3]/30 bg-[#031d35]/60">
+                          {Object.keys(consolidadoCompras).length === 0 ? (
+                            <p className="text-center text-xs text-sky-300 py-4 font-semibold">No hay compras pendientes para el rango seleccionado.</p>
+                          ) : (
+                            Object.entries(consolidadoCompras).map(([proveedor, dataProv]) => {
+                              const abierto = !!acordeonesCompras[proveedor];
+                              const esAlerta = proveedor.includes('Faltan datos');
+                              const itemsArray = Object.entries(dataProv.items);
 
-                          return (
-                            <div key={proveedor} className={`border rounded-xl overflow-hidden shadow-sm ${esAlerta ? 'border-rose-500 bg-rose-950/20' : 'border-[#0066b3] bg-[#0b2b48]'}`}>
-                              <button onClick={() => setAcordeonesCompras(prev => ({ ...prev, [proveedor]: !abierto }))} className="w-full p-3 flex justify-between items-center text-xs font-bold uppercase text-amber-300">
-                                <span>{abierto ? '▼' : '▶'} {proveedor}</span>
-                                <span className="text-[10px] bg-[#031d35] px-2 py-0.5 rounded">{itemsArray.length} ÍTEMS</span>
-                              </button>
-                              {abierto && (
-                                <div className="p-3 pt-0 space-y-2 border-t border-[#0066b3]/30">
-                                  <div className="space-y-1.5 pt-2">
-                                    {itemsArray.map(([nombreProd, info]: any, i) => {
-                                      const keyItem = `${fechaInicio}_${proveedor}_${nombreProd}`;
-                                      const estaChequeado = !!itemsChequeados[keyItem];
+                              return (
+                                <div key={proveedor} className={`border rounded-xl overflow-hidden shadow-sm ${esAlerta ? 'border-rose-500 bg-rose-950/20' : 'border-[#0066b3] bg-[#0b2b48]'}`}>
+                                  <button onClick={() => setAcordeonesCompras(prev => ({ ...prev, [proveedor]: !abierto }))} className="w-full p-3 flex justify-between items-center text-xs font-bold uppercase text-amber-300 cursor-pointer">
+                                    <span className="flex items-center gap-2">
+                                      <span>{abierto ? '👁️‍🗨️' : '👁️'}</span> {proveedor}
+                                    </span>
+                                    <span className="text-[10px] bg-[#031d35] px-2 py-0.5 rounded">{itemsArray.length} ÍTEMS</span>
+                                  </button>
+                                  {abierto && (
+                                    <div className="p-3 pt-0 space-y-2 border-t border-[#0066b3]/30">
+                                      <div className="space-y-1.5 pt-2">
+                                        {itemsArray.map(([nombreProd, info]: any, i) => {
+                                          const keyItem = `${fechaInicio}_${proveedor}_${nombreProd}`;
+                                          const estaChequeado = !!itemsChequeados[keyItem];
 
-                                      return (
-                                        <div key={i} className={`p-2.5 rounded-lg border flex justify-between items-center text-xs transition-colors ${estaChequeado ? 'bg-emerald-950/40 border-emerald-500/60' : 'bg-[#031d35] border-[#0066b3]/50'}`}>
-                                          <div>
-                                            <p className={`font-semibold ${estaChequeado ? 'text-emerald-300 line-through' : 'text-white'}`}>{nombreProd}</p>
-                                            {esAlerta && (
-                                              <div className="flex gap-1 mt-1.5">
-                                                <input className="bg-[#0b2b48] border border-rose-500 text-white text-[10px] p-1.5 rounded outline-none w-24" placeholder="Ej. D1" onChange={(e) => setEditandoProveedor({ ...editandoProveedor, [nombreProd]: e.target.value })} />
-                                                <button onClick={() => guardarProveedorInteligente(nombreProd, info.idProd)} className="bg-emerald-600 px-2 py-1 rounded text-[10px] font-bold">Guardar</button>
+                                          return (
+                                            <div key={i} className={`p-2.5 rounded-lg border flex justify-between items-center text-xs transition-colors ${estaChequeado ? 'bg-emerald-950/40 border-emerald-500/60' : 'bg-[#031d35] border-[#0066b3]/50'}`}>
+                                              <div>
+                                                <p className={`font-semibold ${estaChequeado ? 'text-emerald-300 line-through' : 'text-white'}`}>{nombreProd}</p>
+                                                {esAlerta && (
+                                                  <div className="flex gap-1 mt-1.5">
+                                                    <input className="bg-[#0b2b48] border border-rose-500 text-white text-[10px] p-1.5 rounded outline-none w-24" placeholder="Ej. D1" onChange={(e) => setEditandoProveedor({ ...editandoProveedor, [nombreProd]: e.target.value })} />
+                                                    <button onClick={() => guardarProveedorInteligente(nombreProd, info.idProd)} className="bg-emerald-600 px-2 py-1 rounded text-[10px] font-bold">Guardar</button>
+                                                  </div>
+                                                )}
                                               </div>
-                                            )}
-                                          </div>
 
-                                          <div className="flex items-center gap-2">
-                                            <span className="bg-[#0078d4] text-white px-2.5 py-1 rounded font-black text-xs">x{info.cantidad}</span>
-                                            {!esAlerta && (
-                                              <button
-                                                onClick={() => toggleChecklistLocal(proveedor, nombreProd)}
-                                                title="Checklist de compra"
-                                                className={`font-black text-xs px-2.5 py-1 rounded cursor-pointer transition-colors ${estaChequeado ? 'bg-emerald-500 text-white border border-emerald-300' : 'bg-[#0b2b48] hover:bg-[#0066b3] text-emerald-400 border border-emerald-500/50'}`}
-                                              >
-                                                ✓
-                                              </button>
-                                            )}
-                                          </div>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                  {!esAlerta && (
-                                    <button 
-                                      onClick={() => marcarSeleccionadosComoComprados(proveedor, dataProv.items)} 
-                                      className="w-full mt-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black py-2.5 rounded-lg text-xs uppercase shadow-md flex items-center justify-center gap-1 cursor-pointer"
-                                    >
-                                      ✓ MARCAR COMPRADOS Y PAGADOS
-                                    </button>
+                                              <div className="flex items-center gap-2">
+                                                <span className="bg-[#0078d4] text-white px-2.5 py-1 rounded font-black text-xs">x{info.cantidad}</span>
+                                                {!esAlerta && (
+                                                  <button
+                                                    onClick={() => toggleChecklistLocal(proveedor, nombreProd)}
+                                                    title="Checklist de compra"
+                                                    className={`font-black text-xs px-2.5 py-1 rounded cursor-pointer transition-colors ${estaChequeado ? 'bg-emerald-500 text-white border border-emerald-300' : 'bg-[#0b2b48] hover:bg-[#0066b3] text-emerald-400 border border-emerald-500/50'}`}
+                                                  >
+                                                    ✓
+                                                  </button>
+                                                )}
+                                              </div>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                      {!esAlerta && (
+                                        <button 
+                                          onClick={() => marcarSeleccionadosComoComprados(proveedor, dataProv.items)} 
+                                          className="w-full mt-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black py-2.5 rounded-lg text-xs uppercase shadow-md flex items-center justify-center gap-1 cursor-pointer"
+                                        >
+                                          ✓ MARCAR COMPRADOS Y PAGADOS
+                                        </button>
+                                      )}
+                                    </div>
                                   )}
                                 </div>
-                              )}
-                            </div>
-                          );
-                        })
+                              );
+                            })
+                          )}
+                        </div>
                       )}
                     </div>
 
-                    <div className="bg-[#0b2b48] border border-sky-500/50 p-3 rounded-xl space-y-2">
-                      <span className="text-[11px] font-black text-sky-300 uppercase block border-b border-[#0066b3]/40 pb-1">
-                        🏢 RESUMEN DE COMPRAS POR SEDES
-                      </span>
-                      {Object.keys(resumenComprasPorSede).length === 0 ? (
-                        <p className="text-[10px] text-sky-400 italic py-2">No hay pedidos pendientes por sede para este rango.</p>
-                      ) : (
-                        Object.entries(resumenComprasPorSede).map(([nombreSede, prods]) => (
-                          <div key={nombreSede} className="bg-[#031d35] p-2.5 rounded-lg border border-[#0066b3] space-y-1">
-                            <span className="text-xs font-black text-amber-300 uppercase block">📍 {nombreSede}</span>
-                            <div className="space-y-1">
-                              {Object.entries(prods).map(([prodNombre, cant]) => (
-                                <div key={prodNombre} className="flex justify-between text-[11px] text-white border-b border-[#0066b3]/20 py-0.5">
-                                  <span>{prodNombre}</span>
-                                  <span className="font-bold text-emerald-300">x{cant}</span>
+                    {/* RESUMEN DE COMPRAS POR SEDES (CON OJITO PRINCIPAL Y OJITO POR CADA SEDE) */}
+                    <div className="bg-[#0b2b48] border border-sky-500/50 rounded-xl overflow-hidden">
+                      <button 
+                        onClick={() => setAcordeonesResumenSedes(prev => ({ ...prev, global: !prev.global }))} 
+                        className="w-full p-3 flex justify-between items-center text-[11px] font-black text-sky-300 uppercase bg-[#0b2b48] cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2">
+                          <span>{acordeonesResumenSedes.global ? '👁️‍🗨️' : '👁️'}</span> 🏢 RESUMEN DE COMPRAS POR SEDES
+                        </span>
+                        <span className="text-[10px] bg-[#031d35] px-2 py-0.5 rounded text-white border border-[#0066b3]">
+                          {Object.keys(resumenComprasPorSede).length} Sedes
+                        </span>
+                      </button>
+
+                      {acordeonesResumenSedes.global && (
+                        <div className="p-3 pt-0 space-y-2 border-t border-[#0066b3]/40 bg-[#031d35]/60">
+                          {Object.keys(resumenComprasPorSede).length === 0 ? (
+                            <p className="text-[10px] text-sky-400 italic py-2">No hay pedidos pendientes por sede para este rango.</p>
+                          ) : (
+                            Object.entries(resumenComprasPorSede).map(([nombreSede, prods]) => {
+                              const abiertoSede = !!acordeonesResumenSedes[nombreSede];
+                              return (
+                                <div key={nombreSede} className="bg-[#0b2b48] rounded-xl border border-[#0066b3] overflow-hidden">
+                                  <button 
+                                    onClick={() => setAcordeonesResumenSedes(prev => ({ ...prev, [nombreSede]: !abiertoSede }))} 
+                                    className="w-full p-2.5 flex justify-between items-center text-xs font-black text-amber-300 uppercase cursor-pointer"
+                                  >
+                                    <span className="flex items-center gap-2">
+                                      <span>{abiertoSede ? '👁️‍🗨️' : '👁️'}</span> 📍 {nombreSede}
+                                    </span>
+                                    <span className="text-[10px] bg-[#031d35] px-2 py-0.5 rounded text-sky-200">
+                                      {Object.keys(prods).length} ítems
+                                    </span>
+                                  </button>
+
+                                  {abiertoSede && (
+                                    <div className="p-2.5 pt-0 space-y-1 bg-[#031d35] border-t border-[#0066b3]/30">
+                                      {Object.entries(prods).map(([prodNombre, cant]) => (
+                                        <div key={prodNombre} className="flex justify-between text-[11px] text-white border-b border-[#0066b3]/20 py-1">
+                                          <span>{prodNombre}</span>
+                                          <span className="font-bold text-emerald-300">x{cant}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
                                 </div>
-                              ))}
-                            </div>
-                          </div>
-                        ))
+                              );
+                            })
+                          )}
+                        </div>
                       )}
                     </div>
 
@@ -709,14 +747,7 @@ export default function AdminPage() {
                 )}
 
                 {subPestanaLogistica === 'despachos' && (
-                  <div className="space-y-2">
-                    <select value={sedeSeleccionada} onChange={(e) => setSedeSeleccionada(e.target.value)} className="w-full bg-[#031d35] border border-[#0066b3] text-white font-bold text-xs p-2 rounded-lg outline-none">
-                      <option value="todos">🌐 Todas las Sedes</option>
-                      {sedesBD.map(s => (
-                        <option key={s.id} value={String(s.id)}>{s.nombre}</option>
-                      ))}
-                    </select>
-
+                  <div className="space-y-2 pt-1">
                     {Object.keys(despachosPorSede).length === 0 ? (
                       <p className="text-center text-xs text-sky-300 py-6 font-semibold">No hay despachos listos (comprados) para este rango.</p>
                     ) : (
@@ -776,23 +807,16 @@ export default function AdminPage() {
                   <button onClick={() => setSubPestanaCierres('descuadres')} className={`py-2 rounded-xl font-extrabold text-[11px] uppercase border ${subPestanaCierres === 'descuadres' ? 'bg-emerald-700 border-emerald-400 text-white' : 'bg-[#0b2b48] border-[#0066b3] text-sky-300'}`}>🔍 Descuadres</button>
                 </div>
 
-                <div className="pt-1">
-                  <select value={sedeSeleccionada} onChange={(e) => setSedeSeleccionada(e.target.value)} className="w-full bg-[#031d35] border border-[#0066b3] text-white font-bold text-xs p-2 rounded-lg outline-none">
-                    <option value="todos">🌐 Ver Todas las Sedes (Global)</option>
-                    {sedesBD.map(s => (
-                      <option key={s.id} value={String(s.id)}>{s.nombre}</option>
-                    ))}
-                  </select>
-                </div>
-
                 {/* VISTA 1: CIERRES DE CAJA CON NÓMINAS INCLUIDAS */}
                 {subPestanaCierres === 'caja' && (
                   <div className="space-y-3">
                     {sedeSeleccionada === 'todos' ? (
                       <>
                         <div className="border border-emerald-500/50 bg-[#0b2b48] rounded-xl overflow-hidden">
-                          <button onClick={() => setAcordeonesCierres(prev => ({ ...prev, global: !prev.global }))} className="w-full p-3 flex justify-between items-center text-xs font-black uppercase text-emerald-300 bg-emerald-950/40">
-                            <span>{acordeonesCierres.global ? '▼' : '▶'} CONSOLIDADO GLOBAL</span>
+                          <button onClick={() => setAcordeonesCierres(prev => ({ ...prev, global: !prev.global }))} className="w-full p-3 flex justify-between items-center text-xs font-black uppercase text-emerald-300 bg-emerald-950/40 cursor-pointer">
+                            <span className="flex items-center gap-1.5">
+                              <span>{acordeonesCierres.global ? '👁️‍🗨️' : '👁️'}</span> CONSOLIDADO GLOBAL
+                            </span>
                             <span className="text-white">${CierreGlobal.totalVenta.toLocaleString()}</span>
                           </button>
                           {acordeonesCierres.global && (
@@ -815,9 +839,11 @@ export default function AdminPage() {
                             const ventaNetoSede = dataSede.totalVenta - dataSede.gastos - dataSede.nomina;
 
                             return (
-                              <div key={nombreSede} className="border border-[#0066b3] bg-[#0b2b48] rounded-xl overflow-hidden">
-                                <button onClick={() => setAcordeonesCierres(prev => ({ ...prev, [nombreSede]: !abierto }))} className="w-full p-3 flex justify-between items-center text-xs font-bold text-white uppercase">
-                                  <span>{abierto ? '▼' : '▶'} {nombreSede}</span>
+                              <div key={nombreSede} className="border border-[#0066b3] bg-[#0b2b48] rounded-xl overflow-hidden shadow-sm">
+                                <button onClick={() => setAcordeonesCierres(prev => ({ ...prev, [nombreSede]: !abierto }))} className="w-full p-3 flex justify-between items-center text-xs font-bold text-white uppercase cursor-pointer">
+                                  <span className="flex items-center gap-2">
+                                    <span>{abierto ? '👁️‍🗨️' : '👁️'}</span> {nombreSede}
+                                  </span>
                                   <span className="text-emerald-300 font-bold">${dataSede.totalVenta.toLocaleString()}</span>
                                 </button>
                                 {abierto && (
@@ -912,9 +938,9 @@ export default function AdminPage() {
 
                         return (
                           <div key={nombreSede} className={`border rounded-xl overflow-hidden ${tieneDescuadre ? 'border-amber-500 bg-[#0b2b48]' : 'border-[#0066b3] bg-[#0b2b48]'}`}>
-                            <button onClick={() => setAcordeonesDescuadres(prev => ({ ...prev, [nombreSede]: !abierto }))} className="w-full p-3 flex justify-between items-center text-xs font-bold text-white uppercase">
-                              <span className="flex items-center gap-1.5">
-                                <span>{abierto ? '▼' : '▶'}</span> {nombreSede}
+                            <button onClick={() => setAcordeonesDescuadres(prev => ({ ...prev, [nombreSede]: !abierto }))} className="w-full p-3 flex justify-between items-center text-xs font-bold text-white uppercase cursor-pointer">
+                              <span className="flex items-center gap-2">
+                                <span>{abierto ? '👁️‍🗨️' : '👁️'}</span> {nombreSede}
                               </span>
                               <span className={`text-[10px] px-2 py-0.5 rounded font-black ${tieneDescuadre ? 'bg-amber-950 text-amber-300 border border-amber-500' : 'bg-emerald-950 text-emerald-300'}`}>
                                 {tieneDescuadre ? `⚠️ Dif: ${infoSede.totalDiferencia}` : '✅ Cuadrado'}
@@ -978,9 +1004,9 @@ export default function AdminPage() {
 
                     return (
                       <div key={nombreSede} className="border border-[#0066b3] bg-[#0b2b48] rounded-xl overflow-hidden">
-                        <button onClick={() => setAcordeonesInventario(prev => ({ ...prev, [nombreSede]: !abierto }))} className="w-full p-3 flex justify-between items-center text-xs font-bold text-white uppercase">
-                          <span className="flex items-center gap-1.5">
-                            <span>{abierto ? '▼' : '▶'}</span> 📍 {nombreSede}
+                        <button onClick={() => setAcordeonesInventario(prev => ({ ...prev, [nombreSede]: !abierto }))} className="w-full p-3 flex justify-between items-center text-xs font-bold text-white uppercase cursor-pointer">
+                          <span className="flex items-center gap-2">
+                            <span>{abierto ? '👁️‍🗨️' : '👁️'}</span> 📍 {nombreSede}
                           </span>
                           <span className="text-[10px] bg-sky-950 text-sky-300 px-2 py-0.5 rounded border border-sky-500">
                             Total Paletas: {infoSede.totalPaletas}
