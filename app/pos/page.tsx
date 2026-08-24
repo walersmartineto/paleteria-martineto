@@ -91,6 +91,8 @@ export default function MartinetoPOSPage() {
   // REQUISICIONES / PEDIDOS A BODEGA
   const [productosInsumosBD, setProductosInsumosBD] = useState<any[]>([]);
   const [historialPedidosBD, setHistorialPedidosBD] = useState<any[]>([]);
+  const [pedidosSeleccionados, setPedidosSeleccionados] = useState<number[]>([]);
+  const [mostrarGestorEnvios, setMostrarGestorEnvios] = useState(false);
   const [tabPedido, setTabPedido] = useState<CategoriaTab>('paletas');
 
   const [pedidosCategorias, setPedidosCategorias] = useState<{
@@ -193,14 +195,64 @@ export default function MartinetoPOSPage() {
   }, [router]);
 
   async function cargarHistorialPedidos() {
+    const hoyLocal = new Date();
+    hoyLocal.setHours(0, 0, 0, 0);
+
     const { data, error } = await supabase
       .from('pedidos_insumos')
       .select('*')
       .eq('sede_id', SEDE_ID_MARTINETO)
+      .gte('fecha', hoyLocal.toISOString())
       .order('id', { ascending: false });
 
     if (!error && data) {
       setHistorialPedidosBD(data);
+    }
+  }
+
+  async function borrarProductoEspecificoDePedido(pedidoId: number, columnaCategoria: string, nombreProducto: string) {
+    if (!confirm(`¿Deseas quitar "${nombreProducto}" de este pedido?`)) return;
+
+    const pedidoOriginal = historialPedidosBD.find((p) => p.id === pedidoId);
+    if (!pedidoOriginal) return;
+
+    const mapaCategoriaActual = { ...(pedidoOriginal[columnaCategoria] || {}) };
+    delete mapaCategoriaActual[nombreProducto];
+
+    const { error } = await supabase
+      .from('pedidos_insumos')
+      .update({ [columnaCategoria]: mapaCategoriaActual })
+      .eq('id', pedidoId);
+
+    if (error) {
+      alert('Error al quitar el producto: ' + error.message);
+    } else {
+      await cargarHistorialPedidos();
+    }
+  }
+
+  const toggleSeleccionPedido = (id: number) => {
+    setPedidosSeleccionados((prev) =>
+      prev.includes(id) ? prev.filter((pId) => pId !== id) : [...prev, id]
+    );
+  };
+
+  async function borrarPedidosBD(idsABorrar: number[]) {
+    if (idsABorrar.length === 0) return;
+    const desc = idsABorrar.length === 1 ? 'este pedido' : `los ${idsABorrar.length} pedidos seleccionados`;
+    if (!confirm(`¿Estás segura de eliminar permanentemente ${desc} de la Base de Datos?`)) return;
+
+    const { error } = await supabase
+      .from('pedidos_insumos')
+      .delete()
+      .in('id', idsABorrar);
+
+    if (error) {
+      alert('Error al eliminar en la base de datos: ' + error.message);
+    } else {
+      alert('✅ Pedido(s) eliminado(s) correctamente.');
+      setPedidosSeleccionados((prev) => prev.filter((id) => !idsABorrar.includes(id)));
+      await cargarHistorialPedidos();
     }
   }
 
@@ -445,7 +497,6 @@ export default function MartinetoPOSPage() {
   const rappiActivo = esRappiActivo ? pedidosRappi.find((r) => r.id === mesaActivaId) || null : null;
   const itemActivoActual = esRappiActivo ? rappiActivo : mesaActiva;
 
-  // PRODUCTOS ORDENADOS ALFABÉTICAMENTE
   const productosFiltradosVenta = productosVenta
     .filter((p) => {
       const catSel = categoriaVentaSel.toLowerCase();
@@ -1768,7 +1819,6 @@ export default function MartinetoPOSPage() {
       {moduloActivo === 'movimientos' && (
         <div className="bg-[#0b2b48] border border-[#0066b3] p-5 rounded-2xl space-y-4 shadow-md max-w-2xl mx-auto">
           
-          {/* APERTURA UNIFICADA EN LA PARTE SUPERIOR DEL MÓDULO 1 */}
           <div className="bg-[#051829] border-2 border-emerald-400/70 p-4 rounded-xl space-y-3 shadow-inner">
             <span className="text-xs font-black text-emerald-300 block uppercase border-b border-emerald-400/30 pb-1">
               💵 1. Base Inicial de Caja (Efectivo en Caja al Abrir)
@@ -1958,58 +2008,138 @@ export default function MartinetoPOSPage() {
             🚀 Enviar Pedido a Bodega
           </button>
 
-          {/* HISTORIAL DE PEDIDOS REALIZADOS EN EL DÍA */}
-          <div className="border-t border-[#0066b3]/50 pt-4 space-y-2">
-            <h3 className="text-xs font-black text-sky-200 uppercase flex items-center gap-1.5">
-              📋 Historial de Pedidos Enviados a Bodega
+          {/* SECCIÓN CONSOLIDADOS POR CATEGORÍA */}
+          <div className="border-t border-[#0066b3]/50 pt-4 space-y-3">
+            <h3 className="text-xs font-black text-sky-200 uppercase flex items-center justify-between">
+              <span>📋 PEDIDOS SOLICITADOS HOY (PRODUCTOS CONSOLIDADOS)</span>
             </h3>
 
-            <div className="max-h-52 overflow-y-auto space-y-2 pr-1">
+            <div className="max-h-96 overflow-y-auto space-y-3 pr-1">
               {historialPedidosBD.length === 0 ? (
-                <p className="text-xs text-sky-400 italic text-center py-3">
-                  No se han enviado pedidos a bodega todavía.
+                <p className="text-xs text-sky-400 italic text-center py-6">
+                  No hay productos solicitados hoy.
                 </p>
               ) : (
-                historialPedidosBD.map((ped) => {
-                  const hora = ped.created_at
-                    ? new Date(ped.created_at).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })
-                    : '';
+                [
+                  { clave: 'pedidos_paletas', titulo: 'PALETAS' },
+                  { clave: 'pedidos_richi', titulo: 'RICHI / EMPAQUES' },
+                  { clave: 'pedidos_produccion', titulo: 'PRODUCCIÓN' },
+                  { clave: 'pedidos_insumos', titulo: 'INSUMOS / TOPPINGS' },
+                  { clave: 'pedidos_aseo', titulo: 'ASEO' },
+                ].map((cat) => {
+                  const productosDeCat: { pedidoId: number; nombre: string; cant: number }[] = [];
 
-                  const itemsConsolidados = [
-                    ...Object.entries(ped.pedidos_paletas || {}),
-                    ...Object.entries(ped.pedidos_richi || {}),
-                    ...Object.entries(ped.pedidos_produccion || {}),
-                    ...Object.entries(ped.pedidos_insumos || {}),
-                    ...Object.entries(ped.pedidos_aseo || {}),
-                  ];
+                  historialPedidosBD.forEach((ped) => {
+                    const mapa = ped[cat.clave];
+                    if (mapa) {
+                      Object.entries(mapa).forEach(([nom, cant]) => {
+                        const val = Number(cant) || 0;
+                        if (val > 0) {
+                          productosDeCat.push({ pedidoId: ped.id, nombre: nom, cant: val });
+                        }
+                      });
+                    }
+                  });
+
+                  if (productosDeCat.length === 0) return null;
 
                   return (
-                    <div key={ped.id} className="bg-[#051829] border border-[#0066b3] p-3 rounded-xl text-xs space-y-1.5 shadow-sm">
-                      <div className="flex justify-between items-center border-b border-[#0066b3]/40 pb-1">
-                        <span className="font-black text-white">📦 Pedido #{ped.id} <small className="text-sky-300 font-normal">({hora})</small></span>
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
-                          ped.estado === 'completado' ? 'bg-emerald-900 text-emerald-300 border border-emerald-500' : 'bg-amber-950 text-amber-300 border border-amber-500'
-                        }`}>
-                          {ped.estado || 'Pendiente'}
+                    <div key={cat.clave} className="bg-[#051829] border border-[#0066b3] p-3 rounded-xl space-y-2.5">
+                      <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-1.5">
+                        <span className="font-black text-sky-300 text-xs flex items-center gap-1.5 uppercase">
+                          🏷️ {cat.titulo}
+                        </span>
+                        <span className="text-[10px] text-sky-400 font-bold">
+                          {productosDeCat.length} tipo(s)
                         </span>
                       </div>
 
-                      <div className="flex flex-wrap gap-1.5 pt-1">
-                        {itemsConsolidados.map(([nombreItem, cant]) => (
-                          <span key={nombreItem} className="bg-[#0e385e] text-sky-100 px-2 py-0.5 rounded-md font-bold text-[11px] border border-[#0066b3]">
-                            {nombreItem}: <b className="text-emerald-300">{cant as number}</b>
-                          </span>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {productosDeCat.map((item, idx) => (
+                          <div
+                            key={`${item.pedidoId}_${item.nombre}_${idx}`}
+                            className="bg-[#0e385e] border border-[#0066b3] p-2.5 rounded-lg flex justify-between items-center text-xs"
+                          >
+                            <span className="font-bold text-white truncate max-w-[140px]">
+                              {item.nombre}
+                            </span>
+
+                            <div className="flex items-center gap-2">
+                              <span className="bg-emerald-600 text-white font-black text-[11px] px-2 py-0.5 rounded-md">
+                                {item.cant} un.
+                              </span>
+                              <button
+                                onClick={() => borrarProductoEspecificoDePedido(item.pedidoId, cat.clave, item.nombre)}
+                                title="Quitar este producto del pedido"
+                                className="text-sky-300 hover:text-rose-400 font-black text-sm px-1 rounded transition-colors cursor-pointer"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          </div>
                         ))}
                       </div>
-
-                      {ped.observaciones && (
-                        <p className="text-[10px] text-sky-300 italic pt-1">Obs: {ped.observaciones}</p>
-                      )}
                     </div>
                   );
                 })
               )}
             </div>
+
+            {/* GESTOR DE ENVÍOS CON EL OJITO RECOGIDO POR DEFECTO */}
+            {historialPedidosBD.length > 0 && (
+              <div className="bg-[#051829] border border-[#0066b3] p-3 rounded-xl space-y-2 mt-4">
+                <div className="flex items-center justify-between border-b border-[#0066b3]/50 pb-2">
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setMostrarGestorEnvios(!mostrarGestorEnvios)}
+                      title={mostrarGestorEnvios ? 'Ocultar envíos' : 'Mostrar envíos'}
+                      className="text-sky-300 hover:text-white font-bold text-sm px-1.5 py-0.5 rounded bg-[#0e385e] border border-[#0066b3] cursor-pointer transition-colors"
+                    >
+                      {mostrarGestorEnvios ? '👁️‍🗨️' : '👁️'}
+                    </button>
+                    <span className="text-[11px] font-black text-amber-300 uppercase">
+                      ⚙️ GESTOR DE ENVÍOS DE HOY (ELIMINAR SI SE CARGÓ MAL)
+                    </span>
+                  </div>
+                </div>
+
+                {mostrarGestorEnvios && (
+                  <div className="space-y-1.5 pt-1">
+                    {historialPedidosBD.map((ped) => (
+                      <div key={ped.id} className="bg-[#0e385e] border border-[#0066b3] rounded-lg p-2 flex justify-between items-center text-xs">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={pedidosSeleccionados.includes(ped.id)}
+                            onChange={() => toggleSeleccionPedido(ped.id)}
+                            className="w-4 h-4 accent-amber-500 cursor-pointer"
+                          />
+                          <span className="text-white font-bold">
+                            Hora: {new Date(ped.fecha).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })} (Pedido #{ped.id})
+                          </span>
+                        </div>
+
+                        <button
+                          onClick={() => borrarPedidosBD([ped.id])}
+                          className="bg-rose-700 hover:bg-rose-600 text-white font-bold text-[10px] px-2.5 py-1 rounded cursor-pointer"
+                        >
+                          🗑️ Borrar
+                        </button>
+                      </div>
+                    ))}
+
+                    {pedidosSeleccionados.length > 0 && (
+                      <button
+                        onClick={() => borrarPedidosBD(pedidosSeleccionados)}
+                        className="w-full bg-rose-700 hover:bg-rose-600 text-white font-black py-2 rounded-xl text-xs uppercase cursor-pointer mt-2 border border-rose-500"
+                      >
+                        🗑️ Borrar Seleccionados ({pedidosSeleccionados.length})
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -2075,7 +2205,6 @@ export default function MartinetoPOSPage() {
       {moduloActivo === 'ventas' && (
         <div className={`grid grid-cols-1 lg:grid-cols-12 gap-4 items-start ${bloqueadoPorApertura ? 'opacity-50 pointer-events-none' : ''}`}>
           
-          {/* COLUMNA 1: MESAS Y RAPPI CON BOTÓN VER CAJA */}
           <div className={`${!mesaActivaId ? 'lg:col-span-12' : itemActivoActual && itemActivoActual.items.length > 0 ? 'lg:col-span-3' : 'lg:col-span-4'} bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md transition-all duration-300`}>
             <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
               <h2 className="text-xs md:text-sm font-black text-white">🪑 Mesas y Rappi</h2>
@@ -2162,7 +2291,6 @@ export default function MartinetoPOSPage() {
             </div>
           </div>
 
-          {/* COLUMNA 2: CATEGORÍAS, PRODUCTOS Y BUSCADOR */}
           {mesaActivaId && (
             <div className={`${itemActivoActual && itemActivoActual.items.length > 0 ? 'lg:col-span-5' : 'lg:col-span-8'} bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md transition-all duration-300`}>
               <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
@@ -2170,7 +2298,6 @@ export default function MartinetoPOSPage() {
                 <span className="text-xs text-sky-200 font-bold">Activo: <b className="text-emerald-300">{itemActivoActual ? itemActivoActual.nombre : 'Ninguno'}</b></span>
               </div>
 
-              {/* BARRA DE BÚSQUEDA */}
               <div className="relative">
                 <input
                   type="text"
@@ -2189,7 +2316,6 @@ export default function MartinetoPOSPage() {
                 )}
               </div>
 
-              {/* CATEGORÍAS */}
               <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-1">
                 <button
                   onClick={() => setCategoriaVentaSel('TODAS')}
@@ -2255,7 +2381,6 @@ export default function MartinetoPOSPage() {
             </div>
           )}
 
-          {/* COLUMNA 3: FACTURA / DETALLE */}
           {itemActivoActual && itemActivoActual.items.length > 0 && (
             <div className="lg:col-span-4 bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md transition-all duration-300">
               <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
@@ -2588,7 +2713,6 @@ export default function MartinetoPOSPage() {
               </div>
             )}
 
-            {/* SECCIÓN 1: RESUMEN DE VENTAS Y CAJA */}
             <div className="space-y-3 text-xs font-bold">
               <span className="text-sky-300 block uppercase font-black border-b border-[#0066b3]/40 pb-1">
                 1. RESUMEN DE VENTAS Y CAJA:
@@ -2654,7 +2778,6 @@ export default function MartinetoPOSPage() {
               </div>
             </div>
 
-            {/* SECCIÓN 2: TABLA COMPLETA DE INVENTARIO Y COLUMNAS DE MOVIMIENTO */}
             <div className="space-y-2 text-xs font-bold pt-2 border-t border-[#0066b3]">
               <span className="text-sky-300 block uppercase font-black">
                 2. CONTEO FÍSICO REAL DE INVENTARIO (APERTURA + ENTRADAS - MERMAS - VENTAS):
@@ -2706,7 +2829,6 @@ export default function MartinetoPOSPage() {
               </div>
             </div>
 
-            {/* SECCIÓN 3: RESUMEN DE VENTAS */}
             <div className="space-y-2 text-xs font-bold pt-2 border-t border-[#0066b3]">
               <span className="text-sky-300 block uppercase font-black">
                 3. RESUMEN DE PRODUCTOS VENDIDOS EN EL DÍA (QUÉ SE VENDIÓ):
