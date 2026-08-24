@@ -211,6 +211,49 @@ export default function MartinetoPOSPage() {
     }
   }
 
+  async function procesarDiferenciaAperturaAutomaticaMartineto(
+    usuarioId: number,
+    totalPaletasHoy: number,
+    detalleEmpaquesHoy: { [nombre: string]: number }
+  ) {
+    try {
+      const { data: ultimoCierre } = await supabase
+        .from('inventario_diario')
+        .select('total_paletas, detalle_empaques')
+        .eq('sede_id', SEDE_ID_MARTINETO)
+        .ilike('tipo_movimiento', 'cierre')
+        .order('fecha_registro', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const totalPaletasAyer = Number(ultimoCierre?.total_paletas || 0);
+      const jsonCierreEmpaques = ultimoCierre?.detalle_empaques || {};
+
+      const difPaletasGlobal = totalPaletasHoy - totalPaletasAyer;
+      const difEmpaquesObj: { [nombre: string]: number } = {};
+      let totalDiferenciaGlobal = difPaletasGlobal;
+
+      Object.entries(detalleEmpaquesHoy).forEach(([nombreItem, cantHoy]) => {
+        const cantAyer = Number(jsonCierreEmpaques[nombreItem] || 0);
+        const dif = Number(cantHoy) - cantAyer;
+        difEmpaquesObj[nombreItem] = dif;
+        totalDiferenciaGlobal += dif;
+      });
+
+      await supabase.from('diferencia_inventario').insert([
+        {
+          sede_id: SEDE_ID_MARTINETO,
+          usuario_id: usuarioId,
+          diferencia_paletas: { "Total Paletas": difPaletasGlobal },
+          diferencia_empaques: difEmpaquesObj,
+          total_diferencia: totalDiferenciaGlobal,
+        },
+      ]);
+    } catch (e) {
+      console.error('Error calculando la diferencia consolidada (Martineto):', e);
+    }
+  }
+
   async function borrarProductoEspecificoDePedido(pedidoId: number, columnaCategoria: string, nombreProducto: string) {
     if (!confirm(`¿Deseas quitar "${nombreProducto}" de este pedido?`)) return;
 
@@ -582,7 +625,6 @@ export default function MartinetoPOSPage() {
     }
 
     setBaseGuardada(true);
-    alert('✅ ¡Base inicial de caja guardada correctamente!');
   }
 
   async function handleGuardarInventario() {
@@ -600,15 +642,16 @@ export default function MartinetoPOSPage() {
       }
     });
 
+    const totalPaletasNum = Number(totalPaletasInventario) || 0;
     if (totalPaletasInventario !== '') {
-      detalleEmpaquesLimpio['Total Paletas'] = Number(totalPaletasInventario);
+      detalleEmpaquesLimpio['Total Paletas'] = totalPaletasNum;
     }
 
     const exito = await registrarMovimientoMartineto(
       SEDE_ID_MARTINETO,
       usuarioId,
       tipoMovimiento,
-      Number(totalPaletasInventario) || 0,
+      totalPaletasNum,
       {},
       detalleEmpaquesLimpio,
       observacionesInventario,
@@ -616,11 +659,19 @@ export default function MartinetoPOSPage() {
     );
 
     if (exito) {
+      if (tipoMovimiento === 'apertura') {
+        await procesarDiferenciaAperturaAutomaticaMartineto(
+          Number(usuarioId),
+          totalPaletasNum,
+          detalleEmpaquesLimpio
+        );
+      }
+
       setMovimientosDiaBD((prev) => [
         ...prev,
         {
           tipo: tipoMovimiento,
-          totalPaletas: Number(totalPaletasInventario) || 0,
+          totalPaletas: totalPaletasNum,
           detalle: detalleEmpaquesLimpio,
         },
       ]);
@@ -1494,7 +1545,6 @@ export default function MartinetoPOSPage() {
     mesaActiva.total > 0 &&
     !hayProductosPorEntregar;
 
-  // CÁLCULOS AUDITORÍA Y MÉTODOS DE PAGO EN TIEMPO REAL
   const sumaGastosTotal = listaGastos.reduce((acc, g) => acc + Number(g.monto || 0), 0);
   
   const totalEfectivoIngresado = ventasDiaBD.reduce((acc, v) => acc + Number(v.pago_efectivo || 0), 0);
@@ -1510,7 +1560,6 @@ export default function MartinetoPOSPage() {
 
   const cajaDisponibleCalculada = (Number(baseCaja) || 0) + totalEfectivoIngresado - sumaGastosTotal;
 
-  // AUDITORÍA DE INVENTARIO
   const listaAuditoriaInventario = LISTA_EMPAQUES_MARTINETO.map((nombreProd) => {
     let cantApertura = 0;
 
@@ -1782,6 +1831,23 @@ export default function MartinetoPOSPage() {
     }
   }
 
+  // Helper para extraer todos los ítems acumulados en el pedido actual (por categoría)
+  const obtenerResumenPedidoActual = () => {
+    const listaResumen: { categoria: string; nombre: string; cantidad: number }[] = [];
+    (Object.keys(pedidosCategorias) as CategoriaTab[]).forEach((cat) => {
+      const itemsCat = pedidosCategorias[cat];
+      Object.entries(itemsCat).forEach(([nombreProd, cant]) => {
+        const num = Number(cant) || 0;
+        if (num > 0) {
+          listaResumen.push({ categoria: cat, nombre: nombreProd, cantidad: num });
+        }
+      });
+    });
+    return listaResumen;
+  };
+
+  const resumenPedidoActual = obtenerResumenPedidoActual();
+
   if (cargando) {
     return (
       <main className="min-h-screen bg-[#004e8c] flex items-center justify-center text-xs font-bold font-sans text-white">
@@ -1855,9 +1921,7 @@ export default function MartinetoPOSPage() {
         </div>
       )}
 
-      {/* -------------------------------------------------------------------------- */}
       {/* MÓDULO 1: APERTURA Y MOVIMIENTOS E INVENTARIO */}
-      {/* -------------------------------------------------------------------------- */}
       {moduloActivo === 'movimientos' && (
         <div className="bg-[#0b2b48] border border-[#0066b3] p-5 rounded-2xl space-y-4 shadow-md max-w-2xl mx-auto">
           
@@ -1970,96 +2034,142 @@ export default function MartinetoPOSPage() {
         </div>
       )}
 
-      {/* -------------------------------------------------------------------------- */}
-      {/* MÓDULO 2: PEDIDOS A BODEGA */}
-      {/* -------------------------------------------------------------------------- */}
+      {/* MÓDULO 2: PEDIDOS A BODEGA CON LISTADO PREVIO */}
       {moduloActivo === 'pedidos' && (
-        <div className={`bg-[#0b2b48] border border-[#0066b3] p-5 rounded-2xl space-y-4 shadow-md max-w-3xl mx-auto ${bloqueadoPorApertura ? 'opacity-50 pointer-events-none' : ''}`}>
-          <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
-            <h2 className="text-sm font-black text-white flex items-center gap-1.5">2. 🚚 Pedidos de Insumos y Empaques a Bodega</h2>
+        <div className={`grid grid-cols-1 lg:grid-cols-12 gap-4 items-start ${bloqueadoPorApertura ? 'opacity-50 pointer-events-none' : ''}`}>
+          
+          {/* COLUMNA IZQUIERDA: SELECCIÓN DE PRODUCTOS POR PESTAÑA */}
+          <div className="lg:col-span-7 bg-[#0b2b48] border border-[#0066b3] p-5 rounded-2xl space-y-4 shadow-md">
+            <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
+              <h2 className="text-sm font-black text-white flex items-center gap-1.5">2. 🚚 Seleccionar Pedido a Bodega</h2>
+              <button
+                onClick={() => setMostrarModalNuevoProd(true)}
+                className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-3 py-1.5 rounded-xl cursor-pointer shadow"
+              >
+                ➕ Crear Nuevo Producto
+              </button>
+            </div>
+
+            <div className="grid grid-cols-5 gap-1.5">
+              {(
+                [
+                  { id: 'paletas', label: 'paletas' },
+                  { id: 'richi', label: 'richi' },
+                  { id: 'produccion', label: 'producción' },
+                  { id: 'insumos', label: 'insumos' },
+                  { id: 'aseo', label: 'aseo' },
+                ] as const
+              ).map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setTabPedido(tab.id)}
+                  className={`py-2 rounded-xl text-xs font-black uppercase cursor-pointer transition-all ${tabPedido === tab.id ? 'bg-[#00a4ef] text-white shadow-md' : 'bg-[#051829] text-sky-300 border border-[#0066b3]'}`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="max-h-[380px] overflow-y-auto space-y-2 pr-1">
+              {insumosFiltrados.length === 0 ? (
+                <p className="text-xs text-sky-400 italic text-center py-8">No hay productos disponibles en esta categoría.</p>
+              ) : (
+                insumosFiltrados.map((prod, idx) => (
+                  <div key={prod.id || prod.nombre} className="flex justify-between items-center bg-[#051829] p-3 rounded-xl border border-[#0066b3]">
+                    <div>
+                      <p className="text-xs text-white font-bold">{prod.nombre}</p>
+                      {prod.grupo && <p className="text-[10px] text-sky-300">{prod.grupo}</p>}
+                    </div>
+                    <input
+                      ref={(el) => { inputRefs.current[`pedido_${prod.nombre}`] = el; }}
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="0"
+                      value={pedidosCategorias[tabPedido]?.[prod.nombre] || ''}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/\D/g, '');
+                        setPedidosCategorias({
+                          ...pedidosCategorias,
+                          [tabPedido]: { ...pedidosCategorias[tabPedido], [prod.nombre]: val === '' ? 0 : Number(val) },
+                        });
+                      }}
+                      onKeyDown={(e) => handleKeyDownPedido(e, idx)}
+                      className="w-24 bg-[#0e385e] text-sky-200 font-black text-center text-xs rounded-lg p-2 outline-none border border-[#0066b3]"
+                    />
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* COLUMNA DERECHA: LISTADO PREVIO (CARRITO DE PEDIDO) Y ENVÍO */}
+          <div className="lg:col-span-5 bg-[#0b2b48] border border-[#0066b3] p-5 rounded-2xl space-y-4 shadow-md">
+            <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
+              <h3 className="text-xs font-black text-sky-200 uppercase flex items-center gap-1.5">
+                🛒 Listado del Pedido en Curso ({resumenPedidoActual.length} ítems)
+              </h3>
+            </div>
+
+            <div className="max-h-[260px] overflow-y-auto space-y-2 pr-1 bg-[#051829] p-3 rounded-xl border border-[#0066b3]">
+              {resumenPedidoActual.length === 0 ? (
+                <p className="text-xs text-sky-400 italic text-center py-6">
+                  Aún no has seleccionado ningún producto para enviar en este pedido.
+                </p>
+              ) : (
+                resumenPedidoActual.map((item, idx) => (
+                  <div key={`${item.categoria}_${item.nombre}_${idx}`} className="bg-[#0e385e] border border-[#0066b3] p-2.5 rounded-lg flex justify-between items-center text-xs">
+                    <div>
+                      <span className="font-bold text-white block">{item.nombre}</span>
+                      <span className="text-[10px] text-sky-300 uppercase">Cat: {item.categoria}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="bg-emerald-600 text-white font-black text-[11px] px-2 py-0.5 rounded-md">
+                        {item.cantidad} un.
+                      </span>
+                      <button
+                        onClick={() => {
+                          setPedidosCategorias((prev) => {
+                            const catActual = { ...prev[item.categoria as CategoriaTab] };
+                            delete catActual[item.nombre];
+                            return { ...prev, [item.categoria]: catActual };
+                          });
+                        }}
+                        title="Quitar ítem"
+                        className="text-sky-300 hover:text-rose-400 font-black text-sm px-1 rounded transition-colors cursor-pointer"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <textarea
+              placeholder="Observaciones para el pedido a bodega..."
+              value={observacionPedido}
+              onChange={(e) => setObservacionPedido(e.target.value)}
+              className="w-full bg-[#051829] border border-[#0066b3] text-white text-xs p-2.5 rounded-xl outline-none resize-none h-16"
+            />
+
             <button
-              onClick={() => setMostrarModalNuevoProd(true)}
-              className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-3 py-1.5 rounded-xl cursor-pointer shadow"
+              onClick={enviarPedidoBodega}
+              className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black py-3 rounded-xl text-xs uppercase cursor-pointer shadow-md"
             >
-              ➕ Crear Nuevo Producto
+              🚀 Enviar Pedido a Bodega ({resumenPedidoActual.length} productos)
             </button>
           </div>
 
-          <div className="grid grid-cols-5 gap-1.5">
-            {(
-              [
-                { id: 'paletas', label: 'paletas' },
-                { id: 'richi', label: 'richi' },
-                { id: 'produccion', label: 'producción' },
-                { id: 'insumos', label: 'insumos' },
-                { id: 'aseo', label: 'aseo' },
-              ] as const
-            ).map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setTabPedido(tab.id)}
-                className={`py-2 rounded-xl text-xs font-black uppercase cursor-pointer transition-all ${tabPedido === tab.id ? 'bg-[#00a4ef] text-white shadow-md' : 'bg-[#051829] text-sky-300 border border-[#0066b3]'}`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="max-h-[380px] overflow-y-auto space-y-2 pr-1">
-            {insumosFiltrados.length === 0 ? (
-              <p className="text-xs text-sky-400 italic text-center py-8">No hay productos disponibles en esta categoría.</p>
-            ) : (
-              insumosFiltrados.map((prod, idx) => (
-                <div key={prod.id || prod.nombre} className="flex justify-between items-center bg-[#051829] p-3 rounded-xl border border-[#0066b3]">
-                  <div>
-                    <p className="text-xs text-white font-bold">{prod.nombre}</p>
-                    {prod.grupo && <p className="text-[10px] text-sky-300">{prod.grupo}</p>}
-                  </div>
-                  <input
-                    ref={(el) => { inputRefs.current[`pedido_${prod.nombre}`] = el; }}
-                    type="text"
-                    inputMode="numeric"
-                    placeholder="0"
-                    value={pedidosCategorias[tabPedido]?.[prod.nombre] || ''}
-                    onChange={(e) => {
-                      const val = e.target.value.replace(/\D/g, '');
-                      setPedidosCategorias({
-                        ...pedidosCategorias,
-                        [tabPedido]: { ...pedidosCategorias[tabPedido], [prod.nombre]: val === '' ? 0 : Number(val) },
-                      });
-                    }}
-                    onKeyDown={(e) => handleKeyDownPedido(e, idx)}
-                    className="w-24 bg-[#0e385e] text-sky-200 font-black text-center text-xs rounded-lg p-2 outline-none border border-[#0066b3]"
-                  />
-                </div>
-              ))
-            )}
-          </div>
-
-          <textarea
-            placeholder="Observaciones para el pedido a bodega..."
-            value={observacionPedido}
-            onChange={(e) => setObservacionPedido(e.target.value)}
-            className="w-full bg-[#051829] border border-[#0066b3] text-white text-xs p-2.5 rounded-xl outline-none resize-none h-16"
-          />
-
-          <button
-            onClick={enviarPedidoBodega}
-            className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black py-3 rounded-xl text-xs uppercase cursor-pointer shadow-md"
-          >
-            🚀 Enviar Pedido a Bodega
-          </button>
-
-          {/* SECCIÓN CONSOLIDADOS POR CATEGORÍA */}
-          <div className="border-t border-[#0066b3]/50 pt-4 space-y-3">
+          {/* HISTORIAL DE PEDIDOS SOLICITADOS HOY */}
+          <div className="lg:col-span-12 bg-[#0b2b48] border border-[#0066b3] p-5 rounded-2xl space-y-3 shadow-md mt-2">
             <h3 className="text-xs font-black text-sky-200 uppercase flex items-center justify-between">
-              <span>📋 PEDIDOS SOLICITADOS HOY (PRODUCTOS CONSOLIDADOS)</span>
+              <span>📋 HISTORIAL DE PEDIDOS SOLICITADOS HOY (CONSOLIDADOS)</span>
             </h3>
 
             <div className="max-h-96 overflow-y-auto space-y-3 pr-1">
               {historialPedidosBD.length === 0 ? (
                 <p className="text-xs text-sky-400 italic text-center py-6">
-                  No hay productos solicitados hoy.
+                  No hay productos solicitados hoy en la base de datos.
                 </p>
               ) : (
                 [
@@ -2096,7 +2206,7 @@ export default function MartinetoPOSPage() {
                         </span>
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                         {productosDeCat.map((item, idx) => (
                           <div
                             key={`${item.pedidoId}_${item.nombre}_${idx}`}
@@ -2186,9 +2296,7 @@ export default function MartinetoPOSPage() {
         </div>
       )}
 
-      {/* -------------------------------------------------------------------------- */}
       {/* MÓDULO 3: GASTOS DIRECTOS */}
-      {/* -------------------------------------------------------------------------- */}
       {moduloActivo === 'gastos' && (
         <div className={`bg-[#0b2b48] border border-amber-500/60 p-5 rounded-2xl space-y-4 shadow-md max-w-2xl mx-auto ${bloqueadoPorApertura ? 'opacity-50 pointer-events-none' : ''}`}>
           <div className="flex justify-between items-center border-b border-amber-500/40 pb-2">
@@ -2241,9 +2349,7 @@ export default function MartinetoPOSPage() {
         </div>
       )}
 
-      {/* -------------------------------------------------------------------------- */}
       {/* MÓDULO 4: VENTAS (MESAS, RAPPI Y COBRO) */}
-      {/* -------------------------------------------------------------------------- */}
       {moduloActivo === 'ventas' && (
         <div className={`grid grid-cols-1 lg:grid-cols-12 gap-4 items-start ${bloqueadoPorApertura ? 'opacity-50 pointer-events-none' : ''}`}>
           
@@ -2481,7 +2587,7 @@ export default function MartinetoPOSPage() {
                   })}
                 </div>
 
-                {!esRappiActivo && mesaActiva && mesaActiva.items.length > 0 && (
+                {!esRappiActivo && mesaActiva && (
                   <div className="bg-[#051829] p-2.5 rounded-xl border border-[#0066b3] space-y-1">
                     <label className="text-[10px] text-sky-200 font-bold block uppercase">
                       🔄 Cambiar esta cuenta a otra mesa:
@@ -2583,9 +2689,7 @@ export default function MartinetoPOSPage() {
         </div>
       )}
 
-      {/* -------------------------------------------------------------------------- */}
       {/* MÓDULO 5: CIERRE Y PAGO DE NÓMINA */}
-      {/* -------------------------------------------------------------------------- */}
       {moduloActivo === 'cierre' && (
         <div className="bg-[#0b2b48] border border-[#0066b3] p-5 rounded-2xl space-y-4 shadow-md max-w-2xl mx-auto">
           <h2 className="text-sm font-black text-white border-b border-[#0066b3]/50 pb-2 flex justify-between items-center">

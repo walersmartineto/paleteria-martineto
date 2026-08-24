@@ -275,6 +275,49 @@ export default function CentroPage() {
     setCargando(false);
   }
 
+  async function procesarDiferenciaAperturaAutomaticaCentro(
+    usuarioId: number,
+    totalPaletasHoy: number,
+    detalleEmpaquesHoy: { [nombre: string]: number }
+  ) {
+    try {
+      const { data: ultimoCierre } = await supabase
+        .from('inventario_diario')
+        .select('total_paletas, detalle_empaques')
+        .eq('sede_id', SEDE_ID_CENTRO)
+        .ilike('tipo_movimiento', 'cierre')
+        .order('fecha_registro', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const totalPaletasAyer = Number(ultimoCierre?.total_paletas || 0);
+      const jsonCierreEmpaques = ultimoCierre?.detalle_empaques || {};
+
+      const difPaletasGlobal = totalPaletasHoy - totalPaletasAyer;
+      const difEmpaquesObj: { [nombre: string]: number } = {};
+      let totalDiferenciaGlobal = difPaletasGlobal;
+
+      Object.entries(detalleEmpaquesHoy).forEach(([nombreItem, cantHoy]) => {
+        const cantAyer = Number(jsonCierreEmpaques[nombreItem] || 0);
+        const dif = Number(cantHoy) - cantAyer;
+        difEmpaquesObj[nombreItem] = dif;
+        totalDiferenciaGlobal += dif;
+      });
+
+      await supabase.from('diferencia_inventario').insert([
+        {
+          sede_id: SEDE_ID_CENTRO,
+          usuario_id: usuarioId,
+          diferencia_paletas: { "Total Paletas": difPaletasGlobal },
+          diferencia_empaques: difEmpaquesObj,
+          total_diferencia: totalDiferenciaGlobal,
+        },
+      ]);
+    } catch (e) {
+      console.error('Error calculando la diferencia consolidada (Centro):', e);
+    }
+  }
+
   async function crearNuevoProductoBD() {
     const nombreLimpio = nuevoProdNombre.trim();
     const dondeComprarFinal =
@@ -386,6 +429,50 @@ export default function CentroPage() {
     setter((prev) => ({ ...prev, [item]: val }));
   }
 
+  // --- LÓGICA DE RESUMEN / LISTADO PREVIO DE PEDIDO ACTUAL ---
+  const obtenerResumenPedidoActual = () => {
+    const listaResumen: { categoria: string; claveId: any; nombre: string; cantidad: number }[] = [];
+
+    // 1. Paletas
+    Object.entries(cantidadesPedidoPaletas).forEach(([saborId, cant]) => {
+      const num = Number(cant) || 0;
+      if (num > 0) {
+        const saborObj = saboresCentro.find((s) => s.id === Number(saborId));
+        if (saborObj) {
+          listaResumen.push({ categoria: 'paletas', claveId: saborId, nombre: saborObj.nombre, cantidad: num });
+        }
+      }
+    });
+
+    // 2. Richi
+    Object.entries(cantidadesRichi).forEach(([item, cant]) => {
+      const num = Number(cant) || 0;
+      if (num > 0) {
+        listaResumen.push({ categoria: 'richi', claveId: item, nombre: item, cantidad: num });
+      }
+    });
+
+    // 3. Insumos
+    Object.entries(cantidadesInsumos).forEach(([item, cant]) => {
+      const num = Number(cant) || 0;
+      if (num > 0) {
+        listaResumen.push({ categoria: 'insumos', claveId: item, nombre: item, cantidad: num });
+      }
+    });
+
+    // 4. Aseo
+    Object.entries(cantidadesAseo).forEach(([item, cant]) => {
+      const num = Number(cant) || 0;
+      if (num > 0) {
+        listaResumen.push({ categoria: 'aseo', claveId: item, nombre: item, cantidad: num });
+      }
+    });
+
+    return listaResumen;
+  };
+
+  const resumenPedidoActual = obtenerResumenPedidoActual();
+
   async function handleGuardarBase() {
     const monto = baseCaja === '' ? 0 : Number(baseCaja);
     if (monto < 0) {
@@ -482,15 +569,20 @@ export default function CentroPage() {
         return;
       }
 
-      alert(`✅ ¡Apertura/Inventario guardado con éxito! (ID en BD: ${data?.[0]?.id || 'OK'})`);
-      
       if (tipoMovimiento === 'apertura') {
+        await procesarDiferenciaAperturaAutomaticaCentro(
+          usuarioId, 
+          Number(totalPaletasApertura) || 0, 
+          detalleEmpaquesObj
+        );
         setAperturaRealizada(true);
         setTipoMovimiento('nuevas');
       } else if (tipoMovimiento === 'cierre') {
         setCierreRealizado(true);
       }
 
+      alert(`✅ ¡Inventario guardado con éxito!`);
+      
       setTotalPaletasApertura('');
       const limpias: { [saborId: number]: number | '' } = {};
       saboresCentro.forEach((s) => (limpias[s.id] = ''));
@@ -764,7 +856,6 @@ export default function CentroPage() {
           </div>
         </div>
 
-        {/* CUADRO DEL EFECTIVO RECIBIDO POR CAMBIO DE TURNO DE LA MAÑANA */}
         <div className="bg-[#0b2b48] border border-amber-400/50 p-4 rounded-2xl space-y-1 shadow-md flex flex-col justify-center">
           <span className="text-xs font-black text-amber-300 block uppercase">
             ☀️ Efectivo Recibido del Turno Mañana:
@@ -814,7 +905,6 @@ export default function CentroPage() {
             </select>
           </div>
 
-          {/* SI ES APERTURA: SOLO CAMPO DE TOTAL GENERAL DE PALETAS */}
           {tipoMovimiento === 'apertura' ? (
             <div className="bg-[#051829] border border-[#0066b3] p-4 rounded-xl space-y-2">
               <span className="text-xs font-black text-emerald-300 block uppercase">
@@ -833,7 +923,6 @@ export default function CentroPage() {
               </p>
             </div>
           ) : (
-            /* SI ES OTRO MOVIMIENTO: LISTADO DETALLADO POR SABORES */
             <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1 border border-[#0066b3]/50 p-2.5 rounded-xl bg-[#051829]">
               <span className="text-[10px] text-sky-300 font-bold uppercase block mb-1">Ingresar Cantidad por Sabor:</span>
               {paletasFiltradas.length === 0 ? (
@@ -865,7 +954,6 @@ export default function CentroPage() {
             </div>
           )}
 
-          {/* TOTAL DINÁMICO SOLO CUANDO NO ES APERTURA (EN APERTURA SE USA EL CAMPO SUPERIOR DIRECTO) */}
           {tipoMovimiento !== 'apertura' && (
             <div className="bg-[#0e385e] p-3 rounded-2xl border border-[#0066b3] flex justify-between items-center shadow-inner">
               <span className="text-xs font-black text-sky-200 uppercase">
@@ -877,7 +965,6 @@ export default function CentroPage() {
             </div>
           )}
 
-          {/* LISTA DE EMPAQUES Y ENVASES DE CENTRO */}
           <div className="bg-[#0e385e] p-3 rounded-xl border border-[#0066b3]/60 space-y-2">
             <span className="text-[10px] text-sky-300 font-extrabold uppercase block">📦 Conteo de Empaques y Envases (Centro):</span>
             <div className="space-y-1.5 max-h-[200px] overflow-y-auto pr-1">
@@ -1043,11 +1130,58 @@ export default function CentroPage() {
                   </div>
                 )}
 
+                {/* --- NUEVO: LISTADO PREVIO / CARRITO DE PEDIDO ACTUAL --- */}
+                <div className="bg-[#051829] border border-[#0066b3] p-3 rounded-xl space-y-2">
+                  <span className="text-[11px] font-black text-sky-200 uppercase block border-b border-[#0066b3]/40 pb-1">
+                    🛒 Listado del Pedido en Curso ({resumenPedidoActual.length} ítems)
+                  </span>
+                  
+                  <div className="max-h-40 overflow-y-auto space-y-1.5 pr-1">
+                    {resumenPedidoActual.length === 0 ? (
+                      <p className="text-[11px] text-sky-400 italic text-center py-3">
+                        Aún no has seleccionado ningún producto para este pedido.
+                      </p>
+                    ) : (
+                      resumenPedidoActual.map((item, idx) => (
+                        <div key={`${item.categoria}_${item.claveId}_${idx}`} className="bg-[#0e385e] border border-[#0066b3] p-2 rounded-lg flex justify-between items-center text-xs">
+                          <div>
+                            <span className="font-bold text-white block">{item.nombre}</span>
+                            <span className="text-[9px] text-sky-300 uppercase">Cat: {item.categoria}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="bg-emerald-600 text-white font-black text-[11px] px-2 py-0.5 rounded-md">
+                              {item.cantidad} un.
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (item.categoria === 'paletas') {
+                                  setCantidadesPedidoPaletas((prev) => ({ ...prev, [item.claveId]: '' }));
+                                } else if (item.categoria === 'richi') {
+                                  setCantidadesRichi((prev) => ({ ...prev, [item.claveId]: '' }));
+                                } else if (item.categoria === 'insumos') {
+                                  setCantidadesInsumos((prev) => ({ ...prev, [item.claveId]: '' }));
+                                } else if (item.categoria === 'aseo') {
+                                  setCantidadesAseo((prev) => ({ ...prev, [item.claveId]: '' }));
+                                }
+                              }}
+                              title="Quitar ítem"
+                              className="text-sky-300 hover:text-rose-400 font-black text-sm px-1 rounded transition-colors cursor-pointer"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
                 <input type="text" placeholder="Otro producto adicional..." value={otroInsumoTexto} onChange={(e) => setOtroInsumoTexto(e.target.value)} className="w-full bg-[#051829] border border-[#0066b3] text-white p-2.5 rounded-xl outline-none text-xs focus:border-[#00a4ef]" />
                 <input type="text" placeholder="Observación general del pedido..." value={obsPedido} onChange={(e) => setObsPedido(e.target.value)} className="w-full bg-[#051829] border border-[#0066b3] text-white p-2.5 rounded-xl outline-none text-xs focus:border-[#00a4ef]" />
 
                 <button onClick={handleGuardarPedidoInsumos} disabled={guardando} className="w-full bg-[#0078d4] hover:bg-[#0086e6] text-white font-black py-2.5 rounded-xl text-xs uppercase transition-all shadow-md cursor-pointer disabled:opacity-50">
-                  {guardando ? 'Guardando pedido...' : '🚀 Enviar Pedido a Bodega'}
+                  {guardando ? 'Guardando pedido...' : `🚀 Enviar Pedido a Bodega (${resumenPedidoActual.length} productos)`}
                 </button>
               </div>
             )}

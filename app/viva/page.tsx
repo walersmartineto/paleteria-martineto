@@ -242,6 +242,57 @@ export default function VivaPage() {
     setCargando(false);
   }
 
+  // --- FUNCIÓN AUTOMÁTICA DE AUDITORÍA ---
+  async function procesarDiferenciaAperturaAutomatica(
+    usuarioId: number,
+    detallePaletasHoy: { [nombre: string]: number },
+    detalleEmpaquesHoy: { [nombre: string]: number }
+  ) {
+    try {
+      const { data: ultimoCierre } = await supabase
+        .from('inventario_diario')
+        .select('detalle_paletas, detalle_empaques')
+        .eq('sede_id', SEDE_ID_VIVA)
+        .ilike('tipo_movimiento', 'cierre')
+        .order('fecha_registro', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const jsonCierrePaletas = ultimoCierre?.detalle_paletas || {};
+      const jsonCierreEmpaques = ultimoCierre?.detalle_empaques || {};
+
+      const difPaletasObj: { [nombre: string]: number } = {};
+      const difEmpaquesObj: { [nombre: string]: number } = {};
+      let totalDiferenciaGlobal = 0;
+
+      Object.entries(detallePaletasHoy).forEach(([nombreProd, cantHoy]) => {
+        const cantAyer = Number(jsonCierrePaletas[nombreProd] || 0);
+        const dif = Number(cantHoy) - cantAyer;
+        difPaletasObj[nombreProd] = dif;
+        totalDiferenciaGlobal += dif;
+      });
+
+      Object.entries(detalleEmpaquesHoy).forEach(([nombreItem, cantHoy]) => {
+        const cantAyer = Number(jsonCierreEmpaques[nombreItem] || 0);
+        const dif = Number(cantHoy) - cantAyer;
+        difEmpaquesObj[nombreItem] = dif;
+        totalDiferenciaGlobal += dif;
+      });
+
+      await supabase.from('diferencia_inventario').insert([
+        {
+          sede_id: SEDE_ID_VIVA,
+          usuario_id: usuarioId,
+          diferencia_paletas: difPaletasObj,
+          diferencia_empaques: difEmpaquesObj,
+          total_diferencia: totalDiferenciaGlobal,
+        },
+      ]);
+    } catch (e) {
+      console.error('Error calculando la diferencia consolidada:', e);
+    }
+  }
+
   async function crearNuevoProductoBD() {
     const nombreLimpio = nuevoProdNombre.trim();
     const dondeComprarFinal =
@@ -422,22 +473,23 @@ export default function VivaPage() {
         .insert([payloadInventario])
         .select();
 
-      setGuardando(false);
-
       if (error) {
+        setGuardando(false);
         console.error('Error insertando en inventario_diario:', error);
         alert(`❌ Error de Supabase: ${error.message}`);
         return;
       }
 
-      alert(`✅ ¡Apertura/Inventario guardado con éxito! `);
-      
       if (tipoMovimiento === 'apertura') {
+        await procesarDiferenciaAperturaAutomatica(usuarioId, detallePaletasObj, detalleEmpaquesObj);
         setAperturaRealizada(true);
         setTipoMovimiento('nuevas');
       } else if (tipoMovimiento === 'cierre') {
         setCierreRealizado(true);
       }
+
+      setGuardando(false);
+      alert(`✅ ¡Inventario guardado con éxito!`);
 
       const limpias: { [saborId: number]: number | '' } = {};
       saboresViva.forEach((s) => (limpias[s.id] = ''));
@@ -976,6 +1028,127 @@ export default function VivaPage() {
                     )}
                   </div>
                 )}
+
+                {/* LISTADO DE PEDIDO DE HOY POR CATEGORÍAS CON BOTÓN X */}
+                <div className="bg-[#051829] border border-amber-400/40 p-3 rounded-xl space-y-2">
+                  <span className="text-[10px] font-black text-amber-300 uppercase block border-b border-[#0066b3]/40 pb-1">
+                    📋 Listado de Pedido Actual (Por Categorías)
+                  </span>
+
+                  {(() => {
+                    const paletasSeleccionadas = Object.entries(cantidadesPedidoPaletas).filter(([_, cant]) => Number(cant) > 0);
+                    const richiSeleccionados = Object.entries(cantidadesRichi).filter(([_, cant]) => Number(cant) > 0);
+                    const insumosSeleccionados = Object.entries(cantidadesInsumos).filter(([_, cant]) => Number(cant) > 0);
+                    const aseoSeleccionados = Object.entries(cantidadesAseo).filter(([_, cant]) => Number(cant) > 0);
+                    const tieneOtro = Boolean(otroInsumoTexto.trim());
+
+                    const totalSeleccionados = paletasSeleccionadas.length + richiSeleccionados.length + insumosSeleccionados.length + aseoSeleccionados.length + (tieneOtro ? 1 : 0);
+
+                    if (totalSeleccionados === 0) {
+                      return <p className="text-[11px] text-sky-400 italic text-center py-2">No hay productos agregados al pedido todavía.</p>;
+                    }
+
+                    return (
+                      <div className="space-y-2 max-h-40 overflow-y-auto pr-1 text-xs">
+                        {paletasSeleccionadas.length > 0 && (
+                          <div className="space-y-1">
+                            <span className="text-[10px] font-bold text-sky-300 block">🍦 Paletas:</span>
+                            {paletasSeleccionadas.map(([saborId, cant]) => {
+                              const sObj = saboresViva.find((s) => s.id === Number(saborId));
+                              return (
+                                <div key={saborId} className="flex justify-between items-center bg-[#0e385e] px-2.5 py-1 rounded-lg border border-[#0066b3]/40">
+                                  <span className="text-white truncate">{sObj?.nombre || 'Sabor'} <b className="text-emerald-300">x{cant}</b></span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setCantidadesPedidoPaletas((prev) => ({ ...prev, [saborId]: '' }))}
+                                    className="text-rose-400 hover:text-rose-200 font-black px-1.5 py-0.5 rounded text-[11px] cursor-pointer"
+                                    title="Borrar producto"
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {richiSeleccionados.length > 0 && (
+                          <div className="space-y-1">
+                            <span className="text-[10px] font-bold text-sky-300 block">🛍️ Richi / Empaques:</span>
+                            {richiSeleccionados.map(([nombre, cant]) => (
+                              <div key={nombre} className="flex justify-between items-center bg-[#0e385e] px-2.5 py-1 rounded-lg border border-[#0066b3]/40">
+                                <span className="text-white truncate">{nombre} <b className="text-emerald-300">x{cant}</b></span>
+                                <button
+                                  type="button"
+                                  onClick={() => setCantidadesRichi((prev) => ({ ...prev, [nombre]: '' }))}
+                                  className="text-rose-400 hover:text-rose-200 font-black px-1.5 py-0.5 rounded text-[11px] cursor-pointer"
+                                  title="Borrar producto"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {insumosSeleccionados.length > 0 && (
+                          <div className="space-y-1">
+                            <span className="text-[10px] font-bold text-sky-300 block">🍫 Insumos:</span>
+                            {insumosSeleccionados.map(([nombre, cant]) => (
+                              <div key={nombre} className="flex justify-between items-center bg-[#0e385e] px-2.5 py-1 rounded-lg border border-[#0066b3]/40">
+                                <span className="text-white truncate">{nombre} <b className="text-emerald-300">x{cant}</b></span>
+                                <button
+                                  type="button"
+                                  onClick={() => setCantidadesInsumos((prev) => ({ ...prev, [nombre]: '' }))}
+                                  className="text-rose-400 hover:text-rose-200 font-black px-1.5 py-0.5 rounded text-[11px] cursor-pointer"
+                                  title="Borrar producto"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {aseoSeleccionados.length > 0 && (
+                          <div className="space-y-1">
+                            <span className="text-[10px] font-bold text-sky-300 block">🧹 Aseo:</span>
+                            {aseoSeleccionados.map(([nombre, cant]) => (
+                              <div key={nombre} className="flex justify-between items-center bg-[#0e385e] px-2.5 py-1 rounded-lg border border-[#0066b3]/40">
+                                <span className="text-white truncate">{nombre} <b className="text-emerald-300">x{cant}</b></span>
+                                <button
+                                  type="button"
+                                  onClick={() => setCantidadesAseo((prev) => ({ ...prev, [nombre]: '' }))}
+                                  className="text-rose-400 hover:text-rose-200 font-black px-1.5 py-0.5 rounded text-[11px] cursor-pointer"
+                                  title="Borrar producto"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {tieneOtro && (
+                          <div className="space-y-1">
+                            <span className="text-[10px] font-bold text-sky-300 block">✏️ Otro Adicional:</span>
+                            <div className="flex justify-between items-center bg-[#0e385e] px-2.5 py-1 rounded-lg border border-[#0066b3]/40">
+                              <span className="text-white truncate">{otroInsumoTexto}</span>
+                              <button
+                                type="button"
+                                onClick={() => setOtroInsumoTexto('')}
+                                className="text-rose-400 hover:text-rose-200 font-black px-1.5 py-0.5 rounded text-[11px] cursor-pointer"
+                                title="Borrar producto"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
 
                 <input type="text" placeholder="Otro producto adicional..." value={otroInsumoTexto} onChange={(e) => setOtroInsumoTexto(e.target.value)} className="w-full bg-[#051829] border border-[#0066b3] text-white p-2.5 rounded-xl outline-none text-xs focus:border-[#00a4ef]" />
                 <input type="text" placeholder="Observación general del pedido..." value={obsPedido} onChange={(e) => setObsPedido(e.target.value)} className="w-full bg-[#051829] border border-[#0066b3] text-white p-2.5 rounded-xl outline-none text-xs focus:border-[#00a4ef]" />

@@ -205,7 +205,8 @@ export default function OsitosPage() {
 
   const totalVentasCalculado = (Number(efectivoCaja) || 0) + (Number(nequi) || 0) + (Number(daviplata) || 0);
 
-  const SEDE_ID_OSITOS = 4;
+  // SEDE OSITOS ID = 3
+  const SEDE_ID_OSITOS = 3;
 
   const listaLugaresCompraUnica = Array.from(
     new Set([
@@ -299,6 +300,53 @@ export default function OsitosPage() {
     }
 
     setCargando(false);
+  }
+
+  // --- FUNCIÓN AUTOMÁTICA DE AUDITORÍA (UN SOLO REGISTRO CONSOLIDADO EN JSON PARA OSITOS) ---
+  async function procesarDiferenciaAperturaAutomaticaOsitos(
+    usuarioId: number,
+    totalPaletasHoy: number,
+    detalleEmpaquesHoy: { [nombre: string]: number }
+  ) {
+    try {
+      // 1. Obtener el último Cierre de Sede Ositos (sede_id: 3) en inventario_diario
+      const { data: ultimoCierre } = await supabase
+        .from('inventario_diario')
+        .select('total_paletas, detalle_empaques')
+        .eq('sede_id', SEDE_ID_OSITOS)
+        .ilike('tipo_movimiento', 'cierre')
+        .order('fecha_registro', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const totalPaletasAyer = Number(ultimoCierre?.total_paletas || 0);
+      const jsonCierreEmpaques = ultimoCierre?.detalle_empaques || {};
+
+      const difPaletasGlobal = totalPaletasHoy - totalPaletasAyer;
+      const difEmpaquesObj: { [nombre: string]: number } = {};
+      let totalDiferenciaGlobal = difPaletasGlobal;
+
+      // 2. Comparar Empaques
+      Object.entries(detalleEmpaquesHoy).forEach(([nombreItem, cantHoy]) => {
+        const cantAyer = Number(jsonCierreEmpaques[nombreItem] || 0);
+        const dif = Number(cantHoy) - cantAyer;
+        difEmpaquesObj[nombreItem] = dif;
+        totalDiferenciaGlobal += dif;
+      });
+
+      // 3. Insertar UN SOLO REGISTRO consolidado para Sede Ositos
+      await supabase.from('diferencia_inventario').insert([
+        {
+          sede_id: SEDE_ID_OSITOS,
+          usuario_id: usuarioId,
+          diferencia_paletas: { "Total Paletas": difPaletasGlobal },
+          diferencia_empaques: difEmpaquesObj,
+          total_diferencia: totalDiferenciaGlobal,
+        },
+      ]);
+    } catch (e) {
+      console.error('Error calculando la diferencia consolidada (Ositos):', e);
+    }
   }
 
   async function crearNuevoProductoBD() {
@@ -454,7 +502,9 @@ export default function OsitosPage() {
       return;
     }
 
-    const detallePaletasObj: { [key: string]: number } = {};
+    const detallePaletasObj: { [key: string]: number } = {
+      "Total Paletas": totalPaletasSuma
+    };
 
     const detalleEmpaquesObj: { [itemNombre: string]: number } = {};
     Object.entries(cantidadesEmpaques).forEach(([item, cant]) => {
@@ -478,22 +528,29 @@ export default function OsitosPage() {
         observaciones,
         sesion?.turno_id
       );
-      setGuardando(false);
 
       if (exito) {
-        alert(`¡Registro de [${tipoMovimiento.toUpperCase()}] guardado con éxito! (Total: ${totalPaletasSuma} paletas)`);
-        
+        // SI ES APERTURA, REGISTRAR DIFERENCIA CONSOLIDADA AUTOMÁTICA EN DIFERENCIA_INVENTARIO
         if (tipoMovimiento === 'apertura') {
+          await procesarDiferenciaAperturaAutomaticaOsitos(
+            usuarioId, 
+            totalPaletasSuma, 
+            detalleEmpaquesObj
+          );
           setAperturaRealizada(true);
           setTipoMovimiento('nuevas');
         } else if (tipoMovimiento === 'cierre') {
           setCierreRealizado(true);
         }
 
+        setGuardando(false);
+        alert(`¡Registro de [${tipoMovimiento.toUpperCase()}] guardado con éxito! (Total: ${totalPaletasSuma} paletas)`);
+        
         setTotalPaletasInventario('');
         setCantidadesEmpaques({});
         setObservaciones('');
       } else {
+        setGuardando(false);
         alert('⚠️ Error al registrar el inventario en la base de datos.');
       }
     } catch (err) {
@@ -743,6 +800,7 @@ export default function OsitosPage() {
         <span className="text-xs md:text-sm font-black text-emerald-300 block">
           💵 Paso 1: Base Inicial para Empezar el Día (Efectivo en Caja):
         </span>
+
         <div className="flex gap-3">
           <input
             type="text"
@@ -852,7 +910,7 @@ export default function OsitosPage() {
           <button
             onClick={handleGuardarInventario}
             disabled={!baseGuardada || guardando}
-            className={`w-full font-black py-3 rounded-xl text-xs md:text-sm transition-all uppercase shadow-md ${
+            className={`w-full font-black py-3 rounded-xl text-xs md:text-sm transition-all shadow-md ${
               baseGuardada && !guardando
                 ? 'bg-[#0078d4] hover:bg-[#0086e6] text-white shadow-[#003d6d] cursor-pointer opacity-100'
                 : 'bg-[#051829] text-sky-400/40 cursor-not-allowed opacity-50 border border-[#003d6d]'

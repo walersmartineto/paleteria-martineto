@@ -8,9 +8,10 @@ export default function AdminPage() {
   const router = useRouter();
   const { sedeData } = useSede();
 
-  // Fecha de referencia global
+  // Fechas de referencia global (Rango)
   const fechaHoy = new Date().toISOString().split('T')[0];
-  const [fechaSeleccionada, setFechaSeleccionada] = useState<string>(fechaHoy);
+  const [fechaInicio, setFechaInicio] = useState<string>(fechaHoy);
+  const [fechaFin, setFechaFin] = useState<string>(fechaHoy);
   const [sedeSeleccionada, setSedeSeleccionada] = useState<string>('todos');
 
   // Control de Módulos Principales
@@ -22,76 +23,153 @@ export default function AdminPage() {
   // Sub-control interno de Cierres
   const [subPestanaCierres, setSubPestanaCierres] = useState<'caja' | 'descuadres'>('caja');
 
-  // Estados de Datos
+  // Estados del Módulo 4 (Nómina)
+  const [resumenNominaOperarios, setResumenNominaOperarios] = useState<any[]>([]);
+
+  // Estados de Datos Generales
+  const [sedesBD, setSedesBD] = useState<any[]>([]);
+  const [mapaSedes, setMapaSedes] = useState<{ [id: number]: string }>({});
+  const [usuariosBD, setUsuariosBD] = useState<{ [id: number]: string }>({});
   const [pedidos, setPedidos] = useState<any[]>([]);
   const [productosBD, setProductosBD] = useState<any[]>([]);
   const [registrosCaja, setRegistrosCaja] = useState<any[]>([]);
+  const [registrosNomina, setRegistrosNomina] = useState<any[]>([]);
   const [inventarioMovimientos, setInventarioMovimientos] = useState<any[]>([]);
+  const [inventarioMovsDia, setInventarioMovsDia] = useState<any[]>([]);
   const [cargando, setCargando] = useState<boolean>(true);
   const [editandoProveedor, setEditandoProveedor] = useState<{ [nombre: string]: string }>({});
+
+  // CHECKLIST VISUAL EN MEMORIA
+  const [itemsChequeados, setItemsChequeados] = useState<{ [key: string]: boolean }>({});
 
   // Acordeones internos
   const [acordeonesCompras, setAcordeonesCompras] = useState<{ [key: string]: boolean }>({});
   const [acordeonesDespachos, setAcordeonesDespachos] = useState<{ [key: string]: boolean }>({});
   const [acordeonesCierres, setAcordeonesCierres] = useState<{ [key: string]: boolean }>({ global: true });
   const [acordeonesDescuadres, setAcordeonesDescuadres] = useState<{ [key: string]: boolean }>({});
+  const [acordeonesInventario, setAcordeonesInventario] = useState<{ [key: string]: boolean }>({});
 
   useEffect(() => {
     cargarDatosAdmin();
-  }, [fechaSeleccionada]);
+  }, [fechaInicio, fechaFin]);
 
   async function cargarDatosAdmin() {
     setCargando(true);
     try {
-      const inicioDia = `${fechaSeleccionada}T00:00:00`;
-      const finDia = `${fechaSeleccionada}T23:59:59`;
+      // 0. Cargar Sedes desde BD
+      const { data: sedesData } = await supabase.from('sede').select('id, nombre');
+      if (sedesData) {
+        setSedesBD(sedesData);
+        const mapa: { [id: number]: string } = {};
+        sedesData.forEach((s) => {
+          mapa[s.id] = s.nombre;
+        });
+        setMapaSedes(mapa);
+      }
 
-      // Calcular fecha de ayer para auditoría de descuadres
-      const fechaObj = new Date(fechaSeleccionada + 'T00:00:00');
-      fechaObj.setDate(fechaObj.getDate() - 1);
-      const fechaAyerStr = fechaObj.toISOString().split('T')[0];
+      // 0.1 Cargar Usuarios usando 'nombre_completo'
+      const { data: usuariosData } = await supabase.from('usuario').select('id, nombre_completo');
+      const mapaU: { [id: number]: string } = {};
+      if (usuariosData) {
+        usuariosData.forEach((u) => {
+          mapaU[u.id] = u.nombre_completo;
+        });
+        setUsuariosBD(mapaU);
+      }
 
-      // 1. Pedidos
-      const { data: pedidosData } = await supabase
-        .from('pedidos_insumos')
-        .select('*')
-        .gte('fecha', inicioDia)
-        .lte('fecha', finDia);
-
-      // 2. Productos
-      const { data: prodData } = await supabase
-        .from('producto')
-        .select('id, nombre, donde_comprar');
-
-      // 3. Cierres de caja (Filtrado por fecha estricta YYYY-MM-DD)
-      const { data: cajaDataRaw } = await supabase
-        .from('caja')
-        .select('*');
-
-      const cajaData = (cajaDataRaw || []).filter(row => row.fecha && String(row.fecha).startsWith(fechaSeleccionada));
-
-      // 4. Inventario diario
-      const { data: invData } = await supabase
-        .from('inventario_diario')
-        .select('*');
-
-      // Filtramos movimientos correspondientes a la fecha seleccionada o al día anterior
-      const invDataFiltrado = (invData || []).filter(row => {
+      // 1. Pedidos (Filtrados por rango de fechas)
+      const { data: pedidosDataRaw } = await supabase.from('pedidos_insumos').select('*');
+      const pedidosData = (pedidosDataRaw || []).filter(row => {
         if (!row.fecha) return false;
-        const fStr = String(row.fecha);
-        return fStr.startsWith(fechaSeleccionada) || fStr.startsWith(fechaAyerStr);
+        const fRow = String(row.fecha).split('T')[0];
+        return fRow >= fechaInicio && fRow <= fechaFin;
       });
 
-      setPedidos(pedidosData || []);
+      // 2. Productos
+      const { data: prodData } = await supabase.from('producto').select('id, nombre, donde_comprar');
+
+      // 3. Cierres de caja (Filtrados por rango de fechas)
+      const { data: cajaDataRaw } = await supabase.from('caja').select('*');
+      const cajaData = (cajaDataRaw || []).filter(row => {
+        if (!row.fecha) return false;
+        const fRow = String(row.fecha).split('T')[0];
+        return fRow >= fechaInicio && fRow <= fechaFin;
+      });
+
+      // 4. Cargar datos de Nómina por rango
+      const { data: nominaDataRaw } = await supabase.from('nomina').select('*');
+      const nominaData = (nominaDataRaw || []).filter(row => {
+        const fPago = row.fecha_pago ? String(row.fecha_pago).split('T')[0] : '';
+        const fGen = row.fecha ? String(row.fecha).split('T')[0] : '';
+        return (fPago >= fechaInicio && fPago <= fechaFin) || (fGen >= fechaInicio && fGen <= fechaFin);
+      });
+
+      // Acumulado de nómina para los operarios basado en el rango
+      const acumulado: { [usuarioId: number]: { 
+        nombre: string; 
+        horasDia: number; 
+        horasNoche: number; 
+        totalPagado: number;
+        turnosCount: number;
+      }} = {};
+
+      nominaData.forEach(row => {
+        const uId = row.usuario_id;
+        const nombre = mapaU[uId] || `Operario #${uId}`;
+        const hDia = Number(row.horas_dia || 0);
+        const hNoche = Number(row.horas_noche || 0);
+        const total = Number(row.monto || row.total_pagado || 0);
+
+        if (!acumulado[uId]) {
+          acumulado[uId] = {
+            nombre,
+            horasDia: 0,
+            horasNoche: 0,
+            totalPagado: 0,
+            turnosCount: 0
+          };
+        }
+
+        acumulado[uId].horasDia += hDia;
+        acumulado[uId].horasNoche += hNoche;
+        acumulado[uId].totalPagado += total;
+        acumulado[uId].turnosCount += 1;
+      });
+
+      setResumenNominaOperarios(Object.values(acumulado));
+
+      // 5. Cargar Diferencias de Inventario por rango
+      const { data: diffDataRaw } = await supabase.from('diferencia_inventario').select('*');
+      const diffDataFiltrado = (diffDataRaw || []).filter(row => {
+        if (!row.fecha_registro) return false;
+        const fRow = String(row.fecha_registro).split('T')[0];
+        return fRow >= fechaInicio && fRow <= fechaFin;
+      });
+
+      // 6. Cargar Inventario Diario completo por rango
+      const { data: invDiarioRaw } = await supabase.from('inventario_diario').select('*');
+      const invMovsFiltrado = (invDiarioRaw || []).filter(row => {
+        if (!row.fecha_registro) return false;
+        const fRow = String(row.fecha_registro).split('T')[0];
+        return fRow >= fechaInicio && fRow <= fechaFin;
+      });
+
+      setPedidos(pedidosData);
       setProductosBD(prodData || []);
       setRegistrosCaja(cajaData);
-      setInventarioMovimientos(invDataFiltrado);
+      setRegistrosNomina(nominaData);
+      setInventarioMovimientos(diffDataFiltrado);
+      setInventarioMovsDia(invMovsFiltrado);
+      setItemsChequeados({});
     } catch (err) {
       console.error('Error cargando datos:', err);
     } finally {
       setCargando(false);
     }
   }
+
+  const getNombreSede = (id: number) => mapaSedes[id] || `Sede ${id}`;
+  const getNombreUsuario = (id: number) => usuariosBD[id] || `Empleado #${id}`;
 
   // --- LOGISTICA ---
   const pedidosPendientesCompra = pedidos.filter(p => p.estado === 'pendiente');
@@ -100,31 +178,79 @@ export default function AdminPage() {
   const consolidadoCompras = (() => {
     const mapaProveedores: { [prov: string]: { items: any; idsPedidosSet: Set<number> } } = {};
     pedidosPendientesCompra.forEach(p => {
-      const jsonItems = { ...(p.pedidos_paletas || {}), ...(p.pedidos_richi || {}), ...(p.pedidos_produccion || {}), ...(p.pedidos_insumos || {}) };
+      if (sedeSeleccionada !== 'todos' && String(p.sede_id) !== sedeSeleccionada) return;
+
+      const jsonItems = { 
+        ...(p.pedidos_paletas || {}), 
+        ...(p.pedidos_richi || {}), 
+        ...(p.pedidos_produccion || {}), 
+        ...(p.pedidos_insumos || {}), 
+        ...(p.pedidos_aseo || {}) 
+      };
+
       Object.entries(jsonItems).forEach(([nombreProd, cantidad]) => {
         const cantNum = Number(cantidad) || 0;
         if (cantNum <= 0) return;
+
         const prodEnBD = productosBD.find(item => String(item.nombre).trim().toLowerCase() === String(nombreProd).trim().toLowerCase());
         const prov = prodEnBD?.donde_comprar && prodEnBD.donde_comprar.trim() !== '' ? prodEnBD.donde_comprar : '⚠️ Faltan datos de dónde comprar';
 
         if (!mapaProveedores[prov]) mapaProveedores[prov] = { items: {}, idsPedidosSet: new Set() };
         mapaProveedores[prov].idsPedidosSet.add(p.id);
-        if (!mapaProveedores[prov].items[nombreProd]) mapaProveedores[prov].items[nombreProd] = { cantidad: 0, idProd: prodEnBD?.id };
+
+        if (!mapaProveedores[prov].items[nombreProd]) {
+          mapaProveedores[prov].items[nombreProd] = { cantidad: 0, idProd: prodEnBD?.id, idsPedidos: [] };
+        }
         mapaProveedores[prov].items[nombreProd].cantidad += cantNum;
+        if (!mapaProveedores[prov].items[nombreProd].idsPedidos.includes(p.id)) {
+          mapaProveedores[prov].items[nombreProd].idsPedidos.push(p.id);
+        }
       });
     });
     return mapaProveedores;
   })();
 
+  const resumenComprasPorSede = (() => {
+    const mapa: { [nombreSede: string]: { [prod: string]: number } } = {};
+    pedidosPendientesCompra.forEach(p => {
+      const nombreSede = getNombreSede(p.sede_id);
+      if (sedeSeleccionada !== 'todos' && String(p.sede_id) !== sedeSeleccionada) return;
+
+      if (!mapa[nombreSede]) mapa[nombreSede] = {};
+      const jsonItems = { 
+        ...(p.pedidos_paletas || {}), 
+        ...(p.pedidos_richi || {}), 
+        ...(p.pedidos_produccion || {}), 
+        ...(p.pedidos_insumos || {}), 
+        ...(p.pedidos_aseo || {}) 
+      };
+      
+      Object.entries(jsonItems).forEach(([k, v]) => {
+        const cant = Number(v) || 0;
+        if (cant > 0) {
+          mapa[nombreSede][k] = (mapa[nombreSede][k] || 0) + cant;
+        }
+      });
+    });
+    return mapa;
+  })();
+
   const despachosPorSede = (() => {
     const mapaSedes: { [sede: string]: { productos: any; idsPedidos: number[] } } = {};
     pedidosListosParaEntrega.forEach(p => {
-      const nombreSede = p.sede_id === 1 ? 'Sede Martineto' : p.sede_id === 2 ? 'Sede Centro' : p.sede_id === 3 ? 'Sede Viva' : 'Sede Ositos';
+      const nombreSede = getNombreSede(p.sede_id);
       if (sedeSeleccionada !== 'todos' && String(p.sede_id) !== sedeSeleccionada) return;
       if (!mapaSedes[nombreSede]) mapaSedes[nombreSede] = { productos: {}, idsPedidos: [] };
       if (!mapaSedes[nombreSede].idsPedidos.includes(p.id)) mapaSedes[nombreSede].idsPedidos.push(p.id);
 
-      const jsonItems = { ...(p.pedidos_paletas || {}), ...(p.pedidos_richi || {}), ...(p.pedidos_produccion || {}), ...(p.pedidos_insumos || {}) };
+      const jsonItems = { 
+        ...(p.pedidos_paletas || {}), 
+        ...(p.pedidos_richi || {}), 
+        ...(p.pedidos_produccion || {}), 
+        ...(p.pedidos_insumos || {}), 
+        ...(p.pedidos_aseo || {}) 
+      };
+
       Object.entries(jsonItems).forEach(([k, v]) => {
         const cant = Number(v) || 0;
         if (cant > 0) mapaSedes[nombreSede].productos[k] = (mapaSedes[nombreSede].productos[k] || 0) + cant;
@@ -133,25 +259,39 @@ export default function AdminPage() {
     return mapaSedes;
   })();
 
-  // --- CIERRES DE CAJA ---
-  const CierreGlobal = registrosCaja.reduce((acc, row) => {
-    const efec = Number(row.efectivo_cierre) || 0;
-    const neq = Number(row.nequi) || 0;
-    const dav = Number(row.daviplata) || 0;
-    const gas = Number(row.monto_gasto) || 0;
+  const tieneProductosPorComprar = Object.keys(consolidadoCompras).length > 0;
+  const tieneProductosPorEntregar = Object.keys(despachosPorSede).length > 0;
+
+  // --- CIERRES DE CAJA Y NÓMINAS ---
+  const CierreGlobal = (() => {
+    const totalCaja = registrosCaja.reduce((acc, row) => {
+      const efec = Number(row.efectivo_cierre) || 0;
+      const neq = Number(row.nequi) || 0;
+      const dav = Number(row.daviplata) || 0;
+      const gas = Number(row.monto_gasto) || 0;
+      return {
+        efectivo: acc.efectivo + efec,
+        nequi: acc.nequi + neq,
+        daviplata: acc.daviplata + dav,
+        gastos: acc.gastos + gas,
+        totalVenta: acc.totalVenta + (efec + neq + dav)
+      };
+    }, { efectivo: 0, nequi: 0, daviplata: 0, gastos: 0, totalVenta: 0 });
+
+    const totalNominaBD = registrosNomina.reduce((acc, n) => acc + (Number(n.monto) || 0), 0);
+
     return {
-      efectivo: acc.efectivo + efec,
-      nequi: acc.nequi + neq,
-      daviplata: acc.daviplata + dav,
-      gastos: acc.gastos + gas,
-      totalVenta: acc.totalVenta + (efec + neq + dav)
+      ...totalCaja,
+      nomina: totalNominaBD,
+      ventaNeto: totalCaja.totalVenta - totalCaja.gastos - totalNominaBD
     };
-  }, { efectivo: 0, nequi: 0, daviplata: 0, gastos: 0, totalVenta: 0 });
+  })();
 
   const cierresPorSede = (() => {
     const mapa: { [sede: string]: any } = {};
+    
     registrosCaja.forEach(row => {
-      const nombreSede = row.sede_id === 1 ? 'Sede Martineto' : row.sede_id === 2 ? 'Sede Centro' : row.sede_id === 3 ? 'Sede Viva' : 'Sede Ositos';
+      const nombreSede = getNombreSede(row.sede_id);
       if (sedeSeleccionada !== 'todos' && String(row.sede_id) !== sedeSeleccionada) return;
 
       const efec = Number(row.efectivo_cierre) || 0;
@@ -165,8 +305,10 @@ export default function AdminPage() {
           nequi: 0,
           daviplata: 0,
           gastos: 0,
+          nomina: 0,
           totalVenta: 0,
           motivosGastos: [],
+          notasNomina: [],
           estado: row.estado || 'abierta'
         };
       }
@@ -178,64 +320,143 @@ export default function AdminPage() {
       mapa[nombreSede].totalVenta += (efec + neq + dav);
       if (row.motivo_gasto) mapa[nombreSede].motivosGastos.push(row.motivo_gasto);
     });
+
+    registrosNomina.forEach(n => {
+      const nombreSede = getNombreSede(n.sede_id);
+      if (sedeSeleccionada !== 'todos' && String(n.sede_id) !== sedeSeleccionada) return;
+      const montoPago = Number(n.monto) || 0;
+
+      if (!mapa[nombreSede]) {
+        mapa[nombreSede] = {
+          efectivo: 0,
+          nequi: 0,
+          daviplata: 0,
+          gastos: 0,
+          nomina: 0,
+          totalVenta: 0,
+          motivosGastos: [],
+          notasNomina: [],
+          estado: 'abierta'
+        };
+      }
+
+      mapa[nombreSede].nomina += montoPago;
+      const empleadoNombre = n.usuario_id ? getNombreUsuario(n.usuario_id) : (n.concepto || 'Pago turno');
+      mapa[nombreSede].notasNomina.push(`${empleadoNombre}: $${montoPago.toLocaleString()}`);
+    });
+
     return mapa;
   })();
 
-  // --- CONSULTA DE DESCUADRES (Cierre de Ayer vs Apertura de Hoy) ---
+  // --- CONSULTA DE DESCUADRES DESDE LA TABLA 'diferencia_inventario' ---
   const auditoriaDescuadres = (() => {
-    const fechaObj = new Date(fechaSeleccionada + 'T00:00:00');
-    fechaObj.setDate(fechaObj.getDate() - 1);
-    const fechaAyerStr = fechaObj.toISOString().split('T')[0];
+    const mapaSedDescuadres: { 
+      [sedeName: string]: { 
+        sedeId: number; 
+        diferencias: { producto: string; cierreAyer: number; aperturaHoy: number; dif: number }[];
+        totalDiferencia: number;
+      } 
+    } = {};
 
-    const mapaSedDescuadres: { [sedeName: string]: { diferencias: { producto: string; cierreAyer: number; aperturaHoy: number; dif: number }[]; sedeId: number } } = {};
-
-    const sedesIds = [1, 2, 3, 4];
-    sedesIds.forEach(idSede => {
-      const nombreSede = idSede === 1 ? 'Sede Martineto' : idSede === 2 ? 'Sede Centro' : idSede === 3 ? 'Sede Viva' : 'Sede Ositos';
+    sedesBD.forEach(s => {
+      const idSede = s.id;
+      const nombreSede = getNombreSede(idSede);
       if (sedeSeleccionada !== 'todos' && String(idSede) !== sedeSeleccionada) return;
 
-      // Cierre de ayer por coincidencia exacta de YYYY-MM-DD
-      const registroCierreAyer = inventarioMovimientos.find(m => 
-        Number(m.sede_id) === idSede && 
-        String(m.tipo_movimiento || '').toLowerCase().includes('cierre') && 
-        m.fecha && String(m.fecha).startsWith(fechaAyerStr)
-      );
+      const registroDiff = inventarioMovimientos.find(m => Number(m.sede_id) === idSede);
 
-      // Apertura de hoy por coincidencia exacta de YYYY-MM-DD
-      const registroAperturaHoy = inventarioMovimientos.find(m => 
-        Number(m.sede_id) === idSede && 
-        String(m.tipo_movimiento || '').toLowerCase().includes('apertura') && 
-        m.fecha && String(m.fecha).startsWith(fechaSeleccionada)
-      );
+      if (registroDiff) {
+        const diferenciasLista: { producto: string; cierreAyer: number; aperturaHoy: number; dif: number }[] = [];
+        
+        const jsonPaletas = registroDiff.diferencia_paletas || {};
+        const jsonEmpaques = registroDiff.diferencia_empaques || {};
+        const jsonGeneral = { ...jsonPaletas, ...jsonEmpaques };
 
-      const jsonCierreAyer = registroCierreAyer?.inventario_json || registroCierreAyer?.datos_json || {};
-      const jsonAperturaHoy = registroAperturaHoy?.inventario_json || registroAperturaHoy?.datos_json || {};
-
-      const todosProductosSet = new Set([...Object.keys(jsonCierreAyer), ...Object.keys(jsonAperturaHoy)]);
-      const diferenciasLista: { producto: string; cierreAyer: number; aperturaHoy: number; dif: number }[] = [];
-
-      todosProductosSet.forEach(prodName => {
-        const valCierre = Number(jsonCierreAyer[prodName]) || 0;
-        const valApertura = Number(jsonAperturaHoy[prodName]) || 0;
-        const dif = valApertura - valCierre;
-
-        diferenciasLista.push({
-          producto: prodName,
-          cierreAyer: valCierre,
-          aperturaHoy: valApertura,
-          dif: dif
+        Object.entries(jsonGeneral).forEach(([prodName, val]: [string, any]) => {
+          const cantidadDif = Number(val) || 0;
+          diferenciasLista.push({
+            producto: prodName,
+            cierreAyer: 0,
+            aperturaHoy: 0,
+            dif: cantidadDif
+          });
         });
-      });
 
-      if (diferenciasLista.length > 0) {
-        mapaSedDescuadres[nombreSede] = {
-          sedeId: idSede,
-          diferencias: diferenciasLista
-        };
+        if (diferenciasLista.length > 0 || Number(registroDiff.total_diferencia) !== 0) {
+          mapaSedDescuadres[nombreSede] = {
+            sedeId: idSede,
+            diferencias: diferenciasLista,
+            totalDiferencia: Number(registroDiff.total_diferencia || 0)
+          };
+        }
       }
     });
 
     return mapaSedDescuadres;
+  })();
+
+  // --- CONSULTA DE INVENTARIO Y STOCK GENERAL ---
+  const inventarioStockGeneralPorSede = (() => {
+    const mapa: { 
+      [sedeName: string]: { 
+        totalPaletas: number; 
+        detallePaletas: { [k: string]: number }; 
+        detalleEmpaques: { [k: string]: number }; 
+      } 
+    } = {};
+
+    sedesBD.forEach(s => {
+      const idSede = s.id;
+      const nombreSede = getNombreSede(idSede);
+      if (sedeSeleccionada !== 'todos' && String(idSede) !== sedeSeleccionada) return;
+
+      const registrosSede = inventarioMovsDia.filter(m => Number(m.sede_id) === idSede);
+
+      let totalPaletas = 0;
+      const detallePaletas: { [k: string]: number } = {};
+      const detalleEmpaques: { [k: string]: number } = {};
+
+      registrosSede.forEach(reg => {
+        const tipo = String(reg.tipo_movimiento || '').toLowerCase().trim();
+        
+        let factor = 0;
+        if (tipo === 'apertura') factor = 1;
+        else if (tipo === 'nuevas') factor = 1;
+        else if (tipo === 'de_baja' || tipo === 'baja') factor = -1;
+        else if (tipo === 'compradas' || tipo === 'compra') factor = 1;
+
+        if (factor !== 0) {
+          totalPaletas += Number(reg.total_paletas || 0) * factor;
+
+          const dPaletas = reg.detalle_paletas || {};
+          Object.entries(dPaletas).forEach(([k, v]) => {
+            detallePaletas[k] = (detallePaletas[k] || 0) + (Number(v) || 0) * factor;
+          });
+
+          const dEmpaques = reg.detalle_empaques || {};
+          Object.entries(dEmpaques).forEach(([k, v]) => {
+            detalleEmpaques[k] = (detalleEmpaques[k] || 0) + (Number(v) || 0) * factor;
+          });
+        }
+      });
+
+      Object.keys(detallePaletas).forEach(k => {
+        if (detallePaletas[k] === 0) delete detallePaletas[k];
+      });
+      Object.keys(detalleEmpaques).forEach(k => {
+        if (detalleEmpaques[k] === 0) delete detalleEmpaques[k];
+      });
+
+      if (registrosSede.length > 0) {
+        mapa[nombreSede] = {
+          totalPaletas,
+          detallePaletas,
+          detalleEmpaques
+        };
+      }
+    });
+
+    return mapa;
   })();
 
   // --- ACCIONES ---
@@ -251,11 +472,30 @@ export default function AdminPage() {
     cargarDatosAdmin();
   }
 
-  async function marcarProveedorComoComprado(idsPedidosSet: Set<number>) {
-    const ids = Array.from(idsPedidosSet);
-    if (ids.length === 0) return;
-    if (!confirm('¿Has comprado ya estos insumos? Pasarán a Despachos.')) return;
-    await supabase.from('pedidos_insumos').update({ estado: 'comprado' }).in('id', ids);
+  const toggleChecklistLocal = (proveedor: string, nombreProducto: string) => {
+    const key = `${fechaInicio}_${proveedor}_${nombreProducto}`;
+    setItemsChequeados(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  async function marcarSeleccionadosComoComprados(proveedor: string, itemsProveedor: any) {
+    const idsParaMarcarSet = new Set<number>();
+    let hayItemsSeleccionados = false;
+
+    Object.entries(itemsProveedor).forEach(([nombreProd, info]: any) => {
+      const keyItem = `${fechaInicio}_${proveedor}_${nombreProd}`;
+      if (itemsChequeados[keyItem]) {
+        hayItemsSeleccionados = true;
+        (info.idsPedidos || []).forEach((id: number) => idsParaMarcarSet.add(id));
+      }
+    });
+
+    if (!hayItemsSeleccionados) {
+      alert('⚠️ Por favor marca con el chulito ✓ al menos un producto de la lista.');
+      return;
+    }
+
+    const idsArray = Array.from(idsParaMarcarSet);
+    await supabase.from('pedidos_insumos').update({ estado: 'comprado' }).in('id', idsArray);
     cargarDatosAdmin();
   }
 
@@ -281,10 +521,33 @@ export default function AdminPage() {
         <button onClick={() => router.back()} className="bg-[#031d35] hover:bg-[#003d6d] px-3 py-1.5 rounded-xl text-xs font-bold border border-[#0066b3] cursor-pointer">Volver</button>
       </header>
 
-      {/* CALENDARIO GENERAL */}
-      <div className="bg-[#0b2b48] border border-[#0066b3] p-3 rounded-2xl shadow-md">
-        <label className="text-[10px] font-extrabold text-sky-300 uppercase block mb-1">📅 Fecha de Consulta:</label>
-        <input type="date" value={fechaSeleccionada} onChange={(e) => setFechaSeleccionada(e.target.value)} className="w-full bg-[#031d35] border border-[#0066b3] text-white p-3 rounded-xl text-xs outline-none" />
+      {/* CALENDARIO GENERAL (RANGO DE FECHAS) */}
+      <div className="bg-[#0b2b48] border border-[#0066b3] p-3 rounded-2xl shadow-md space-y-2">
+        <label className="text-[10px] font-extrabold text-sky-300 uppercase block">📅 Rango de Fechas de Consulta:</label>
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <span className="text-[9px] text-sky-300 font-bold block mb-1">Desde (Inicio):</span>
+            <input 
+              type="date" 
+              value={fechaInicio} 
+              onChange={(e) => {
+                const nuevaFecha = e.target.value;
+                setFechaInicio(nuevaFecha);
+                setFechaFin(nuevaFecha); // Sincronización automática de fecha final
+              }} 
+              className="w-full bg-[#031d35] border border-[#0066b3] text-white p-2 rounded-xl text-xs outline-none" 
+            />
+          </div>
+          <div>
+            <span className="text-[9px] text-sky-300 font-bold block mb-1">Hasta (Final):</span>
+            <input 
+              type="date" 
+              value={fechaFin} 
+              onChange={(e) => setFechaFin(e.target.value)} 
+              className="w-full bg-[#031d35] border border-[#0066b3] text-white p-2 rounded-xl text-xs outline-none" 
+            />
+          </div>
+        </div>
       </div>
 
       {cargando ? <div className="text-center py-10 text-xs font-bold text-sky-200">Cargando datos...</div> : (
@@ -307,68 +570,155 @@ export default function AdminPage() {
             {moduloAbierto === 'logistica' && (
               <div className="p-3 pt-0 space-y-3 border-t border-[#0066b3]/30 bg-[#031d35]/60">
                 <div className="grid grid-cols-2 gap-2 pt-3">
-                  <button onClick={() => setSubPestanaLogistica('compras')} className={`py-2 rounded-xl font-extrabold text-[11px] uppercase border ${subPestanaLogistica === 'compras' ? 'bg-[#0078d4] border-[#00a4ef]' : 'bg-[#0b2b48] border-[#0066b3]'}`}>🛒 Por Comprar</button>
-                  <button onClick={() => setSubPestanaLogistica('despachos')} className={`py-2 rounded-xl font-extrabold text-[11px] uppercase border ${subPestanaLogistica === 'despachos' ? 'bg-[#0078d4] border-[#00a4ef]' : 'bg-[#0b2b48] border-[#0066b3]'}`}>🚚 Por Entregar</button>
+                  <button 
+                    onClick={() => setSubPestanaLogistica('compras')} 
+                    className={`py-2 rounded-xl font-extrabold text-[11px] uppercase border flex items-center justify-center gap-2 relative ${subPestanaLogistica === 'compras' ? 'bg-[#0078d4] border-[#00a4ef]' : 'bg-[#0b2b48] border-[#0066b3]'}`}
+                  >
+                    <span>🛒 Por Comprar</span>
+                    {tieneProductosPorComprar && (
+                      <span className="relative flex h-2.5 w-2.5">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-400 shadow-[0_0_8px_#fbbf24]"></span>
+                      </span>
+                    )}
+                  </button>
+
+                  <button 
+                    onClick={() => setSubPestanaLogistica('despachos')} 
+                    className={`py-2 rounded-xl font-extrabold text-[11px] uppercase border flex items-center justify-center gap-2 relative ${subPestanaLogistica === 'despachos' ? 'bg-[#0078d4] border-[#00a4ef]' : 'bg-[#0b2b48] border-[#0066b3]'}`}
+                  >
+                    <span>🚚 Por Entregar</span>
+                    {tieneProductosPorEntregar && (
+                      <span className="relative flex h-2.5 w-2.5">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-400 shadow-[0_0_8px_#34d399]"></span>
+                      </span>
+                    )}
+                  </button>
                 </div>
 
                 {subPestanaLogistica === 'compras' && (
-                  Object.keys(consolidadoCompras).length === 0 ? (
-                    <p className="text-center text-xs text-sky-300 py-6 font-semibold">No hay compras pendientes.</p>
-                  ) : (
-                    Object.entries(consolidadoCompras).map(([proveedor, dataProv]) => {
-                      const abierto = !!acordeonesCompras[proveedor];
-                      const esAlerta = proveedor.includes('Faltan datos');
-                      const itemsArray = Object.entries(dataProv.items);
+                  <div className="space-y-4">
+                    <select value={sedeSeleccionada} onChange={(e) => setSedeSeleccionada(e.target.value)} className="w-full bg-[#031d35] border border-[#0066b3] text-white font-bold text-xs p-2 rounded-lg outline-none">
+                      <option value="todos">🌐 Todas las Sedes</option>
+                      {sedesBD.map(s => (
+                        <option key={s.id} value={String(s.id)}>{s.nombre}</option>
+                      ))}
+                    </select>
 
-                      return (
-                        <div key={proveedor} className={`border rounded-xl overflow-hidden shadow-sm ${esAlerta ? 'border-rose-500 bg-rose-950/20' : 'border-[#0066b3] bg-[#0b2b48]'}`}>
-                          <button onClick={() => setAcordeonesCompras(prev => ({ ...prev, [proveedor]: !abierto }))} className="w-full p-3 flex justify-between items-center text-xs font-bold uppercase text-amber-300">
-                            <span>{abierto ? '▼' : '▶'} {proveedor}</span>
-                            <span className="text-[10px] bg-[#031d35] px-2 py-0.5 rounded">{itemsArray.length} ítems</span>
-                          </button>
-                          {abierto && (
-                            <div className="p-3 pt-0 space-y-2 border-t border-[#0066b3]/30">
-                              <div className="space-y-1.5 pt-2">
-                                {itemsArray.map(([nombreProd, info]: any, i) => (
-                                  <div key={i} className="bg-[#031d35] p-2.5 rounded-lg border border-[#0066b3]/50 flex justify-between items-center text-xs">
-                                    <div>
-                                      <p className="font-semibold text-white">{nombreProd}</p>
-                                      {esAlerta && (
-                                        <div className="flex gap-1 mt-1.5">
-                                          <input className="bg-[#0b2b48] border border-rose-500 text-white text-[10px] p-1.5 rounded outline-none w-24" placeholder="Ej. D1" onChange={(e) => setEditandoProveedor({ ...editandoProveedor, [nombreProd]: e.target.value })} />
-                                          <button onClick={() => guardarProveedorInteligente(nombreProd, info.idProd)} className="bg-emerald-600 px-2 py-1 rounded text-[10px] font-bold">Guardar</button>
+                    <div className="space-y-2">
+                      <span className="text-[11px] font-black text-sky-300 uppercase block px-1 flex items-center gap-2">
+                        🛒 CONSOLIDADO POR LUGAR DE COMPRA
+                        {tieneProductosPorComprar && (
+                          <span className="relative flex h-2 w-2">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-400"></span>
+                          </span>
+                        )}
+                      </span>
+
+                      {Object.keys(consolidadoCompras).length === 0 ? (
+                        <p className="text-center text-xs text-sky-300 py-4 font-semibold">No hay compras pendientes para el rango seleccionado.</p>
+                      ) : (
+                        Object.entries(consolidadoCompras).map(([proveedor, dataProv]) => {
+                          const abierto = !!acordeonesCompras[proveedor];
+                          const esAlerta = proveedor.includes('Faltan datos');
+                          const itemsArray = Object.entries(dataProv.items);
+
+                          return (
+                            <div key={proveedor} className={`border rounded-xl overflow-hidden shadow-sm ${esAlerta ? 'border-rose-500 bg-rose-950/20' : 'border-[#0066b3] bg-[#0b2b48]'}`}>
+                              <button onClick={() => setAcordeonesCompras(prev => ({ ...prev, [proveedor]: !abierto }))} className="w-full p-3 flex justify-between items-center text-xs font-bold uppercase text-amber-300">
+                                <span>{abierto ? '▼' : '▶'} {proveedor}</span>
+                                <span className="text-[10px] bg-[#031d35] px-2 py-0.5 rounded">{itemsArray.length} ÍTEMS</span>
+                              </button>
+                              {abierto && (
+                                <div className="p-3 pt-0 space-y-2 border-t border-[#0066b3]/30">
+                                  <div className="space-y-1.5 pt-2">
+                                    {itemsArray.map(([nombreProd, info]: any, i) => {
+                                      const keyItem = `${fechaInicio}_${proveedor}_${nombreProd}`;
+                                      const estaChequeado = !!itemsChequeados[keyItem];
+
+                                      return (
+                                        <div key={i} className={`p-2.5 rounded-lg border flex justify-between items-center text-xs transition-colors ${estaChequeado ? 'bg-emerald-950/40 border-emerald-500/60' : 'bg-[#031d35] border-[#0066b3]/50'}`}>
+                                          <div>
+                                            <p className={`font-semibold ${estaChequeado ? 'text-emerald-300 line-through' : 'text-white'}`}>{nombreProd}</p>
+                                            {esAlerta && (
+                                              <div className="flex gap-1 mt-1.5">
+                                                <input className="bg-[#0b2b48] border border-rose-500 text-white text-[10px] p-1.5 rounded outline-none w-24" placeholder="Ej. D1" onChange={(e) => setEditandoProveedor({ ...editandoProveedor, [nombreProd]: e.target.value })} />
+                                                <button onClick={() => guardarProveedorInteligente(nombreProd, info.idProd)} className="bg-emerald-600 px-2 py-1 rounded text-[10px] font-bold">Guardar</button>
+                                              </div>
+                                            )}
+                                          </div>
+
+                                          <div className="flex items-center gap-2">
+                                            <span className="bg-[#0078d4] text-white px-2.5 py-1 rounded font-black text-xs">x{info.cantidad}</span>
+                                            {!esAlerta && (
+                                              <button
+                                                onClick={() => toggleChecklistLocal(proveedor, nombreProd)}
+                                                title="Checklist de compra"
+                                                className={`font-black text-xs px-2.5 py-1 rounded cursor-pointer transition-colors ${estaChequeado ? 'bg-emerald-500 text-white border border-emerald-300' : 'bg-[#0b2b48] hover:bg-[#0066b3] text-emerald-400 border border-emerald-500/50'}`}
+                                              >
+                                                ✓
+                                              </button>
+                                            )}
+                                          </div>
                                         </div>
-                                      )}
-                                    </div>
-                                    <span className="bg-[#0078d4] text-white px-2.5 py-1 rounded font-black text-xs">x{info.cantidad}</span>
+                                      );
+                                    })}
                                   </div>
-                                ))}
-                              </div>
-                              {!esAlerta && (
-                                <button onClick={() => marcarProveedorComoComprado(dataProv.idsPedidosSet)} className="w-full mt-2 bg-emerald-600 hover:bg-emerald-500 text-white font-black py-2 rounded-lg text-xs uppercase">
-                                  ✓ Marcar Comprado
-                                </button>
+                                  {!esAlerta && (
+                                    <button 
+                                      onClick={() => marcarSeleccionadosComoComprados(proveedor, dataProv.items)} 
+                                      className="w-full mt-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black py-2.5 rounded-lg text-xs uppercase shadow-md flex items-center justify-center gap-1 cursor-pointer"
+                                    >
+                                      ✓ MARCAR COMPRADOS Y PAGADOS
+                                    </button>
+                                  )}
+                                </div>
                               )}
                             </div>
-                          )}
-                        </div>
-                      );
-                    })
-                  )
+                          );
+                        })
+                      )}
+                    </div>
+
+                    <div className="bg-[#0b2b48] border border-sky-500/50 p-3 rounded-xl space-y-2">
+                      <span className="text-[11px] font-black text-sky-300 uppercase block border-b border-[#0066b3]/40 pb-1">
+                        🏢 RESUMEN DE COMPRAS POR SEDES
+                      </span>
+                      {Object.keys(resumenComprasPorSede).length === 0 ? (
+                        <p className="text-[10px] text-sky-400 italic py-2">No hay pedidos pendientes por sede para este rango.</p>
+                      ) : (
+                        Object.entries(resumenComprasPorSede).map(([nombreSede, prods]) => (
+                          <div key={nombreSede} className="bg-[#031d35] p-2.5 rounded-lg border border-[#0066b3] space-y-1">
+                            <span className="text-xs font-black text-amber-300 uppercase block">📍 {nombreSede}</span>
+                            <div className="space-y-1">
+                              {Object.entries(prods).map(([prodNombre, cant]) => (
+                                <div key={prodNombre} className="flex justify-between text-[11px] text-white border-b border-[#0066b3]/20 py-0.5">
+                                  <span>{prodNombre}</span>
+                                  <span className="font-bold text-emerald-300">x{cant}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+
+                  </div>
                 )}
 
                 {subPestanaLogistica === 'despachos' && (
                   <div className="space-y-2">
                     <select value={sedeSeleccionada} onChange={(e) => setSedeSeleccionada(e.target.value)} className="w-full bg-[#031d35] border border-[#0066b3] text-white font-bold text-xs p-2 rounded-lg outline-none">
                       <option value="todos">🌐 Todas las Sedes</option>
-                      <option value="1">Sede Martineto</option>
-                      <option value="2">Sede Centro</option>
-                      <option value="3">Sede Viva</option>
-                      <option value="4">Sede Ositos</option>
+                      {sedesBD.map(s => (
+                        <option key={s.id} value={String(s.id)}>{s.nombre}</option>
+                      ))}
                     </select>
 
                     {Object.keys(despachosPorSede).length === 0 ? (
-                      <p className="text-center text-xs text-sky-300 py-6 font-semibold">No hay despachos listos (comprados).</p>
+                      <p className="text-center text-xs text-sky-300 py-6 font-semibold">No hay despachos listos (comprados) para este rango.</p>
                     ) : (
                       Object.entries(despachosPorSede).map(([nombreSede, dataSede]) => {
                         const abierto = !!acordeonesDespachos[nombreSede];
@@ -388,7 +738,7 @@ export default function AdminPage() {
                                     </div>
                                   ))}
                                 </div>
-                                <button onClick={() => marcarPedidosComoEntregados(dataSede.idsPedidos)} className="w-full mt-2 bg-emerald-600 text-white font-black py-2 rounded-lg text-xs uppercase">
+                                <button onClick={() => marcarPedidosComoEntregados(dataSede.idsPedidos)} className="w-full mt-2 bg-emerald-600 text-white font-black py-2 rounded-lg text-xs uppercase cursor-pointer">
                                   🚚 Marcar Entregado
                                 </button>
                               </div>
@@ -414,7 +764,7 @@ export default function AdminPage() {
                 <span>{moduloAbierto === 'cierres' ? '▼' : '▶'}</span> 💰 2. CIERRES DE CAJA Y DESCUADRES
               </span>
               <span className="bg-[#031d35] text-emerald-300 font-bold text-[10px] px-2 py-0.5 rounded border border-[#0066b3]">
-                ${(CierreGlobal.totalVenta - CierreGlobal.gastos).toLocaleString()}
+                ${CierreGlobal.ventaNeto.toLocaleString()}
               </span>
             </button>
 
@@ -429,19 +779,17 @@ export default function AdminPage() {
                 <div className="pt-1">
                   <select value={sedeSeleccionada} onChange={(e) => setSedeSeleccionada(e.target.value)} className="w-full bg-[#031d35] border border-[#0066b3] text-white font-bold text-xs p-2 rounded-lg outline-none">
                     <option value="todos">🌐 Ver Todas las Sedes (Global)</option>
-                    <option value="1">Sede Martineto</option>
-                    <option value="2">Sede Centro</option>
-                    <option value="3">Sede Viva</option>
-                    <option value="4">Sede Ositos</option>
+                    {sedesBD.map(s => (
+                      <option key={s.id} value={String(s.id)}>{s.nombre}</option>
+                    ))}
                   </select>
                 </div>
 
-                {/* VISTA 1: CIERRES DE CAJA */}
+                {/* VISTA 1: CIERRES DE CAJA CON NÓMINAS INCLUIDAS */}
                 {subPestanaCierres === 'caja' && (
                   <div className="space-y-3">
                     {sedeSeleccionada === 'todos' ? (
                       <>
-                        {/* RESUMEN GLOBAL */}
                         <div className="border border-emerald-500/50 bg-[#0b2b48] rounded-xl overflow-hidden">
                           <button onClick={() => setAcordeonesCierres(prev => ({ ...prev, global: !prev.global }))} className="w-full p-3 flex justify-between items-center text-xs font-black uppercase text-emerald-300 bg-emerald-950/40">
                             <span>{acordeonesCierres.global ? '▼' : '▶'} CONSOLIDADO GLOBAL</span>
@@ -453,17 +801,19 @@ export default function AdminPage() {
                               <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>📲 Nequi:</span><span className="font-bold text-sky-300">${CierreGlobal.nequi.toLocaleString()}</span></div>
                               <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>💳 Daviplata:</span><span className="font-bold text-rose-300">${CierreGlobal.daviplata.toLocaleString()}</span></div>
                               <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>📉 Gastos:</span><span className="font-bold text-amber-400">-${CierreGlobal.gastos.toLocaleString()}</span></div>
-                              <div className="flex justify-between py-1.5 text-xs font-black border-t border-emerald-400 mt-1 text-white"><span>💰 VENTA NETO GLOBAL:</span><span className="text-emerald-300">${(CierreGlobal.totalVenta - CierreGlobal.gastos).toLocaleString()}</span></div>
+                              <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>👥 Nómina Turnos:</span><span className="font-bold text-fuchsia-300">-${CierreGlobal.nomina.toLocaleString()}</span></div>
+                              <div className="flex justify-between py-1.5 text-xs font-black border-t border-emerald-400 mt-1 text-white"><span>💰 VENTA NETO GLOBAL:</span><span className="text-emerald-300">${CierreGlobal.ventaNeto.toLocaleString()}</span></div>
                             </div>
                           )}
                         </div>
 
-                        {/* LISTADO POR SEDES */}
                         {Object.keys(cierresPorSede).length === 0 ? (
-                          <p className="text-center text-xs text-sky-300 py-6 font-semibold">No se encontraron cierres de caja en esta fecha.</p>
+                          <p className="text-center text-xs text-sky-300 py-6 font-semibold">No se encontraron cierres de caja en este rango.</p>
                         ) : (
                           Object.entries(cierresPorSede).map(([nombreSede, dataSede]) => {
                             const abierto = !!acordeonesCierres[nombreSede];
+                            const ventaNetoSede = dataSede.totalVenta - dataSede.gastos - dataSede.nomina;
+
                             return (
                               <div key={nombreSede} className="border border-[#0066b3] bg-[#0b2b48] rounded-xl overflow-hidden">
                                 <button onClick={() => setAcordeonesCierres(prev => ({ ...prev, [nombreSede]: !abierto }))} className="w-full p-3 flex justify-between items-center text-xs font-bold text-white uppercase">
@@ -476,13 +826,26 @@ export default function AdminPage() {
                                     <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>📲 Nequi:</span><span className="font-bold text-sky-300">${dataSede.nequi.toLocaleString()}</span></div>
                                     <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>💳 Daviplata:</span><span className="font-bold text-rose-300">${dataSede.daviplata.toLocaleString()}</span></div>
                                     <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>📉 Gastos:</span><span className="font-bold text-amber-400">-${dataSede.gastos.toLocaleString()}</span></div>
-                                    {dataSede.motivosGastos.length > 0 && (
-                                      <div className="bg-[#0b2b48] p-2 rounded text-[10px] my-1 border border-amber-500/30">
-                                        <span className="text-amber-300 font-bold block">Notas de Gastos:</span>
-                                        {dataSede.motivosGastos.map((m: string, idx: number) => <p key={idx} className="text-sky-200">• {m}</p>)}
+                                    <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>👥 Nómina Turnos:</span><span className="font-bold text-fuchsia-300">-${dataSede.nomina.toLocaleString()}</span></div>
+                                    
+                                    {(dataSede.motivosGastos.length > 0 || dataSede.notasNomina.length > 0) && (
+                                      <div className="bg-[#0b2b48] p-2 rounded text-[10px] my-1 border border-amber-500/30 space-y-1">
+                                        {dataSede.motivosGastos.length > 0 && (
+                                          <div>
+                                            <span className="text-amber-300 font-bold block">Notas de Gastos:</span>
+                                            {dataSede.motivosGastos.map((m: string, idx: number) => <p key={idx} className="text-sky-200">• {m}</p>)}
+                                          </div>
+                                        )}
+                                        {dataSede.notasNomina.length > 0 && (
+                                          <div>
+                                            <span className="text-fuchsia-300 font-bold block">Pagos de Turnos:</span>
+                                            {dataSede.notasNomina.map((n: string, idx: number) => <p key={idx} className="text-sky-200">• {n}</p>)}
+                                          </div>
+                                        )}
                                       </div>
                                     )}
-                                    <div className="flex justify-between py-1 font-black border-t border-sky-500/40 text-white"><span>💰 VENTA NETO:</span><span className="text-emerald-300">${(dataSede.totalVenta - dataSede.gastos).toLocaleString()}</span></div>
+
+                                    <div className="flex justify-between py-1 font-black border-t border-sky-500/40 text-white"><span>💰 VENTA NETO:</span><span className="text-emerald-300">${ventaNetoSede.toLocaleString()}</span></div>
                                   </div>
                                 )}
                               </div>
@@ -491,13 +854,14 @@ export default function AdminPage() {
                         )}
                       </>
                     ) : (
-                      /* DESPLIEGUE DIRECTO SI SELECCIONÓ UNA SEDE ESPECÍFICA */
                       (() => {
                         const datosSedeSeleccionada = Object.values(cierresPorSede)[0];
 
                         if (!datosSedeSeleccionada) {
-                          return <p className="text-center text-xs text-sky-300 py-6 font-semibold">No se encontraron cierres de caja para esta sede en esta fecha.</p>;
+                          return <p className="text-center text-xs text-sky-300 py-6 font-semibold">No se encontraron cierres de caja para esta sede en este rango.</p>;
                         }
+
+                        const ventaNetoUnica = datosSedeSeleccionada.totalVenta - datosSedeSeleccionada.gastos - datosSedeSeleccionada.nomina;
 
                         return (
                           <div className="border border-emerald-500/50 bg-[#031d35] p-3 rounded-xl space-y-1.5 text-xs shadow-md">
@@ -505,13 +869,26 @@ export default function AdminPage() {
                             <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>📲 Nequi:</span><span className="font-bold text-sky-300">${datosSedeSeleccionada.nequi.toLocaleString()}</span></div>
                             <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>💳 Daviplata:</span><span className="font-bold text-rose-300">${datosSedeSeleccionada.daviplata.toLocaleString()}</span></div>
                             <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>📉 Gastos:</span><span className="font-bold text-amber-400">-${datosSedeSeleccionada.gastos.toLocaleString()}</span></div>
-                            {datosSedeSeleccionada.motivosGastos.length > 0 && (
-                              <div className="bg-[#0b2b48] p-2 rounded text-[10px] my-1 border border-amber-500/30">
-                                <span className="text-amber-300 font-bold block">Notas de Gastos:</span>
-                                {datosSedeSeleccionada.motivosGastos.map((m: string, idx: number) => <p key={idx} className="text-sky-200">• {m}</p>)}
+                            <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>👥 Nómina Turnos:</span><span className="font-bold text-fuchsia-300">-${datosSedeSeleccionada.nomina.toLocaleString()}</span></div>
+                            
+                            {(datosSedeSeleccionada.motivosGastos.length > 0 || datosSedeSeleccionada.notasNomina.length > 0) && (
+                              <div className="bg-[#0b2b48] p-2 rounded text-[10px] my-1 border border-amber-500/30 space-y-1">
+                                {datosSedeSeleccionada.motivosGastos.length > 0 && (
+                                  <div>
+                                    <span className="text-amber-300 font-bold block">Notas de Gastos:</span>
+                                    {datosSedeSeleccionada.motivosGastos.map((m: string, idx: number) => <p key={idx} className="text-sky-200">• {m}</p>)}
+                                  </div>
+                                )}
+                                {datosSedeSeleccionada.notasNomina.length > 0 && (
+                                  <div>
+                                    <span className="text-fuchsia-300 font-bold block">Pagos de Turnos:</span>
+                                    {datosSedeSeleccionada.notasNomina.map((n: string, idx: number) => <p key={idx} className="text-sky-200">• {n}</p>)}
+                                  </div>
+                                )}
                               </div>
                             )}
-                            <div className="flex justify-between py-1.5 text-xs font-black border-t border-emerald-400 mt-1 text-white"><span>💰 VENTA NETO:</span><span className="text-emerald-300">${(datosSedeSeleccionada.totalVenta - datosSedeSeleccionada.gastos).toLocaleString()}</span></div>
+
+                            <div className="flex justify-between py-1.5 text-xs font-black border-t border-emerald-400 mt-1 text-white"><span>💰 VENTA NETO:</span><span className="text-emerald-300">${ventaNetoUnica.toLocaleString()}</span></div>
                           </div>
                         );
                       })()
@@ -519,19 +896,19 @@ export default function AdminPage() {
                   </div>
                 )}
 
-                {/* VISTA 2: DESCUADRES */}
+                {/* VISTA 2: DESCUADRES DESDE 'diferencia_inventario' */}
                 {subPestanaCierres === 'descuadres' && (
                   <div className="space-y-2">
                     <p className="text-[11px] text-sky-200 italic px-1">
-                      Comparativa del Cierre del día anterior vs. la Apertura de hoy ({fechaSeleccionada}).
+                      Registro de diferencias de inventario para el rango seleccionado.
                     </p>
 
                     {Object.keys(auditoriaDescuadres).length === 0 ? (
-                      <p className="text-center text-xs text-sky-300 py-6 font-semibold">No hay movimientos registrados para comparar entre ayer y hoy.</p>
+                      <p className="text-center text-xs text-sky-300 py-6 font-semibold">No hay diferencias registradas para este rango.</p>
                     ) : (
                       Object.entries(auditoriaDescuadres).map(([nombreSede, infoSede]) => {
                         const abierto = !!acordeonesDescuadres[nombreSede];
-                        const tieneDescuadre = infoSede.diferencias.some(d => d.dif !== 0);
+                        const tieneDescuadre = infoSede.totalDiferencia !== 0 || infoSede.diferencias.some(d => d.dif !== 0);
 
                         return (
                           <div key={nombreSede} className={`border rounded-xl overflow-hidden ${tieneDescuadre ? 'border-amber-500 bg-[#0b2b48]' : 'border-[#0066b3] bg-[#0b2b48]'}`}>
@@ -540,29 +917,29 @@ export default function AdminPage() {
                                 <span>{abierto ? '▼' : '▶'}</span> {nombreSede}
                               </span>
                               <span className={`text-[10px] px-2 py-0.5 rounded font-black ${tieneDescuadre ? 'bg-amber-950 text-amber-300 border border-amber-500' : 'bg-emerald-950 text-emerald-300'}`}>
-                                {tieneDescuadre ? '⚠️ Con Diferencias' : '✅ Cuadrado'}
+                                {tieneDescuadre ? `⚠️ Dif: ${infoSede.totalDiferencia}` : '✅ Cuadrado'}
                               </span>
                             </button>
 
                             {abierto && (
                               <div className="p-3 pt-0 bg-[#031d35] text-xs space-y-2 border-t border-[#0066b3]/30">
-                                <div className="grid grid-cols-4 font-black text-[10px] text-sky-300 border-b border-[#0066b3]/40 pb-1 mt-2">
-                                  <span>PRODUCTO</span>
-                                  <span className="text-center">CIERRE AYER</span>
-                                  <span className="text-center">APERT. HOY</span>
+                                <div className="grid grid-cols-2 font-black text-[10px] text-sky-300 border-b border-[#0066b3]/40 pb-1 mt-2">
+                                  <span>PRODUCTO / ÍTEM</span>
                                   <span className="text-right">DIFERENCIA</span>
                                 </div>
                                 <div className="space-y-1.5 pt-1 max-h-48 overflow-y-auto pr-1">
                                   {infoSede.diferencias.map((item, idx) => (
-                                    <div key={idx} className="grid grid-cols-4 items-center text-[11px] border-b border-[#0066b3]/20 py-1 text-white">
+                                    <div key={idx} className="grid grid-cols-2 items-center text-[11px] border-b border-[#0066b3]/20 py-1 text-white">
                                       <span className="truncate pr-1">{item.producto}</span>
-                                      <span className="text-center text-sky-200">{item.cierreAyer}</span>
-                                      <span className="text-center text-cyan-200">{item.aperturaHoy}</span>
                                       <span className={`text-right font-black ${item.dif === 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
                                         {item.dif > 0 ? `+${item.dif}` : item.dif}
                                       </span>
                                     </div>
                                   ))}
+                                </div>
+                                <div className="flex justify-between pt-2 border-t border-[#0066b3]/40 font-black text-xs text-white">
+                                  <span>Total Diferencia Sede:</span>
+                                  <span className={infoSede.totalDiferencia === 0 ? 'text-emerald-400' : 'text-amber-400'}>{infoSede.totalDiferencia}</span>
                                 </div>
                               </div>
                             )}
@@ -578,15 +955,139 @@ export default function AdminPage() {
           </div>
 
           {/* MÓDULO 3: INVENTARIOS Y STOCK GENERAL */}
-          <div className="border border-[#0066b3]/60 bg-[#0b2b48]/60 rounded-2xl p-4 flex justify-between items-center text-xs font-bold text-sky-300 opacity-80">
-            <span>📦 3. INVENTARIOS Y STOCK GENERAL</span>
-            <span className="bg-[#031d35] text-[10px] px-2 py-0.5 rounded border border-[#0066b3]">Próxima Consulta</span>
+          <div className="border border-[#0066b3] bg-[#0b2b48] rounded-2xl overflow-hidden shadow-lg">
+            <button 
+              onClick={() => toggleModulo('inventarios')}
+              className="w-full p-4 flex justify-between items-center text-xs font-black uppercase text-sky-300 bg-[#0b2b48] cursor-pointer"
+            >
+              <span className="flex items-center gap-2">
+                <span>{moduloAbierto === 'inventarios' ? '▼' : '▶'}</span> 📦 3. INVENTARIOS Y STOCK GENERAL
+              </span>
+              <span className="bg-[#031d35] text-sky-200 text-[10px] px-2 py-0.5 rounded border border-[#0066b3]">
+                {Object.keys(inventarioStockGeneralPorSede).length} Sedes
+              </span>
+            </button>
+
+            {moduloAbierto === 'inventarios' && (
+              <div className="p-3 space-y-3 border-t border-[#0066b3]/30 bg-[#031d35]/60">
+                {Object.keys(inventarioStockGeneralPorSede).length === 0 ? (
+                  <p className="text-center text-xs text-sky-300 py-6 font-semibold">No hay movimientos de inventario registrados para este rango.</p>
+                ) : (
+                  Object.entries(inventarioStockGeneralPorSede).map(([nombreSede, infoSede]) => {
+                    const abierto = !!acordeonesInventario[nombreSede];
+
+                    return (
+                      <div key={nombreSede} className="border border-[#0066b3] bg-[#0b2b48] rounded-xl overflow-hidden">
+                        <button onClick={() => setAcordeonesInventario(prev => ({ ...prev, [nombreSede]: !abierto }))} className="w-full p-3 flex justify-between items-center text-xs font-bold text-white uppercase">
+                          <span className="flex items-center gap-1.5">
+                            <span>{abierto ? '▼' : '▶'}</span> 📍 {nombreSede}
+                          </span>
+                          <span className="text-[10px] bg-sky-950 text-sky-300 px-2 py-0.5 rounded border border-sky-500">
+                            Total Paletas: {infoSede.totalPaletas}
+                          </span>
+                        </button>
+
+                        {abierto && (
+                          <div className="p-3 pt-0 bg-[#031d35] text-xs space-y-3 border-t border-[#0066b3]/30">
+                            
+                            {/* DETALLE PALETAS */}
+                            <div className="pt-2">
+                              <span className="text-[10px] font-black text-amber-300 uppercase block border-b border-[#0066b3]/40 pb-1 mb-1">
+                                🧊 Stock Paletas
+                              </span>
+                              {Object.keys(infoSede.detallePaletas).length === 0 ? (
+                                <p className="text-[10px] text-sky-400 italic py-1">Sin paletas registradas en stock.</p>
+                              ) : (
+                                Object.entries(infoSede.detallePaletas).map(([prod, cant], idx) => (
+                                  <div key={idx} className="flex justify-between text-[11px] text-white border-b border-[#0066b3]/20 py-1">
+                                    <span>{prod}</span>
+                                    <span className={`font-bold ${Number(cant) < 0 ? 'text-rose-400' : 'text-emerald-300'}`}>x{cant}</span>
+                                  </div>
+                                ))
+                              )}
+                            </div>
+
+                            {/* DETALLE EMPAQUES */}
+                            <div>
+                              <span className="text-[10px] font-black text-amber-300 uppercase block border-b border-[#0066b3]/40 pb-1 mb-1">
+                                📦 Stock Empaques
+                              </span>
+                              {Object.keys(infoSede.detalleEmpaques).length === 0 ? (
+                                <p className="text-[10px] text-sky-400 italic py-1">Sin empaques registrados en stock.</p>
+                              ) : (
+                                Object.entries(infoSede.detalleEmpaques).map(([prod, cant], idx) => (
+                                  <div key={idx} className="flex justify-between text-[11px] text-white border-b border-[#0066b3]/20 py-1">
+                                    <span>{prod}</span>
+                                    <span className={`font-bold ${Number(cant) < 0 ? 'text-rose-400' : 'text-sky-300'}`}>x{cant}</span>
+                                  </div>
+                                ))
+                              )}
+                            </div>
+
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+
+              </div>
+            )}
           </div>
 
           {/* MÓDULO 4: NÓMINA Y REGISTRO DE TURNOS */}
-          <div className="border border-[#0066b3]/60 bg-[#0b2b48]/60 rounded-2xl p-4 flex justify-between items-center text-xs font-bold text-sky-300 opacity-80">
-            <span>👥 4. NÓMINA Y REGISTRO DE TURNOS</span>
-            <span className="bg-[#031d35] text-[10px] px-2 py-0.5 rounded border border-[#0066b3]">Próxima Consulta</span>
+          <div className="border border-[#0066b3] bg-[#0b2b48] rounded-2xl overflow-hidden shadow-lg">
+            <button 
+              onClick={() => toggleModulo('modulo_nomina')}
+              className="w-full p-4 flex justify-between items-center text-xs font-black uppercase text-fuchsia-300 bg-[#0b2b48] cursor-pointer"
+            >
+              <span className="flex items-center gap-2">
+                <span>{moduloAbierto === 'modulo_nomina' ? '▼' : '▶'}</span> 👥 4. NÓMINA Y REGISTRO DE TURNOS
+              </span>
+              <span className="bg-[#031d35] text-fuchsia-300 font-bold text-[10px] px-2 py-0.5 rounded border border-[#0066b3]">
+                {resumenNominaOperarios.length} Operarios
+              </span>
+            </button>
+
+            {moduloAbierto === 'modulo_nomina' && (
+              <div className="p-3 space-y-3 border-t border-[#0066b3]/30 bg-[#031d35]/60">
+                <div className="space-y-2 pt-2">
+                  {resumenNominaOperarios.length === 0 ? (
+                    <p className="text-center text-xs text-sky-300 py-6 font-semibold">
+                      No se encontraron registros de nómina para este rango.
+                    </p>
+                  ) : (
+                    resumenNominaOperarios.map((op, idx) => (
+                      <div key={idx} className="bg-[#0b2b48] border border-[#0066b3] p-3 rounded-xl space-y-2 text-xs">
+                        <div className="flex justify-between items-center border-b border-[#0066b3]/40 pb-1.5">
+                          <span className="font-black text-amber-300 uppercase">👤 {op.nombre}</span>
+                          <span className="bg-[#031d35] text-sky-200 text-[10px] px-2 py-0.5 rounded border border-[#0066b3]">
+                            {op.turnosCount} {op.turnosCount === 1 ? 'Turno' : 'Turnos'}
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2 text-[11px] text-sky-100 bg-[#031d35] p-2 rounded-lg">
+                          <div>
+                            <span className="block text-[9px] text-sky-400 font-bold uppercase">Horas Día</span>
+                            <span className="font-extrabold text-white">{op.horasDia}h</span>
+                          </div>
+                          <div>
+                            <span className="block text-[9px] text-sky-400 font-bold uppercase">Horas Noche</span>
+                            <span className="font-extrabold text-white">{op.horasNoche}h</span>
+                          </div>
+                        </div>
+
+                        <div className="flex justify-between items-center pt-1 border-t border-[#0066b3]/20 font-black text-xs">
+                          <span className="text-white">💰 TOTAL PAGO NÓMINA:</span>
+                          <span className="text-fuchsia-300 text-sm">${op.totalPagado.toLocaleString()}</span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+              </div>
+            )}
           </div>
 
         </div>

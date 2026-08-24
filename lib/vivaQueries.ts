@@ -130,21 +130,22 @@ export async function crearPedidoInsumosViva(datos: {
   observaciones: string;
 }) {
   try {
+    // Sincronizado con los nombres que lee el Admin Central: pedidos_paletas, pedidos_richi, etc.
     const payload = {
       sede_id: datos.sedeId,
       usuario_id: datos.usuarioId,
-      detalle_paletas: datos.paletas,
-      detalle_richi: datos.richi,
-      detalle_insumos: datos.insumos,
-      detalle_aseo: datos.aseo,
+      pedidos_paletas: datos.paletas,
+      pedidos_richi: datos.richi,
+      pedidos_insumos: datos.insumos,
+      pedidos_aseo: datos.aseo,
       observacion: datos.observaciones || null,
-      estado: 'PENDIENTE',
+      estado: 'pendiente',
     };
 
     const { error } = await supabase.from('pedidos_insumos').insert([payload]);
 
     if (error) {
-      console.error('Error enviando pedido:', error);
+      console.error('❌ Error detallado enviando pedido:', JSON.stringify(error, null, 2));
       return false;
     }
     return true;
