@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import { useAutoSave } from '@/hooks/useAutoSave';
 import {
   obtenerTarifasViva,
   registrarBaseCajaViva,
@@ -109,29 +110,31 @@ export default function CentroPage() {
     horaNocheFestivo: 15200,
   });
 
-  const [baseCaja, setBaseCaja] = useState<number | ''>('');
+  // AUTO-SAVE: Base de Caja
+  const [baseCaja, setBaseCaja, limpiarBaseCaja] = useAutoSave<number | ''>('centro_baseCaja', '');
   const [baseGuardada, setBaseGuardada] = useState(false);
   const [aperturaRealizada, setAperturaRealizada] = useState(false);
   const [cierreRealizado, setCierreRealizado] = useState(false);
 
   const [efectivoTurnoManana, setEfectivoTurnoManana] = useState<number | null>(null);
 
+  // AUTO-SAVE: Movimientos e Inventario
   const [tipoMovimiento, setTipoMovimiento] = useState<string>('apertura');
-  const [totalPaletasApertura, setTotalPaletasApertura] = useState<number | ''>('');
+  const [totalPaletasApertura, setTotalPaletasApertura, limpiarTotalApertura] = useAutoSave<number | ''>('centro_totalPaletasApertura', '');
   const [saboresCentro, setSaboresCentro] = useState<any[]>([]);
-  const [cantidadesSabores, setCantidadesSabores] = useState<{ [saborId: number]: number | '' }>({});
-  
-  const [cantidadesEmpaquesCentro, setCantidadesEmpaquesCentro] = useState<{ [item: string]: number | '' }>({});
-  const [observaciones, setObservaciones] = useState<string>('');
+  const [cantidadesSabores, setCantidadesSabores, limpiarCantidadesSabores] = useAutoSave<{ [saborId: number]: number | '' }>('centro_cantidadesSabores', {});
+  const [cantidadesEmpaquesCentro, setCantidadesEmpaquesCentro, limpiarCantidadesEmpaques] = useAutoSave<{ [item: string]: number | '' }>('centro_cantidadesEmpaques', {});
+  const [observaciones, setObservaciones, limpiarObsInv] = useAutoSave<string>('centro_observacionesInv', '');
 
+  // AUTO-SAVE: Pedidos de Insumos
   const [mostrarModuloPedidos, setMostrarModuloPedidos] = useState(false);
   const [categoriaPedido, setCategoriaPedido] = useState<'paletas' | 'richi' | 'insumos' | 'aseo'>('paletas');
-  const [cantidadesPedidoPaletas, setCantidadesPedidoPaletas] = useState<{ [saborId: number]: number | '' }>({});
-  const [cantidadesRichi, setCantidadesRichi] = useState<{ [item: string]: number | '' }>({});
-  const [cantidadesInsumos, setCantidadesInsumos] = useState<{ [item: string]: number | '' }>({});
-  const [cantidadesAseo, setCantidadesAseo] = useState<{ [item: string]: number | '' }>({});
-  const [otroInsumoTexto, setOtroInsumoTexto] = useState('');
-  const [obsPedido, setObsPedido] = useState('');
+  const [cantidadesPedidoPaletas, setCantidadesPedidoPaletas, limpiarPedPaletas] = useAutoSave<{ [saborId: number]: number | '' }>('centro_pedPaletas', {});
+  const [cantidadesRichi, setCantidadesRichi, limpiarPedRichi] = useAutoSave<{ [item: string]: number | '' }>('centro_pedRichi', {});
+  const [cantidadesInsumos, setCantidadesInsumos, limpiarPedInsumos] = useAutoSave<{ [item: string]: number | '' }>('centro_pedInsumos', {});
+  const [cantidadesAseo, setCantidadesAseo, limpiarPedAseo] = useAutoSave<{ [item: string]: number | '' }>('centro_pedAseo', {});
+  const [otroInsumoTexto, setOtroInsumoTexto, limpiarOtroInsumo] = useAutoSave<string>('centro_otroInsumo', '');
+  const [obsPedido, setObsPedido, limpiarObsPedido] = useAutoSave<string>('centro_obsPedido', '');
 
   const [productosInsumosBD, setProductosInsumosBD] = useState<any[]>([]);
   const [mostrarModalNuevoProd, setMostrarModalNuevoProd] = useState(false);
@@ -143,14 +146,15 @@ export default function CentroPage() {
   const [esProductoGlobal, setEsProductoGlobal] = useState(true);
   const [guardandoProducto, setGuardandoProducto] = useState(false);
 
+  // AUTO-SAVE: Cierre de Turno y Nómina
   const [tipoDia, setTipoDia] = useState<'entre_semana' | 'domingo_festivo'>('entre_semana');
-  const [horasDia, setHorasDia] = useState<number | ''>('');
-  const [horasNoche, setHorasNoche] = useState<number | ''>('');
-  const [efectivoCaja, setEfectivoCaja] = useState<number | ''>('');
-  const [nequi, setNequi] = useState<number | ''>('');
-  const [daviplata, setDaviplata] = useState<number | ''>('');
-  const [gastos, setGastos] = useState<number | ''>('');
-  const [motivoGasto, setMotivoGasto] = useState<string>('');
+  const [horasDia, setHorasDia, limpiarHorasDia] = useAutoSave<number | ''>('centro_horasDia', '');
+  const [horasNoche, setHorasNoche, limpiarHorasNoche] = useAutoSave<number | ''>('centro_horasNoche', '');
+  const [efectivoCaja, setEfectivoCaja, limpiarEfCaja] = useAutoSave<number | ''>('centro_efectivoCaja', '');
+  const [nequi, setNequi, limpiarNequi] = useAutoSave<number | ''>('centro_nequi', '');
+  const [daviplata, setDaviplata, limpiarDaviplata] = useAutoSave<number | ''>('centro_daviplata', '');
+  const [gastos, setGastos, limpiarGastos] = useAutoSave<number | ''>('centro_gastos', '');
+  const [motivoGasto, setMotivoGasto, limpiarMotivoGasto] = useAutoSave<string>('centro_motivoGasto', '');
 
   const [mostrarModalCambioTurno, setMostrarModalCambioTurno] = useState(false);
   const [listaOperarios, setListaOperarios] = useState<any[]>([]);
@@ -245,15 +249,6 @@ export default function CentroPage() {
     setTarifas(configTarifas);
     setListaOperarios(operarios);
     setSaboresCentro(listaSabores || []);
-
-    const iniciales: { [saborId: number]: number | '' } = {};
-    (listaSabores || []).forEach((s: any) => (iniciales[s.id] = ''));
-    setCantidadesSabores(iniciales);
-    setCantidadesPedidoPaletas({ ...iniciales });
-
-    const empaquesIniciales: { [item: string]: number | '' } = {};
-    LISTA_EMPAQUES_CENTRO.forEach((item) => (empaquesIniciales[item] = ''));
-    setCantidadesEmpaquesCentro(empaquesIniciales);
 
     const { data: prodsInsumosBD } = await supabase
       .from('producto')
@@ -429,11 +424,9 @@ export default function CentroPage() {
     setter((prev) => ({ ...prev, [item]: val }));
   }
 
-  // --- LÓGICA DE RESUMEN / LISTADO PREVIO DE PEDIDO ACTUAL ---
   const obtenerResumenPedidoActual = () => {
     const listaResumen: { categoria: string; claveId: any; nombre: string; cantidad: number }[] = [];
 
-    // 1. Paletas
     Object.entries(cantidadesPedidoPaletas).forEach(([saborId, cant]) => {
       const num = Number(cant) || 0;
       if (num > 0) {
@@ -444,7 +437,6 @@ export default function CentroPage() {
       }
     });
 
-    // 2. Richi
     Object.entries(cantidadesRichi).forEach(([item, cant]) => {
       const num = Number(cant) || 0;
       if (num > 0) {
@@ -452,7 +444,6 @@ export default function CentroPage() {
       }
     });
 
-    // 3. Insumos
     Object.entries(cantidadesInsumos).forEach(([item, cant]) => {
       const num = Number(cant) || 0;
       if (num > 0) {
@@ -460,7 +451,6 @@ export default function CentroPage() {
       }
     });
 
-    // 4. Aseo
     Object.entries(cantidadesAseo).forEach(([item, cant]) => {
       const num = Number(cant) || 0;
       if (num > 0) {
@@ -556,7 +546,7 @@ export default function CentroPage() {
         payloadInventario.turno_id = Number(sesion.turno_id);
       }
 
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('inventario_diario')
         .insert([payloadInventario])
         .select();
@@ -583,16 +573,10 @@ export default function CentroPage() {
 
       alert(`✅ ¡Inventario guardado con éxito!`);
       
-      setTotalPaletasApertura('');
-      const limpias: { [saborId: number]: number | '' } = {};
-      saboresCentro.forEach((s) => (limpias[s.id] = ''));
-      setCantidadesSabores(limpias);
-
-      const empaquesLimpios: { [item: string]: number | '' } = {};
-      LISTA_EMPAQUES_CENTRO.forEach((item) => (empaquesLimpios[item] = ''));
-      setCantidadesEmpaquesCentro(empaquesLimpios);
-
-      setObservaciones('');
+      limpiarTotalApertura();
+      limpiarCantidadesSabores();
+      limpiarCantidadesEmpaques();
+      limpiarObsInv();
 
     } catch (err: any) {
       setGuardando(false);
@@ -658,14 +642,12 @@ export default function CentroPage() {
 
       if (ok) {
         alert('¡Pedido de Sede Centro registrado correctamente!');
-        setCantidadesRichi({});
-        setCantidadesInsumos({});
-        setCantidadesAseo({});
-        const limpiasPaletas: { [saborId: number]: number | '' } = {};
-        saboresCentro.forEach((s) => (limpiasPaletas[s.id] = ''));
-        setCantidadesPedidoPaletas(limpiasPaletas);
-        setOtroInsumoTexto('');
-        setObsPedido('');
+        limpiarPedPaletas();
+        limpiarPedRichi();
+        limpiarPedInsumos();
+        limpiarPedAseo();
+        limpiarOtroInsumo();
+        limpiarObsPedido();
       } else {
         alert('Error al registrar en la base de datos.');
       }
@@ -720,17 +702,29 @@ export default function CentroPage() {
       if (esTurnoCierre) {
         alert(`¡Cierre de jornada completado con éxito!\n\nNómina: $ ${totalNomina.toLocaleString('es-CO')}\nTotal Recaudado: $ ${totalVentasCalculado.toLocaleString('es-CO')}\nGastos: $ ${gst.toLocaleString('es-CO')}\n\n¡Hasta mañana!`);
         localStorage.removeItem('martineto_efectivo_manana_centro');
+        
+        limpiarBaseCaja();
+        limpiarHorasDia();
+        limpiarHorasNoche();
+        limpiarEfCaja();
+        limpiarNequi();
+        limpiarDaviplata();
+        limpiarGastos();
+        limpiarMotivoGasto();
+
         cerrarSesion();
       } else {
         setEfectivoTurnoManana(efCaja);
         localStorage.setItem('martineto_efectivo_manana_centro', efCaja.toString());
 
         alert(`¡Nómina registrada con éxito!\n\nEfectivo dejado en caja para la tarde: $ ${efCaja.toLocaleString('es-CO')}\n\nA continuación, ingresa el operario que recibe el turno.`);
-        setHorasDia('');
-        setHorasNoche('');
-        setEfectivoCaja('');
-        setNequi('');
-        setDaviplata('');
+        
+        limpiarHorasDia();
+        limpiarHorasNoche();
+        limpiarEfCaja();
+        limpiarNequi();
+        limpiarDaviplata();
+
         setMostrarModalCambioTurno(true);
       }
     } else {
@@ -1130,7 +1124,6 @@ export default function CentroPage() {
                   </div>
                 )}
 
-                {/* --- NUEVO: LISTADO PREVIO / CARRITO DE PEDIDO ACTUAL --- */}
                 <div className="bg-[#051829] border border-[#0066b3] p-3 rounded-xl space-y-2">
                   <span className="text-[11px] font-black text-sky-200 uppercase block border-b border-[#0066b3]/40 pb-1">
                     🛒 Listado del Pedido en Curso ({resumenPedidoActual.length} ítems)

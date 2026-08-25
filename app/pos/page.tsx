@@ -6,6 +6,7 @@ import {
   registrarMovimientoMartineto,
 } from '@/lib/martinetoQueries';
 import { supabase } from '@/lib/supabase';
+import { useAutoSave } from '@/hooks/useAutoSave';
 
 const LISTA_EMPAQUES_MARTINETO = [
   'Total Paletas',
@@ -39,7 +40,7 @@ const formatearMoneda = (val: number | string): string => {
 };
 
 const desformatearMoneda = (val: string): number | '' => {
-  const soloNumeros = val.replace(/\D/g, '');
+  const soloNumeros = String(val).replace(/\D/g, '');
   return soloNumeros === '' ? '' : Number(soloNumeros);
 };
 
@@ -53,14 +54,16 @@ export default function MartinetoPOSPage() {
   // MÓDULO ACTIVO NAVEGACIÓN
   const [moduloActivo, setModuloActivo] = useState<ModuloPrincipal>('movimientos');
 
-  const [baseCaja, setBaseCaja] = useState<number | ''>('');
+  // AUTO-SAVE: Base de Caja
+  const [baseCaja, setBaseCaja, limpiarBaseCaja] = useAutoSave<number | ''>('martineto_baseCaja', '');
   const [baseGuardada, setBaseGuardada] = useState(false);
   const [aperturaRealizada, setAperturaRealizada] = useState(false);
 
+  // AUTO-SAVE: Inventario y Movimientos
   const [tipoMovimiento, setTipoMovimiento] = useState<string>('apertura');
-  const [totalPaletasInventario, setTotalPaletasInventario] = useState<number | ''>('');
-  const [cantidadesInventario, setCantidadesInventario] = useState<{ [item: string]: number | '' }>({});
-  const [observacionesInventario, setObservacionesInventario] = useState<string>('');
+  const [totalPaletasInventario, setTotalPaletasInventario, limpiarTotalPaletasInv] = useAutoSave<number | ''>('martineto_totalPaletasInv', '');
+  const [cantidadesInventario, setCantidadesInventario, limpiarCantidadesInv] = useAutoSave<{ [item: string]: number | '' }>('martineto_cantidadesInv', {});
+  const [observacionesInventario, setObservacionesInventario, limpiarObsInv] = useAutoSave<string>('martineto_obsInv', '');
 
   const [movimientosDiaBD, setMovimientosDiaBD] = useState<any[]>([]);
 
@@ -89,20 +92,20 @@ export default function MartinetoPOSPage() {
   const [pagoDaviplata, setPagoDaviplata] = useState<number | ''>('');
   const [procesandoPago, setProcesandoPago] = useState(false);
 
-  // REQUISICIONES / PEDIDOS A BODEGA
+  // AUTO-SAVE: Requisiciones / Pedidos a Bodega
   const [productosInsumosBD, setProductosInsumosBD] = useState<any[]>([]);
   const [historialPedidosBD, setHistorialPedidosBD] = useState<any[]>([]);
   const [pedidosSeleccionados, setPedidosSeleccionados] = useState<number[]>([]);
   const [mostrarGestorEnvios, setMostrarGestorEnvios] = useState(false);
   const [tabPedido, setTabPedido] = useState<CategoriaTab>('paletas');
 
-  const [pedidosCategorias, setPedidosCategorias] = useState<{
+  const [pedidosCategorias, setPedidosCategorias, limpiarPedidosCat] = useAutoSave<{
     paletas: { [key: string]: number };
     richi: { [key: string]: number };
     produccion: { [key: string]: number };
     insumos: { [key: string]: number };
     aseo: { [key: string]: number };
-  }>({
+  }>('martineto_pedidosCategorias', {
     paletas: {},
     richi: {},
     produccion: {},
@@ -110,12 +113,12 @@ export default function MartinetoPOSPage() {
     aseo: {},
   });
 
-  const [observacionPedido, setObservacionPedido] = useState<string>('');
+  const [observacionPedido, setObservacionPedido, limpiarObsPedido] = useAutoSave<string>('martineto_obsPedido', '');
 
-  // GASTOS DIRECTOS
+  // AUTO-SAVE: Gastos Directos
   const [listaGastos, setListaGastos] = useState<{ id: string; concepto: string; monto: number; hora: string }[]>([]);
-  const [conceptoGasto, setConceptoGasto] = useState('');
-  const [montoGasto, setMontoGasto] = useState<number | ''>('');
+  const [conceptoGasto, setConceptoGasto, limpiarConceptoGasto] = useAutoSave<string>('martineto_conceptoGasto', '');
+  const [montoGasto, setMontoGasto, limpiarMontoGasto] = useAutoSave<number | ''>('martineto_montoGasto', '');
 
   // CIERRE DE DÍA, CUADRE NUMÉRICO DE INVENTARIO Y EFECTIVO CONTADO
   const [mostrarModalResumen, setMostrarModalResumen] = useState(false);
@@ -678,9 +681,9 @@ export default function MartinetoPOSPage() {
 
       alert(`¡${tipoMovimiento.toUpperCase()} registrada y guardada con éxito en BD!`);
 
-      setTotalPaletasInventario('');
-      setCantidadesInventario({});
-      setObservacionesInventario('');
+      limpiarTotalPaletasInv();
+      limpiarCantidadesInv();
+      limpiarObsInv();
 
       if (tipoMovimiento === 'apertura') {
         setAperturaRealizada(true);
@@ -725,8 +728,8 @@ export default function MartinetoPOSPage() {
       },
     ]);
 
-    setConceptoGasto('');
-    setMontoGasto('');
+    limpiarConceptoGasto();
+    limpiarMontoGasto();
     alert(`💸 Gasto de $ ${valorGasto.toLocaleString('es-CO')} registrado y descontado de la Caja.`);
   }
 
@@ -777,14 +780,8 @@ export default function MartinetoPOSPage() {
 
     if (!error) {
       alert('¡Pedido enviado a bodega con éxito!');
-      setPedidosCategorias({
-        paletas: {},
-        richi: {},
-        produccion: {},
-        insumos: {},
-        aseo: {},
-      });
-      setObservacionPedido('');
+      limpiarPedidosCat();
+      limpiarObsPedido();
       await cargarHistorialPedidos();
     } else {
       alert('Error al guardar en la base de datos: ' + error.message);
@@ -1822,6 +1819,15 @@ export default function MartinetoPOSPage() {
       alert('✅ ¡CIERRE TOTAL DEL DÍA GUARDADO CON ÉXITO EN LA BASE DE DATOS!');
       setMostrarModalResumen(false);
       
+      limpiarBaseCaja();
+      limpiarTotalPaletasInv();
+      limpiarCantidadesInv();
+      limpiarObsInv();
+      limpiarPedidosCat();
+      limpiarObsPedido();
+      limpiarConceptoGasto();
+      limpiarMontoGasto();
+
       localStorage.removeItem('martineto_session');
       router.push('/login');
     } catch (err: any) {
@@ -1831,12 +1837,11 @@ export default function MartinetoPOSPage() {
     }
   }
 
-  // Helper para extraer todos los ítems acumulados en el pedido actual (por categoría)
   const obtenerResumenPedidoActual = () => {
     const listaResumen: { categoria: string; nombre: string; cantidad: number }[] = [];
     (Object.keys(pedidosCategorias) as CategoriaTab[]).forEach((cat) => {
       const itemsCat = pedidosCategorias[cat];
-      Object.entries(itemsCat).forEach(([nombreProd, cant]) => {
+      Object.entries(itemsCat || {}).forEach(([nombreProd, cant]) => {
         const num = Number(cant) || 0;
         if (num > 0) {
           listaResumen.push({ categoria: cat, nombre: nombreProd, cantidad: num });
@@ -1871,43 +1876,48 @@ export default function MartinetoPOSPage() {
         </div>
       </header>
 
-      {/* BARRA NAVEGACIÓN INDEPENDIENTE POR BOTONES */}
-      <nav className="flex flex-wrap gap-2 bg-[#0b2b48] p-2 rounded-2xl border border-[#0066b3] shadow-md">
+      {/* BARRA DE NAVEGACIÓN INDEPENDIENTE, FLOTANTE Y ADAPTABLE */}
+      <nav className="sticky top-2 z-40 flex items-center gap-2 bg-[#0b2b48]/95 backdrop-blur-md p-2 rounded-2xl border border-[#0066b3] shadow-xl overflow-x-auto no-scrollbar">
         <button
+          type="button"
           onClick={() => setModuloActivo('movimientos')}
-          className={`px-4 py-2.5 rounded-xl text-xs font-black uppercase transition-all cursor-pointer ${
+          className={`px-4 py-2.5 rounded-xl text-xs font-black uppercase whitespace-nowrap transition-all cursor-pointer ${
             moduloActivo === 'movimientos' ? 'bg-[#00a4ef] text-white shadow-md' : 'bg-[#051829] text-sky-300 border border-[#0066b3] hover:text-white'
           }`}
         >
           1. 📦 Apertura y Movimientos
         </button>
         <button
+          type="button"
           onClick={() => setModuloActivo('pedidos')}
-          className={`px-4 py-2.5 rounded-xl text-xs font-black uppercase transition-all cursor-pointer ${
+          className={`px-4 py-2.5 rounded-xl text-xs font-black uppercase whitespace-nowrap transition-all cursor-pointer ${
             moduloActivo === 'pedidos' ? 'bg-[#00a4ef] text-white shadow-md' : 'bg-[#051829] text-sky-300 border border-[#0066b3] hover:text-white'
           }`}
         >
           2. 🚚 Pedidos
         </button>
         <button
+          type="button"
           onClick={() => setModuloActivo('gastos')}
-          className={`px-4 py-2.5 rounded-xl text-xs font-black uppercase transition-all cursor-pointer ${
+          className={`px-4 py-2.5 rounded-xl text-xs font-black uppercase whitespace-nowrap transition-all cursor-pointer ${
             moduloActivo === 'gastos' ? 'bg-amber-600 text-white shadow-md' : 'bg-[#051829] text-sky-300 border border-[#0066b3] hover:text-white'
           }`}
         >
           3. 💸 Gastos
         </button>
         <button
+          type="button"
           onClick={() => setModuloActivo('ventas')}
-          className={`px-4 py-2.5 rounded-xl text-xs font-black uppercase transition-all cursor-pointer ${
+          className={`px-4 py-2.5 rounded-xl text-xs font-black uppercase whitespace-nowrap transition-all cursor-pointer ${
             moduloActivo === 'ventas' ? 'bg-emerald-600 text-white shadow-md' : 'bg-[#051829] text-sky-300 border border-[#0066b3] hover:text-white'
           }`}
         >
           4. 🛒 Ventas
         </button>
         <button
+          type="button"
           onClick={() => setModuloActivo('cierre')}
-          className={`px-4 py-2.5 rounded-xl text-xs font-black uppercase transition-all cursor-pointer ${
+          className={`px-4 py-2.5 rounded-xl text-xs font-black uppercase whitespace-nowrap transition-all cursor-pointer ${
             moduloActivo === 'cierre' ? 'bg-purple-600 text-white shadow-md' : 'bg-[#051829] text-sky-300 border border-[#0066b3] hover:text-white'
           }`}
         >
@@ -1924,7 +1934,6 @@ export default function MartinetoPOSPage() {
       {/* MÓDULO 1: APERTURA Y MOVIMIENTOS E INVENTARIO */}
       {moduloActivo === 'movimientos' && (
         <div className="bg-[#0b2b48] border border-[#0066b3] p-5 rounded-2xl space-y-4 shadow-md max-w-2xl mx-auto">
-          
           <div className="bg-[#051829] border-2 border-emerald-400/70 p-4 rounded-xl space-y-3 shadow-inner">
             <span className="text-xs font-black text-emerald-300 block uppercase border-b border-emerald-400/30 pb-1">
               💵 1. Base Inicial de Caja (Efectivo en Caja al Abrir)
@@ -1962,9 +1971,6 @@ export default function MartinetoPOSPage() {
               onChange={(e) => {
                 const nuevoTipo = e.target.value;
                 setTipoMovimiento(nuevoTipo);
-                setTotalPaletasInventario('');
-                setCantidadesInventario({});
-                setObservacionesInventario('');
               }}
               disabled={!aperturaRealizada && baseGuardada}
               className="w-full bg-[#051829] border border-[#0066b3] text-white font-black text-xs rounded-xl p-3 outline-none cursor-pointer"
@@ -2037,8 +2043,6 @@ export default function MartinetoPOSPage() {
       {/* MÓDULO 2: PEDIDOS A BODEGA CON LISTADO PREVIO */}
       {moduloActivo === 'pedidos' && (
         <div className={`grid grid-cols-1 lg:grid-cols-12 gap-4 items-start ${bloqueadoPorApertura ? 'opacity-50 pointer-events-none' : ''}`}>
-          
-          {/* COLUMNA IZQUIERDA: SELECCIÓN DE PRODUCTOS POR PESTAÑA */}
           <div className="lg:col-span-7 bg-[#0b2b48] border border-[#0066b3] p-5 rounded-2xl space-y-4 shadow-md">
             <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
               <h2 className="text-sm font-black text-white flex items-center gap-1.5">2. 🚚 Seleccionar Pedido a Bodega</h2>
@@ -2102,7 +2106,6 @@ export default function MartinetoPOSPage() {
             </div>
           </div>
 
-          {/* COLUMNA DERECHA: LISTADO PREVIO (CARRITO DE PEDIDO) Y ENVÍO */}
           <div className="lg:col-span-5 bg-[#0b2b48] border border-[#0066b3] p-5 rounded-2xl space-y-4 shadow-md">
             <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
               <h3 className="text-xs font-black text-sky-200 uppercase flex items-center gap-1.5">
@@ -2160,7 +2163,6 @@ export default function MartinetoPOSPage() {
             </button>
           </div>
 
-          {/* HISTORIAL DE PEDIDOS SOLICITADOS HOY */}
           <div className="lg:col-span-12 bg-[#0b2b48] border border-[#0066b3] p-5 rounded-2xl space-y-3 shadow-md mt-2">
             <h3 className="text-xs font-black text-sky-200 uppercase flex items-center justify-between">
               <span>📋 HISTORIAL DE PEDIDOS SOLICITADOS HOY (CONSOLIDADOS)</span>
@@ -2237,7 +2239,6 @@ export default function MartinetoPOSPage() {
               )}
             </div>
 
-            {/* GESTOR DE ENVÍOS CON EL OJITO RECOGIDO POR DEFECTO */}
             {historialPedidosBD.length > 0 && (
               <div className="bg-[#051829] border border-[#0066b3] p-3 rounded-xl space-y-2 mt-4">
                 <div className="flex items-center justify-between border-b border-[#0066b3]/50 pb-2">
@@ -2352,7 +2353,6 @@ export default function MartinetoPOSPage() {
       {/* MÓDULO 4: VENTAS (MESAS, RAPPI Y COBRO) */}
       {moduloActivo === 'ventas' && (
         <div className={`grid grid-cols-1 lg:grid-cols-12 gap-4 items-start ${bloqueadoPorApertura ? 'opacity-50 pointer-events-none' : ''}`}>
-          
           <div className={`${!mesaActivaId ? 'lg:col-span-12' : itemActivoActual && itemActivoActual.items.length > 0 ? 'lg:col-span-3' : 'lg:col-span-4'} bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md transition-all duration-300`}>
             <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
               <h2 className="text-xs md:text-sm font-black text-white">🪑 Mesas y Rappi</h2>

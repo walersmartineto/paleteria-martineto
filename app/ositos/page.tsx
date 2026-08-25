@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { useAutoSave } from '@/hooks/useAutoSave';
 import {
   obtenerTarifasOsitos,
   registrarMovimientoOsitos,
@@ -140,28 +141,29 @@ export default function OsitosPage() {
     horaNocheFestivo: 15200,
   });
 
-  const [baseCaja, setBaseCaja] = useState<number | ''>('');
+  // AUTO-SAVE: Base de Caja
+  const [baseCaja, setBaseCaja, limpiarBaseCaja] = useAutoSave<number | ''>('ositos_baseCaja', '');
   const [baseGuardada, setBaseGuardada] = useState(false);
   const [aperturaRealizada, setAperturaRealizada] = useState(false);
   const [cierreRealizado, setCierreRealizado] = useState(false);
 
-  // INVENTARIO
+  // AUTO-SAVE: Inventario
   const [tipoMovimiento, setTipoMovimiento] = useState<string>('apertura');
-  const [totalPaletasInventario, setTotalPaletasInventario] = useState<number | ''>('');
+  const [totalPaletasInventario, setTotalPaletasInventario, limpiarTotalPaletasInv] = useAutoSave<number | ''>('ositos_totalPaletasInv', '');
   const [saboresOsitos, setSaboresOsitos] = useState<any[]>([]);
-  const [cantidadesEmpaques, setCantidadesEmpaques] = useState<{ [item: string]: number | '' }>({});
-  const [observaciones, setObservaciones] = useState<string>('');
+  const [cantidadesEmpaques, setCantidadesEmpaques, limpiarEmpaquesInv] = useAutoSave<{ [item: string]: number | '' }>('ositos_cantidadesEmpaques', {});
+  const [observaciones, setObservaciones, limpiarObsInv] = useAutoSave<string>('ositos_observacionesInv', '');
 
-  // REQUISICIÓN DE PEDIDOS
+  // AUTO-SAVE: Requisición de Pedidos
   const [mostrarModuloPedidos, setMostrarModuloPedidos] = useState(false);
   const [categoriaPedido, setCategoriaPedido] = useState<'paletas' | 'richi' | 'produccion' | 'insumos' | 'aseo'>('paletas');
-  const [cantidadesPedidoPaletas, setCantidadesPedidoPaletas] = useState<{ [saborId: number]: number | '' }>({});
-  const [cantidadesRichi, setCantidadesRichi] = useState<{ [item: string]: number | '' }>({});
-  const [cantidadesProduccion, setCantidadesProduccion] = useState<{ [item: string]: number | '' }>({});
-  const [cantidadesInsumos, setCantidadesInsumos] = useState<{ [item: string]: number | '' }>({});
-  const [cantidadesAseo, setCantidadesAseo] = useState<{ [item: string]: number | '' }>({});
-  const [otroInsumoTexto, setOtroInsumoTexto] = useState('');
-  const [obsPedido, setObsPedido] = useState('');
+  const [cantidadesPedidoPaletas, setCantidadesPedidoPaletas, limpiarPedPaletas] = useAutoSave<{ [saborId: number]: number | '' }>('ositos_pedPaletas', {});
+  const [cantidadesRichi, setCantidadesRichi, limpiarPedRichi] = useAutoSave<{ [item: string]: number | '' }>('ositos_pedRichi', {});
+  const [cantidadesProduccion, setCantidadesProduccion, limpiarPedProd] = useAutoSave<{ [item: string]: number | '' }>('ositos_pedProd', {});
+  const [cantidadesInsumos, setCantidadesInsumos, limpiarPedInsumos] = useAutoSave<{ [item: string]: number | '' }>('ositos_pedInsumos', {});
+  const [cantidadesAseo, setCantidadesAseo, limpiarPedAseo] = useAutoSave<{ [item: string]: number | '' }>('ositos_pedAseo', {});
+  const [otroInsumoTexto, setOtroInsumoTexto, limpiarOtroInsumo] = useAutoSave<string>('ositos_otroInsumo', '');
+  const [obsPedido, setObsPedido, limpiarObsPedido] = useAutoSave<string>('ositos_obsPedido', '');
 
   // ESTADOS MODAL CREAR NUEVO PRODUCTO / INSUMO EN BD
   const [productosInsumosBD, setProductosInsumosBD] = useState<any[]>([]);
@@ -174,15 +176,15 @@ export default function OsitosPage() {
   const [esProductoGlobal, setEsProductoGlobal] = useState(true);
   const [guardandoProducto, setGuardandoProducto] = useState(false);
 
-  // NÓMINA Y ARQUEO DE CAJA
+  // AUTO-SAVE: Nómina y Arqueo de Caja
   const [tipoDia, setTipoDia] = useState<'entre_semana' | 'domingo_festivo'>('entre_semana');
-  const [horasDia, setHorasDia] = useState<number | ''>('');
-  const [horasNoche, setHorasNoche] = useState<number | ''>('');
-  const [efectivoCaja, setEfectivoCaja] = useState<number | ''>('');
-  const [nequi, setNequi] = useState<number | ''>('');
-  const [daviplata, setDaviplata] = useState<number | ''>('');
-  const [gastos, setGastos] = useState<number | ''>('');
-  const [motivoGasto, setMotivoGasto] = useState<string>('');
+  const [horasDia, setHorasDia, limpiarHorasDia] = useAutoSave<number | ''>('ositos_horasDia', '');
+  const [horasNoche, setHorasNoche, limpiarHorasNoche] = useAutoSave<number | ''>('ositos_horasNoche', '');
+  const [efectivoCaja, setEfectivoCaja, limpiarEfCaja] = useAutoSave<number | ''>('ositos_efectivoCaja', '');
+  const [nequi, setNequi, limpiarNequi] = useAutoSave<number | ''>('ositos_nequi', '');
+  const [daviplata, setDaviplata, limpiarDaviplata] = useAutoSave<number | ''>('ositos_daviplata', '');
+  const [gastos, setGastos, limpiarGastos] = useAutoSave<number | ''>('ositos_gastos', '');
+  const [motivoGasto, setMotivoGasto, limpiarMotivoGasto] = useAutoSave<string>('ositos_motivoGasto', '');
 
   // MODAL CAMBIO DE TURNO
   const [mostrarModalCambioTurno, setMostrarModalCambioTurno] = useState(false);
@@ -277,10 +279,6 @@ export default function OsitosPage() {
     setTarifas(configTarifas);
     setListaOperarios(operarios);
     setSaboresOsitos(listaSabores);
-
-    const inicialesPedido: { [saborId: number]: number | '' } = {};
-    listaSabores.forEach((s: any) => (inicialesPedido[s.id] = ''));
-    setCantidadesPedidoPaletas(inicialesPedido);
 
     const { data: prodsInsumosBD } = await supabase
       .from('producto')
@@ -402,7 +400,6 @@ export default function OsitosPage() {
       };
       setProductosInsumosBD((prev) => [...prev, nuevoObj]);
       setSaboresOsitos((prev) => [...prev, nuevoObj]);
-      setCantidadesPedidoPaletas((prev) => ({ ...prev, [data[0].id]: '' }));
     }
 
     setNuevoProdNombre('');
@@ -546,9 +543,9 @@ export default function OsitosPage() {
         setGuardando(false);
         alert(`¡Registro de [${tipoMovimiento.toUpperCase()}] guardado con éxito! (Total: ${totalPaletasSuma} paletas)`);
         
-        setTotalPaletasInventario('');
-        setCantidadesEmpaques({});
-        setObservaciones('');
+        limpiarTotalPaletasInv();
+        limpiarEmpaquesInv();
+        limpiarObsInv();
       } else {
         setGuardando(false);
         alert('⚠️ Error al registrar el inventario en la base de datos.');
@@ -625,15 +622,13 @@ export default function OsitosPage() {
 
       if (ok) {
         alert('¡Pedido de 12 Friendly Bears registrado correctamente!');
-        setCantidadesRichi({});
-        setCantidadesProduccion({});
-        setCantidadesInsumos({});
-        setCantidadesAseo({});
-        const limpiasPaletas: { [saborId: number]: number | '' } = {};
-        saboresOsitos.forEach((s) => (limpiasPaletas[s.id] = ''));
-        setCantidadesPedidoPaletas(limpiasPaletas);
-        setOtroInsumoTexto('');
-        setObsPedido('');
+        limpiarPedPaletas();
+        limpiarPedRichi();
+        limpiarPedProd();
+        limpiarPedInsumos();
+        limpiarPedAseo();
+        limpiarOtroInsumo();
+        limpiarObsPedido();
       } else {
         alert('Error al registrar en la base de datos.');
       }
@@ -687,11 +682,26 @@ export default function OsitosPage() {
     if (ok) {
       if (esTurnoCierre) {
         alert(`¡Cierre de jornada completado con éxito!\n\nNómina: $ ${totalNomina.toLocaleString('es-CO')}\nTotal Recaudado: $ ${totalVentasCalculado.toLocaleString('es-CO')}\nGastos: $ ${gst.toLocaleString('es-CO')}\n\n¡Hasta mañana!`);
+        
+        limpiarBaseCaja();
+        limpiarHorasDia();
+        limpiarHorasNoche();
+        limpiarEfCaja();
+        limpiarNequi();
+        limpiarDaviplata();
+        limpiarGastos();
+        limpiarMotivoGasto();
+
         cerrarSesion();
       } else {
         alert(`¡Nómina del operador saliente registrada con éxito!\nTotal Pagado: $ ${totalNomina.toLocaleString('es-CO')}\n\nA continuación, ingresa el operario que recibe el turno.`);
-        setHorasDia('');
-        setHorasNoche('');
+        
+        limpiarHorasDia();
+        limpiarHorasNoche();
+        limpiarEfCaja();
+        limpiarNequi();
+        limpiarDaviplata();
+
         setMostrarModalCambioTurno(true);
       }
     } else {

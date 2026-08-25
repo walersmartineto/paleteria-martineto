@@ -20,12 +20,10 @@ const SEDES_DEFAULT: SedeInfo[] = [
   { id: 99, nombre: 'Administración Global', codigo: 'admin', descripcion: 'Panel de Control Central' },
 ];
 
-// RUTA DE LOGOS PARA LAS SEDES
 const LOGOS_SEDES: { [codigo: string]: string } = {
   ositos: '/ositos.png.jpeg',
 };
 
-// EMOJIS PARA USUARIOS
 const obtenerEmojiUsuario = (nombre: string) => {
   const nombreLimpio = nombre.toLowerCase();
   
@@ -43,7 +41,6 @@ const obtenerEmojiUsuario = (nombre: string) => {
   return '👤';
 };
 
-// EMOJIS DE RESPALDO PARA LAS OTRAS SEDES
 const obtenerEmojiSedeFallback = (codigo: string) => {
   const cod = codigo.toLowerCase();
   if (cod === 'martineto') return '🍨🪑';
@@ -66,7 +63,6 @@ export default function LoginPage() {
   const [errorMensaje, setErrorMensaje] = useState('');
   const [cargando, setCargando] = useState(false);
 
-  // Estados para el Modal de Cambio de Clave
   const [mostrarModalClave, setMostrarModalClave] = useState(false);
   const [usuarioCambioId, setUsuarioCambioId] = useState<number | ''>('');
   const [claveActual, setClaveActual] = useState('');
@@ -106,6 +102,22 @@ export default function LoginPage() {
       setCargando(false);
     }
   }
+
+  // FUNCIÓN PARA AUTO-SELECCIONAR EL TURNO AL CAMBIAR DE SEDE
+  const handleCambioSede = (idSede: number) => {
+    setSedeSeleccionada(idSede);
+
+    const sedeObj = sedes.find((s) => s.id === idSede);
+    if (sedeObj) {
+      const cod = (sedeObj.codigo || '').toLowerCase();
+      // Si la sede es Martineto o Administración Global, asigna 'dia_completo'
+      if (cod === 'martineto' || cod === 'admin') {
+        setTipoTurno('dia_completo');
+      } else {
+        setTipoTurno('manana_apertura');
+      }
+    }
+  };
 
   async function handleIngresar(e: React.FormEvent) {
     e.preventDefault();
@@ -253,7 +265,6 @@ export default function LoginPage() {
         
         <div className="absolute top-0 left-0 right-0 h-2 bg-gradient-to-r from-purple-500 via-[#00a4ef] to-emerald-400"></div>
 
-        {/* ENCABEZADO CON LA IMAGEN DE LOGIN CORREGIDA */}
         <div className="text-center space-y-2 pt-2">
           <div className="w-20 h-20 rounded-2xl bg-[#003d6d] border border-[#0066b3] flex items-center justify-center p-2 mx-auto shadow-lg overflow-hidden">
             <img
@@ -279,7 +290,7 @@ export default function LoginPage() {
             </label>
             <select
               value={sedeSeleccionada}
-              onChange={(e) => setSedeSeleccionada(Number(e.target.value))}
+              onChange={(e) => handleCambioSede(Number(e.target.value))}
               className="w-full bg-[#051829] border border-[#0066b3] rounded-xl p-3 text-xs md:text-sm text-white outline-none font-bold cursor-pointer focus:border-[#00a4ef] transition-colors"
             >
               <option value="">-- Elige Sede o Administración --</option>
