@@ -60,6 +60,17 @@ export default function MartinetoPOSPage() {
   const [cajaIdActual, setCajaIdActual] = useState<number | null>(null);
   const [aperturaRealizada, setAperturaRealizada] = useState(false);
 
+  // EFECTIVO ENTREGADO EN CAMBIO DE TURNO (VISUAL)
+  const [efectivoTurnoManana, setEfectivoTurnoManana] = useState<number | null>(null);
+
+  // MODAL CAMBIO DE TURNO
+  const [mostrarModalCambioTurno, setMostrarModalCambioTurno] = useState(false);
+  const [listaOperarios, setListaOperarios] = useState<any[]>([]);
+  const [operarioEntranteId, setOperarioEntranteId] = useState<string>('');
+  const [claveOperarioEntrante, setClaveOperarioEntrante] = useState<string>('');
+  const [turnoRecibido, setTurnoRecibido] = useState<string>('tarde');
+  const [validandoEntrante, setValidandoEntrante] = useState(false);
+
   // EMPAQUES Y PALETAS DESDE BD
   const [empaquesBD, setEmpaquesBD] = useState<any[]>([]);
 
@@ -148,6 +159,9 @@ export default function MartinetoPOSPage() {
   const [horasNoche, setHorasNoche] = useState<number | ''>('');
   const [nominaPagadaEnTurno, setNominaPagadaEnTurno] = useState(false);
 
+  // EFECTIVO CAJA PARA CAMBIO DE TURNO
+  const [efectivoCajaTurno, setEfectivoCajaTurno] = useState<number | ''>('');
+
   const [tarifasNominaBD, setTarifasNominaBD] = useState<{
     subsidio: number;
     transporte: number;
@@ -212,6 +226,11 @@ export default function MartinetoPOSPage() {
     }
     const ses = JSON.parse(sesionLocal);
     setSesion(ses);
+
+    const efectivoMananaGuardado = localStorage.getItem('martineto_efectivo_manana_principal');
+    if (efectivoMananaGuardado) {
+      setEfectivoTurnoManana(Number(efectivoMananaGuardado));
+    }
 
     const valorActualCaja = localStorage.getItem('martineto_baseCaja');
     if (valorActualCaja === '1' || valorActualCaja === 'ús') {
@@ -468,6 +487,15 @@ export default function MartinetoPOSPage() {
         }
       }
 
+      // OBTENER OPERARIOS PARA EL CAMBIO DE TURNO
+      const { data: operariosBD } = await supabase
+        .from('usuario')
+        .select('*');
+
+      if (operariosBD) {
+        setListaOperarios(operariosBD);
+      }
+
       // --- CAJA ABIERTA DE HOY ---
       const hoyInicio = new Date();
       hoyInicio.setHours(0, 0, 0, 0);
@@ -630,7 +658,7 @@ export default function MartinetoPOSPage() {
     return sub + trans + hDia * vDia + hNoche * vNoche;
   };
 
-  async function pagarNominaBD() {
+  async function pagarNominaYCambioTurno() {
     const totalPago = calcularTotalNomina();
 
     if (totalPago <= 0) {
@@ -639,8 +667,8 @@ export default function MartinetoPOSPage() {
     }
 
     const usuarioId = sesion?.usuario_id || sesion?.id || null;
+    const efCaja = Number(efectivoCajaTurno) || 0;
 
-    // SE GUARDA EXCLUSIVAMENTE EN LA TABLA 'nomina'
     const payloadNomina = {
       sede_id: SEDE_ID_MARTINETO,
       usuario_id: usuarioId ? Number(usuarioId) : null,
@@ -659,7 +687,62 @@ export default function MartinetoPOSPage() {
     }
 
     setNominaPagadaEnTurno(true);
-    alert(`💸 Pago de Nómina de $ ${totalPago.toLocaleString('es-CO')} registrado exitosamente en la tabla nomina.`);
+    setEfectivoTurnoManana(efCaja);
+    localStorage.setItem('martineto_efectivo_manana_principal', efCaja.toString());
+
+    alert(`💸 Pago de Nómina de $ ${totalPago.toLocaleString('es-CO')} registrado.\n\nEfectivo dejado en caja para el siguiente turno: $ ${efCaja.toLocaleString('es-CO')}\n\nA continuación, ingresa el operario que recibe el turno.`);
+
+    // Limpiar horas y efectivo turno para el relevo
+    setHorasDia('');
+    setHorasNoche('');
+    setEfectivoCajaTurno('');
+
+    setMostrarModalCambioTurno(true);
+  }
+
+  async function handleConfirmarEntrante() {
+    if (!operarioEntranteId) {
+      alert('Selecciona al operario que recibe el turno.');
+      return;
+    }
+    if (!claveOperarioEntrante) {
+      alert('Ingresa la contraseña/PIN del operario.');
+      return;
+    }
+
+    setValidandoEntrante(true);
+
+    const operarioEncontrado = listaOperarios.find(
+      (u) => String(u.id) === String(operarioEntranteId)
+    );
+
+    if (
+      operarioEncontrado &&
+      String(operarioEncontrado.pin).trim() === String(claveOperarioEntrante).trim()
+    ) {
+      const turnoNormalizado = turnoRecibido.includes('tarde') ? 'tarde' : 'manana';
+
+      const nuevaSesion = {
+        usuario_id: operarioEncontrado.id,
+        nombre: operarioEncontrado.nombre,
+        sede_id: SEDE_ID_MARTINETO,
+        turno: turnoNormalizado,
+      };
+
+      localStorage.setItem('martineto_session', JSON.stringify(nuevaSesion));
+      setSesion(nuevaSesion);
+
+      setMostrarModalCambioTurno(false);
+      setClaveOperarioEntrante('');
+      setOperarioEntranteId('');
+      setNominaPagadaEnTurno(false);
+
+      setValidandoEntrante(false);
+      alert(`✅ ¡Turno entregado con éxito!\nBienvenido(a) ${nuevaSesion.nombre}. Puedes continuar con la atención y operación normal de la sede.`);
+    } else {
+      setValidandoEntrante(false);
+      alert('❌ Código de acceso / PIN incorrecto para este operario.');
+    }
   }
 
   async function crearNuevoProductoBD() {
@@ -1971,7 +2054,25 @@ export default function MartinetoPOSPage() {
         throw new Error('Error actualizando la tabla caja: ' + errorCaja.message);
       }
 
-      // --- 3. REGISTRAR INVENTARIO DE CIERRE ---
+      // --- 3. REGISTRAR HISTORIAL DE VENTAS EN LA NUEVA TABLA ---
+      const jsonVentasDelDia: { [nombreProd: string]: number } = {};
+      productosVendidosConsolidados.forEach((pv) => {
+        jsonVentasDelDia[pv.nombre] = pv.cantidad;
+      });
+
+      const { error: errorHistoricoVentas } = await supabase.from('historico_ventas').insert([
+        {
+          sede_id: SEDE_ID_MARTINETO,
+          fecha: new Date().toISOString(),
+          productos: jsonVentasDelDia,
+        }
+      ]);
+
+      if (errorHistoricoVentas) {
+        throw new Error('Error guardando en historico_ventas: ' + errorHistoricoVentas.message);
+      }
+
+      // --- 4. REGISTRAR INVENTARIO DE CIERRE ---
       const detallePaletasCierre: { [key: string]: number } = {};
       const detalleEmpaquesCierre: { [key: string]: number } = {};
       let totalPaletasCierreNum = 0;
@@ -2062,7 +2163,7 @@ export default function MartinetoPOSPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#004e8c] text-[#f1f5f9] p-4 font-sans max-w-[1600px] mx-auto space-y-4">
+    <main className="min-h-screen bg-[#004e8c] text-[#f1f5f9] p-4 font-sans max-w-[1600px] mx-auto space-y-4 relative">
       {/* HEADER LIMPIO */}
       <header className="bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl flex justify-between items-center shadow-lg">
         <div>
@@ -2919,77 +3020,98 @@ export default function MartinetoPOSPage() {
         </div>
       )}
 
-      {/* MÓDULO 5: CIERRE Y PAGO DE NÓMINA */}
+      {/* MÓDULO 5: CAMBIO DE TURNO, NÓMINA Y CIERRE */}
       {moduloActivo === 'cierre' && (
         <div className={`bg-[#0b2b48] border border-[#0066b3] p-5 rounded-2xl space-y-4 shadow-md max-w-2xl mx-auto ${bloqueadoPorApertura ? 'opacity-50 pointer-events-none' : ''}`}>
           <h2 className="text-sm font-black text-white border-b border-[#0066b3]/50 pb-2 flex justify-between items-center">
-            <span>5. 🌙 Pago de Nómina y Cierre Final del Día</span>
+            <span>5. 👥 Pago de Nómina y Cambio de Turno</span>
             <span className="text-xs text-sky-300 font-bold">
-              Operario: {sesion?.nombre || 'Iris'}{' '}
-              {nominaPagadaEnTurno && <b className="text-emerald-400 ml-1">(✓ PAGADO)</b>}
+              Operario: {sesion?.nombre || 'Iris'}
             </span>
           </h2>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-center">
-            <div>
-              <label className="text-[10px] text-sky-300 font-bold block mb-1">Tipo de Día:</label>
-              <select
-                value={tipoDia}
-                onChange={(e) => setTipoDia(e.target.value)}
-                className="w-full bg-[#051829] border border-[#0066b3] text-white text-xs p-2.5 rounded-xl outline-none cursor-pointer font-bold"
-              >
-                <option value="entre_semana">De Lunes a Sábado</option>
-                <option value="festivo">Domingo / Festivo</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="text-[10px] text-sky-300 font-bold block mb-1">Horas Trab. Día:</label>
-              <input
-                type="text"
-                placeholder="0"
-                value={horasDia}
-                onChange={(e) => setHorasDia(e.target.value === '' ? '' : Number(e.target.value.replace(/\D/g, '')))}
-                className="w-full bg-[#051829] border border-[#0066b3] text-white text-xs p-2 rounded-xl text-center font-bold outline-none"
-              />
-            </div>
-
-            <div>
-              <label className="text-[10px] text-sky-300 font-bold block mb-1">Horas Trab. Noche:</label>
-              <input
-                type="text"
-                placeholder="0"
-                value={horasNoche}
-                onChange={(e) => setHorasNoche(e.target.value === '' ? '' : Number(e.target.value.replace(/\D/g, '')))}
-                className="w-full bg-[#051829] border border-[#0066b3] text-white text-xs p-2 rounded-xl text-center font-bold outline-none"
-              />
+          <div className="bg-[#0b2b48] border border-amber-400/50 p-4 rounded-2xl space-y-1 shadow-md flex flex-col justify-center">
+            <span className="text-xs font-black text-amber-300 block uppercase">
+              ☀️ Efectivo Recibido del Turno Anterior:
+            </span>
+            <div className="bg-[#051829] border border-amber-500/40 p-2.5 rounded-xl flex justify-between items-center">
+              <span className="text-xs text-sky-200 font-bold">Efectivo disponible en caja:</span>
+              <span className="text-sm font-black text-amber-300 bg-[#0e385e] px-3 py-1 rounded-lg border border-amber-500/40">
+                {efectivoTurnoManana !== null ? `$ ${efectivoTurnoManana.toLocaleString('es-CO')}` : 'Sin cambio de turno previo'}
+              </span>
             </div>
           </div>
 
-          <div className="bg-[#051829] p-3 rounded-xl border border-[#00a4ef] flex justify-between items-center text-xs">
-            <div className="text-sky-200">
-              <span className="block font-bold">Valores leídos desde BD:</span>
-              <span className="text-[10px] opacity-80">
-                Subsidio: ${tarifasNominaBD.subsidio.toLocaleString('es-CO')} | Aux. Transporte: ${tarifasNominaBD.transporte.toLocaleString('es-CO')}
-              </span>
+          <div className="space-y-2 bg-[#051829] p-4 rounded-xl border border-[#0066b3]">
+            <span className="text-xs font-black text-sky-300 uppercase block">1. Nómina del Operador:</span>
+            
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-center">
+              <div>
+                <label className="text-[10px] text-sky-300 font-bold block mb-1">Tipo de Día:</label>
+                <select
+                  value={tipoDia}
+                  onChange={(e) => setTipoDia(e.target.value)}
+                  className="w-full bg-[#0e385e] border border-[#0066b3] text-white text-xs p-2.5 rounded-xl outline-none cursor-pointer font-bold"
+                >
+                  <option value="entre_semana">De Lunes a Sábado</option>
+                  <option value="festivo">Domingo / Festivo</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[10px] text-sky-300 font-bold block mb-1">Horas Trab. Día:</label>
+                <input
+                  type="text"
+                  placeholder="0"
+                  value={horasDia}
+                  onChange={(e) => setHorasDia(e.target.value === '' ? '' : Number(e.target.value.replace(/\D/g, '')))}
+                  className="w-full bg-[#0e385e] border border-[#0066b3] text-white text-xs p-2 rounded-xl text-center font-bold outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] text-sky-300 font-bold block mb-1">Horas Trab. Noche:</label>
+                <input
+                  type="text"
+                  placeholder="0"
+                  value={horasNoche}
+                  onChange={(e) => setHorasNoche(e.target.value === '' ? '' : Number(e.target.value.replace(/\D/g, '')))}
+                  className="w-full bg-[#0e385e] border border-[#0066b3] text-white text-xs p-2 rounded-xl text-center font-bold outline-none"
+                />
+              </div>
             </div>
-            <div className="text-right">
-              <span className="text-[10px] text-sky-300 font-bold block uppercase">Total Pago Nómina:</span>
-              <span className="text-base font-black text-rose-400">$ {calcularTotalNomina().toLocaleString('es-CO')}</span>
+
+            <div className="flex justify-between items-center bg-rose-950/60 p-2.5 rounded-lg border border-rose-500/50 text-xs font-bold text-rose-200 mt-2">
+              <span>Total Nómina:</span>
+              <span className="text-sm font-black text-rose-300">$ {calcularTotalNomina().toLocaleString('es-CO')}</span>
             </div>
+          </div>
+
+          <div className="space-y-2 bg-[#051829] p-4 rounded-xl border border-[#0066b3]">
+            <span className="text-xs font-black text-emerald-300 uppercase block">
+              2. Efectivo dejado en caja para el siguiente turno:
+            </span>
+            <input
+              type="text"
+              placeholder="$ 0"
+              value={formatearMoneda(efectivoCajaTurno)}
+              onChange={(e) => setEfectivoCajaTurno(desformatearMoneda(e.target.value))}
+              onFocus={(e) => e.target.select()}
+              className="w-full bg-[#0e385e] border border-emerald-400 text-emerald-300 font-black text-sm rounded-xl p-3 outline-none"
+            />
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
             <button
-              onClick={pagarNominaBD}
-              className="w-full bg-sky-600 hover:bg-sky-500 text-white font-black py-3 rounded-xl text-xs uppercase cursor-pointer shadow-md transition-all flex items-center justify-center gap-2"
+              onClick={pagarNominaYCambioTurno}
+              className="w-full bg-[#0078d4] hover:bg-[#0086e6] text-white font-black py-3 rounded-xl text-xs uppercase cursor-pointer shadow-md transition-all flex items-center justify-center gap-2"
             >
-              💸 Pagar Nómina (Tabla 'nomina')
+              💾 Registrar Nómina y Cambio de Turno
             </button>
 
             <button
               onClick={() => setMostrarModalResumen(true)}
-              className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black py-3 rounded-xl text-xs uppercase cursor-pointer shadow-lg transition-all flex items-center justify-center gap-2"
+              className="w-full bg-purple-700 hover:bg-purple-600 text-white font-black py-3 rounded-xl text-xs uppercase cursor-pointer shadow-lg transition-all flex items-center justify-center gap-2"
             >
               🌙 Realizar Cierre del Día
             </button>
@@ -3069,6 +3191,93 @@ export default function MartinetoPOSPage() {
             >
               Cerrar Consulta
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL CAMBIO DE TURNO */}
+      {mostrarModalCambioTurno && (
+        <div className="fixed inset-0 bg-[#051829]/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-[#0b2b48] border border-[#0066b3] p-6 rounded-3xl max-w-sm w-full space-y-5 shadow-2xl text-center">
+            
+            <div className="space-y-1 border-b border-[#0066b3]/50 pb-3">
+              <div className="w-12 h-12 bg-[#003d6d] border border-[#0066b3] rounded-2xl flex items-center justify-center mx-auto mb-2 text-xl shadow-lg">
+                🔄
+              </div>
+              <h3 className="text-lg font-black text-white tracking-wide">
+                Recepción de Turno — Martineto
+              </h3>
+              <p className="text-xs text-sky-200 font-medium">
+                Selecciona al operario entrante e ingresa sus credenciales
+              </p>
+            </div>
+
+            <div className="space-y-3 text-left">
+              <div>
+                <label className="text-[11px] font-extrabold text-sky-200 block mb-1 uppercase tracking-wider">
+                  ¿Qué turno recibo?
+                </label>
+                <select
+                  value={turnoRecibido}
+                  onChange={(e) => setTurnoRecibido(e.target.value)}
+                  className="w-full bg-[#051829] border border-[#0066b3] text-white font-bold text-xs rounded-xl p-3 outline-none cursor-pointer focus:border-[#00a4ef]"
+                >
+                  <option value="tarde">🌙 Tarde / Cierre</option>
+                  <option value="manana">🌅 Mañana / Apertura</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-extrabold text-sky-200 block mb-1 uppercase tracking-wider">
+                  Operario que Recibe:
+                </label>
+                <select
+                  value={operarioEntranteId}
+                  onChange={(e) => setOperarioEntranteId(e.target.value)}
+                  className="w-full bg-[#051829] border border-[#0066b3] text-white font-bold text-xs rounded-xl p-3 outline-none cursor-pointer focus:border-[#00a4ef]"
+                >
+                  <option value="">-- Seleccionar Operario --</option>
+                  {listaOperarios.map((op) => (
+                    <option key={op.id} value={op.id}>
+                      👤 {op.nombre}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-extrabold text-sky-200 block mb-1 uppercase tracking-wider">
+                  Contraseña / PIN:
+                </label>
+                <input
+                  type="password"
+                  placeholder="••••••"
+                  value={claveOperarioEntrante}
+                  onChange={(e) => setClaveOperarioEntrante(e.target.value)}
+                  onFocus={(e) => e.target.select()}
+                  className="w-full bg-[#051829] border border-[#0066b3] text-sky-200 font-black text-center text-lg rounded-xl p-2.5 outline-none tracking-widest focus:border-[#00a4ef]"
+                />
+              </div>
+            </div>
+
+            <div className="pt-2 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setMostrarModalCambioTurno(false)}
+                className="w-1/3 bg-[#051829] hover:bg-[#0e385e] text-sky-200 font-bold py-3 rounded-xl text-xs transition-colors border border-[#0066b3] cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmarEntrante}
+                disabled={validandoEntrante}
+                className="w-2/3 bg-[#0078d4] hover:bg-[#0086e6] text-white font-black py-3 rounded-xl text-xs transition-all uppercase shadow-lg shadow-[#003d6d] cursor-pointer"
+              >
+                {validandoEntrante ? 'Validando...' : '🔑 Iniciar Nuevo Turno'}
+              </button>
+            </div>
+
           </div>
         </div>
       )}

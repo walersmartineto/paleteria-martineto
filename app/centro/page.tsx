@@ -485,7 +485,7 @@ export default function CentroPage() {
           }, { onConflict: 'sede_id,nombre' });
       }
 
-      // 2. Procesar Empaques Especificos (Caja Mostac, Muñeco Gold, etc.)
+      // 2. Procesar Empaques Específicos (Caja Mostac, Muñeco Gold, etc.)
       const detalleEmpaquesObj: { [itemNombre: string]: number } = {};
 
       for (const nombreEmpaque of listaNombresEmpaques) {
@@ -554,6 +554,39 @@ export default function CentroPage() {
               vendidas: gastadasCalculadas,
               fecha_actualizacion: new Date().toISOString(),
             }, { onConflict: 'sede_id,nombre' });
+        }
+      }
+
+      // --- REGISTRO AUTOMÁTICO EN HISTORICO_VENTAS USANDO LA COLUMNA VENDIDAS ---
+      if (tipoMovimiento === 'cierre') {
+        const { data: inventarioSede, error: errorInvSede } = await supabase
+          .from('inventario_empaques_sedes')
+          .select('nombre, vendidas')
+          .eq('sede_id', sedeId);
+
+        if (!errorInvSede && inventarioSede) {
+          const jsonVentasVendidas: { [nombreProd: string]: number } = {};
+
+          inventarioSede.forEach((item) => {
+            const cantVendida = Number(item.vendidas) || 0;
+            if (cantVendida > 0) {
+              jsonVentasVendidas[item.nombre] = cantVendida;
+            }
+          });
+
+          if (Object.keys(jsonVentasVendidas).length > 0) {
+            const { error: errorHistorico } = await supabase.from('historico_ventas').insert([
+              {
+                sede_id: sedeId,
+                fecha: new Date().toISOString(),
+                productos: jsonVentasVendidas,
+              },
+            ]);
+
+            if (errorHistorico) {
+              console.error('Error al guardar en historico_ventas:', errorHistorico.message);
+            }
+          }
         }
       }
 
@@ -687,6 +720,7 @@ export default function CentroPage() {
     }
   }
 
+  // NÓMINA Y CAMBIO DE TURNO / CIERRE SIN TOCAR LA CAJA
   async function handleGuardarNominaTurno() {
     if (totalNomina <= 0) {
       alert('Ingresa las horas trabajadas.');
@@ -899,10 +933,10 @@ export default function CentroPage() {
 
         <div className="bg-[#0b2b48] border border-amber-400/50 p-4 rounded-2xl space-y-1 shadow-md flex flex-col justify-center">
           <span className="text-xs font-black text-amber-300 block uppercase">
-            ☀️ Efectivo Recibido del Turno Mañana:
+            ☀️ Efectivo Recibido del Turno Anterior:
           </span>
           <div className="bg-[#051829] border border-amber-500/40 p-2.5 rounded-xl flex justify-between items-center">
-            <span className="text-xs text-sky-200 font-bold">Efectivo disponible en caja para la tarde:</span>
+            <span className="text-xs text-sky-200 font-bold">Efectivo disponible en caja:</span>
             <span className="text-sm font-black text-amber-300 bg-[#0e385e] px-3 py-1 rounded-lg border border-amber-500/40">
               {efectivoTurnoManana !== null ? `$ ${efectivoTurnoManana.toLocaleString('es-CO')}` : 'Sin cambio de turno previo'}
             </span>

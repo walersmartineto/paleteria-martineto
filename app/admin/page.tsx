@@ -4,7 +4,6 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { useSede } from '@/context/SedeContext';
 
-// Helper para obtener la fecha YYYY-MM-DD en hora local sin desfase UTC
 const obtenerFechaLocalStr = (fechaRaw: any): string => {
   if (!fechaRaw) return '';
   const d = new Date(fechaRaw);
@@ -20,25 +19,16 @@ export default function AdminPage() {
   const router = useRouter();
   const { sedeData } = useSede();
 
-  // Fechas de referencia global (Rango)
   const fechaHoy = new Date().toISOString().split('T')[0];
   const [fechaInicio, setFechaInicio] = useState<string>(fechaHoy);
   const [fechaFin, setFechaFin] = useState<string>(fechaHoy);
   const [sedeSeleccionada, setSedeSeleccionada] = useState<string>('todos');
 
-  // Control de Módulos Principales
   const [moduloAbierto, setModuloAbierto] = useState<string | null>(null);
-
-  // Sub-control interno de Logística
   const [subPestanaLogistica, setSubPestanaLogistica] = useState<'compras' | 'despachos'>('compras');
-
-  // Sub-control interno de Cierres
   const [subPestanaCierres, setSubPestanaCierres] = useState<'caja' | 'descuadres'>('caja');
 
-  // Estados del Módulo 4 (Nómina)
   const [resumenNominaOperarios, setResumenNominaOperarios] = useState<any[]>([]);
-
-  // Estados de Datos Generales
   const [sedesBD, setSedesBD] = useState<any[]>([]);
   const [mapaSedes, setMapaSedes] = useState<{ [id: number]: string }>({});
   const [usuariosBD, setUsuariosBD] = useState<{ [id: number]: string }>({});
@@ -48,13 +38,13 @@ export default function AdminPage() {
   const [registrosNomina, setRegistrosNomina] = useState<any[]>([]);
   const [inventarioMovimientos, setInventarioMovimientos] = useState<any[]>([]);
   const [inventarioMovsDia, setInventarioMovsDia] = useState<any[]>([]);
+  const [inventarioEmpaquesSedesBD, setInventarioEmpaquesSedesBD] = useState<any[]>([]);
+  const [historicoVentasBD, setHistoricoVentasBD] = useState<any[]>([]);
   const [cargando, setCargando] = useState<boolean>(true);
   const [editandoProveedor, setEditandoProveedor] = useState<{ [nombre: string]: string }>({});
 
-  // CHECKLIST VISUAL EN MEMORIA
   const [itemsChequeados, setItemsChequeados] = useState<{ [key: string]: boolean }>({});
 
-  // Acordeones internos
   const [acordeonesCompras, setAcordeonesCompras] = useState<{ [key: string]: boolean }>({});
   const [acordeonesDespachos, setAcordeonesDespachos] = useState<{ [key: string]: boolean }>({});
   const [acordeonesCierres, setAcordeonesCierres] = useState<{ [key: string]: boolean }>({ global: true });
@@ -62,6 +52,7 @@ export default function AdminPage() {
   const [acordeonesInventario, setAcordeonesInventario] = useState<{ [key: string]: boolean }>({});
   const [acordeonesResumenSedes, setAcordeonesResumenSedes] = useState<{ [key: string]: boolean }>({ global: true });
   const [acordeonesConsolidadoCompras, setAcordeonesConsolidadoCompras] = useState<{ [key: string]: boolean }>({ global: true });
+  const [acordeonesVentasAbanico, setAcordeonesVentasAbanico] = useState<{ [key: string]: boolean }>({});
 
   useEffect(() => {
     cargarDatosAdmin();
@@ -70,18 +61,21 @@ export default function AdminPage() {
   async function cargarDatosAdmin() {
     setCargando(true);
     try {
-      // 0. Cargar Sedes desde BD
       const { data: sedesData } = await supabase.from('sede').select('id, nombre');
       if (sedesData) {
-        setSedesBD(sedesData);
+        const sedesReales = sedesData.filter((s) => {
+          const n = String(s.nombre || '').toLowerCase();
+          return n.includes('viva') || n.includes('centro') || n.includes('martineto') || n.includes('ositos');
+        });
+
+        setSedesBD(sedesReales);
         const mapa: { [id: number]: string } = {};
-        sedesData.forEach((s) => {
+        sedesReales.forEach((s) => {
           mapa[s.id] = s.nombre;
         });
         setMapaSedes(mapa);
       }
 
-      // 0.1 Cargar Usuarios usando 'nombre_completo'
       const { data: usuariosData } = await supabase.from('usuario').select('id, nombre_completo');
       const mapaU: { [id: number]: string } = {};
       if (usuariosData) {
@@ -91,7 +85,6 @@ export default function AdminPage() {
         setUsuariosBD(mapaU);
       }
 
-      // 1. Pedidos (Módulo 1)
       const { data: pedidosDataRaw } = await supabase.from('pedidos_insumos').select('*');
       const pedidosData = (pedidosDataRaw || []).filter(row => {
         if (!row.fecha) return false;
@@ -99,10 +92,8 @@ export default function AdminPage() {
         return fRow >= fechaInicio && fRow <= fechaFin;
       });
 
-      // 2. Productos
       const { data: prodData } = await supabase.from('producto').select('id, nombre, donde_comprar');
 
-      // 3. Cierres de caja (Tabla 'caja' por rango de fecha local)
       const { data: cajaDataRaw } = await supabase.from('caja').select('*');
       const cajaData = (cajaDataRaw || []).filter(row => {
         if (!row.fecha) return false;
@@ -110,7 +101,6 @@ export default function AdminPage() {
         return fRow >= fechaInicio && fRow <= fechaFin;
       });
 
-      // 4. Pagos de Nómina (Tabla 'nomina' usando fecha_pago por rango)
       const { data: nominaDataRaw } = await supabase.from('nomina').select('*');
       const nominaData = (nominaDataRaw || []).filter(row => {
         const fRow = row.fecha_pago 
@@ -119,7 +109,13 @@ export default function AdminPage() {
         return fRow >= fechaInicio && fRow <= fechaFin;
       });
 
-      // Acumulado de nómina para los operarios basado en el rango
+      const { data: historicoVentasRaw } = await supabase.from('historico_ventas').select('*');
+      const historicoVentasFiltrado = (historicoVentasRaw || []).filter(row => {
+        if (!row.fecha) return false;
+        const fRow = obtenerFechaLocalStr(row.fecha);
+        return fRow >= fechaInicio && fRow <= fechaFin;
+      });
+
       const acumulado: { [usuarioId: number]: { 
         nombre: string; 
         horasDia: number; 
@@ -153,7 +149,6 @@ export default function AdminPage() {
 
       setResumenNominaOperarios(Object.values(acumulado));
 
-      // 5. Cargar Diferencias de Inventario por rango (Hora Local)
       const { data: diffDataRaw } = await supabase.from('diferencia_inventario').select('*');
       const diffDataFiltrado = (diffDataRaw || []).filter(row => {
         if (!row.fecha_registro) return false;
@@ -161,7 +156,6 @@ export default function AdminPage() {
         return fRow >= fechaInicio && fRow <= fechaFin;
       });
 
-      // 6. Cargar Inventario Diario completo por rango (Hora Local)
       const { data: invDiarioRaw } = await supabase.from('inventario_diario').select('*');
       const invMovsFiltrado = (invDiarioRaw || []).filter(row => {
         if (!row.fecha_registro) return false;
@@ -169,12 +163,16 @@ export default function AdminPage() {
         return fRow >= fechaInicio && fRow <= fechaFin;
       });
 
+      const { data: empaquesSedesData } = await supabase.from('inventario_empaques_sedes').select('*');
+
       setPedidos(pedidosData);
       setProductosBD(prodData || []);
       setRegistrosCaja(cajaData);
       setRegistrosNomina(nominaData);
       setInventarioMovimientos(diffDataFiltrado);
       setInventarioMovsDia(invMovsFiltrado);
+      setInventarioEmpaquesSedesBD(empaquesSedesData || []);
+      setHistoricoVentasBD(historicoVentasFiltrado);
       setItemsChequeados({});
     } catch (err) {
       console.error('Error cargando datos:', err);
@@ -186,7 +184,6 @@ export default function AdminPage() {
   const getNombreSede = (id: number) => mapaSedes[id] || `Sede ${id}`;
   const getNombreUsuario = (id: number) => usuariosBD[id] || `Empleado #${id}`;
 
-  // --- LOGÍSTICA ---
   const pedidosPendientesCompra = pedidos.filter(p => p.estado === 'pendiente');
   const pedidosListosParaEntrega = pedidos.filter(p => p.estado === 'comprado');
 
@@ -194,6 +191,7 @@ export default function AdminPage() {
     const mapaProveedores: { [prov: string]: { items: any; idsPedidosSet: Set<number> } } = {};
     pedidosPendientesCompra.forEach(p => {
       if (sedeSeleccionada !== 'todos' && String(p.sede_id) !== sedeSeleccionada) return;
+      if (!mapaSedes[p.sede_id]) return;
 
       const jsonItems = { 
         ...(p.pedidos_paletas || {}), 
@@ -228,6 +226,7 @@ export default function AdminPage() {
   const resumenComprasPorSede = (() => {
     const mapa: { [nombreSede: string]: { [prod: string]: number } } = {};
     pedidosPendientesCompra.forEach(p => {
+      if (!mapaSedes[p.sede_id]) return;
       const nombreSede = getNombreSede(p.sede_id);
       if (sedeSeleccionada !== 'todos' && String(p.sede_id) !== sedeSeleccionada) return;
 
@@ -251,12 +250,13 @@ export default function AdminPage() {
   })();
 
   const despachosPorSede = (() => {
-    const mapaSedes: { [sede: string]: { productos: any; idsPedidos: number[] } } = {};
+    const mapaSedesObj: { [sede: string]: { productos: any; idsPedidos: number[] } } = {};
     pedidosListosParaEntrega.forEach(p => {
+      if (!mapaSedes[p.sede_id]) return;
       const nombreSede = getNombreSede(p.sede_id);
       if (sedeSeleccionada !== 'todos' && String(p.sede_id) !== sedeSeleccionada) return;
-      if (!mapaSedes[nombreSede]) mapaSedes[nombreSede] = { productos: {}, idsPedidos: [] };
-      if (!mapaSedes[nombreSede].idsPedidos.includes(p.id)) mapaSedes[nombreSede].idsPedidos.push(p.id);
+      if (!mapaSedesObj[nombreSede]) mapaSedesObj[nombreSede] = { productos: {}, idsPedidos: [] };
+      if (!mapaSedesObj[nombreSede].idsPedidos.includes(p.id)) mapaSedesObj[nombreSede].idsPedidos.push(p.id);
 
       const jsonItems = { 
         ...(p.pedidos_paletas || {}), 
@@ -268,18 +268,18 @@ export default function AdminPage() {
 
       Object.entries(jsonItems).forEach(([k, v]) => {
         const cant = Number(v) || 0;
-        if (cant > 0) mapaSedes[nombreSede].productos[k] = (mapaSedes[nombreSede].productos[k] || 0) + cant;
+        if (cant > 0) mapaSedesObj[nombreSede].productos[k] = (mapaSedesObj[nombreSede].productos[k] || 0) + cant;
       });
     });
-    return mapaSedes;
+    return mapaSedesObj;
   })();
 
   const tieneProductosPorComprar = Object.keys(consolidadoCompras).length > 0;
   const tieneProductosPorEntregar = Object.keys(despachosPorSede).length > 0;
 
-  // --- AGRUPACIÓN PUNTO 2: CIERRES DE CAJA Y NÓMINAS ---
   const CierreGlobal = (() => {
     const totalCaja = registrosCaja.reduce((acc, row) => {
+      if (!mapaSedes[row.sede_id]) return acc;
       const efec = Number(row.efectivo_cierre) || 0;
       const neq = Number(row.nequi) || 0;
       const dav = Number(row.daviplata) || 0;
@@ -293,7 +293,10 @@ export default function AdminPage() {
       };
     }, { efectivo: 0, nequi: 0, daviplata: 0, gastos: 0, totalVenta: 0 });
 
-    const totalNominaBD = registrosNomina.reduce((acc, n) => acc + (Number(n.monto) || 0), 0);
+    const totalNominaBD = registrosNomina.reduce((acc, n) => {
+      if (!mapaSedes[n.sede_id]) return acc;
+      return acc + (Number(n.monto) || 0);
+    }, 0);
 
     return {
       ...totalCaja,
@@ -305,12 +308,12 @@ export default function AdminPage() {
   const cierresPorSede = (() => {
     const mapa: { [sede: string]: any } = {};
     
-    // Ordenar registros por ID ascendente para evaluar el último estado correctamente
     const registrosOrdenados = [...registrosCaja].sort((a, b) => {
       return (a.id || 0) - (b.id || 0);
     });
 
     registrosOrdenados.forEach(row => {
+      if (!mapaSedes[row.sede_id]) return;
       const nombreSede = getNombreSede(row.sede_id);
       if (sedeSeleccionada !== 'todos' && String(row.sede_id) !== sedeSeleccionada) return;
 
@@ -345,8 +348,8 @@ export default function AdminPage() {
       }
     });
 
-    // Agrupar 'nomina' por sede
     registrosNomina.forEach(n => {
+      if (!mapaSedes[n.sede_id]) return;
       const nombreSede = getNombreSede(n.sede_id);
       if (sedeSeleccionada !== 'todos' && String(n.sede_id) !== sedeSeleccionada) return;
       const montoPago = Number(n.monto) || 0;
@@ -373,7 +376,6 @@ export default function AdminPage() {
     return mapa;
   })();
 
-  // --- CONSULTA DE DESCUADRES DESDE LA TABLA 'diferencia_inventario' ---
   const auditoriaDescuadres = (() => {
     const mapaSedDescuadres: { 
       [sedeName: string]: { 
@@ -420,7 +422,6 @@ export default function AdminPage() {
     return mapaSedDescuadres;
   })();
 
-  // --- CONSULTA DE INVENTARIO Y STOCK GENERAL ---
   const inventarioStockGeneralPorSede = (() => {
     const mapa: { 
       [sedeName: string]: { 
@@ -435,56 +436,112 @@ export default function AdminPage() {
       const nombreSede = getNombreSede(idSede);
       if (sedeSeleccionada !== 'todos' && String(idSede) !== sedeSeleccionada) return;
 
-      const registrosSede = inventarioMovsDia.filter(m => Number(m.sede_id) === idSede);
+      const movimientosSede = inventarioMovsDia
+        .filter(m => Number(m.sede_id) === idSede)
+        .sort((a, b) => new Date(b.fecha_registro).getTime() - new Date(a.fecha_registro).getTime());
 
-      let totalPaletas = 0;
-      const detallePaletas: { [k: string]: number } = {};
+      const ultimoRegistroPaletas = movimientosSede.find(m => m.total_paletas !== undefined && m.total_paletas !== null);
+      const totalPaletasBD = ultimoRegistroPaletas ? Number(ultimoRegistroPaletas.total_paletas || 0) : 0;
+
+      const registrosSedeEmpaques = inventarioEmpaquesSedesBD.filter(item => Number(item.sede_id) === idSede);
       const detalleEmpaques: { [k: string]: number } = {};
 
-      registrosSede.forEach(reg => {
-        const tipo = String(reg.tipo_movimiento || '').toLowerCase().trim();
-        
-        let factor = 0;
-        if (tipo === 'apertura') factor = 1;
-        else if (tipo === 'nuevas') factor = 1;
-        else if (tipo === 'de_baja' || tipo === 'baja') factor = -1;
-        else if (tipo === 'compradas' || tipo === 'compra') factor = 1;
+      if (registrosSedeEmpaques.length > 0) {
+        registrosSedeEmpaques.forEach(item => {
+          const nombreItem = String(item.nombre || '').trim();
+          const stockVal = Number(item.stock || 0);
 
-        if (factor !== 0) {
-          totalPaletas += Number(reg.total_paletas || 0) * factor;
+          if (nombreItem.toLowerCase() !== 'total paletas') {
+            detalleEmpaques[nombreItem] = stockVal;
+          }
+        });
+      } else {
+        movimientosSede.forEach(reg => {
+          const tipo = String(reg.tipo_movimiento || '').toLowerCase().trim();
+          let factor = 0;
+          if (tipo === 'apertura' || tipo === 'nuevas' || tipo === 'compradas' || tipo === 'compra') factor = 1;
+          else if (tipo === 'de_baja' || tipo === 'baja') factor = -1;
 
-          const dPaletas = reg.detalle_paletas || {};
-          Object.entries(dPaletas).forEach(([k, v]) => {
-            detallePaletas[k] = (detallePaletas[k] || 0) + (Number(v) || 0) * factor;
-          });
+          if (factor !== 0) {
+            const dEmpaques = reg.detalle_empaques || {};
+            Object.entries(dEmpaques).forEach(([k, v]) => {
+              detalleEmpaques[k] = (detalleEmpaques[k] || 0) + (Number(v) || 0) * factor;
+            });
+          }
+        });
+      }
 
-          const dEmpaques = reg.detalle_empaques || {};
-          Object.entries(dEmpaques).forEach(([k, v]) => {
-            detalleEmpaques[k] = (detalleEmpaques[k] || 0) + (Number(v) || 0) * factor;
-          });
-        }
-      });
-
-      Object.keys(detallePaletas).forEach(k => {
-        if (detallePaletas[k] === 0) delete detallePaletas[k];
-      });
       Object.keys(detalleEmpaques).forEach(k => {
         if (detalleEmpaques[k] === 0) delete detalleEmpaques[k];
       });
 
-      if (registrosSede.length > 0) {
-        mapa[nombreSede] = {
-          totalPaletas,
-          detallePaletas,
-          detalleEmpaques
-        };
-      }
+      mapa[nombreSede] = {
+        totalPaletas: totalPaletasBD,
+        detallePaletas: {},
+        detalleEmpaques
+      };
     });
 
     return mapa;
   })();
 
-  // --- ACCIONES ---
+  const ventasAbanicoPorSede = (() => {
+    const mapa: { [nombreSede: string]: { [producto: string]: number } } = {};
+
+    historicoVentasBD.forEach(row => {
+      const idSede = row.sede_id;
+      if (!mapaSedes[idSede]) return;
+      const nombreSede = getNombreSede(idSede);
+      if (sedeSeleccionada !== 'todos' && String(idSede) !== sedeSeleccionada) return;
+
+      const productosJson = row.productos || {};
+      if (!mapa[nombreSede]) mapa[nombreSede] = {};
+
+      Object.entries(productosJson).forEach(([prod, cant]) => {
+        const cantidadNum = Number(cant) || 0;
+        if (cantidadNum > 0) {
+          mapa[nombreSede][prod] = (mapa[nombreSede][prod] || 0) + cantidadNum;
+        }
+      });
+    });
+
+    return mapa;
+  })();
+
+  // CÁLCULOS LIMPIOS PARA INTELIGENCIA DE NEGOCIO (BI) FUERA DEL JSX
+  const datosBI = (() => {
+    const totalProductos: { [prod: string]: number } = {};
+    const ventasPorFecha: { [fecha: string]: number } = {};
+
+    historicoVentasBD.forEach(row => {
+      const fStr = obtenerFechaLocalStr(row.fecha);
+      const prods = row.productos || {};
+      
+      let totalFila = 0;
+      Object.entries(prods).forEach(([prod, cant]) => {
+        const c = Number(cant) || 0;
+        if (c > 0) {
+          totalProductos[prod] = (totalProductos[prod] || 0) + c;
+          totalFila += c;
+        }
+      });
+
+      if (fStr) {
+        ventasPorFecha[fStr] = (ventasPorFecha[fStr] || 0) + totalFila;
+      }
+    });
+
+    const productosArray = Object.entries(totalProductos).sort((a, b) => b[1] - a[1]);
+    const masVendido = productosArray.length > 0 ? productosArray[0] : ['N/A', 0];
+    const menosVendido = productosArray.length > 0 ? productosArray[productosArray.length - 1] : ['N/A', 0];
+
+    const fechasArray = Object.entries(ventasPorFecha).sort((a, b) => b[1] - a[1]);
+    const mejorDia = fechasArray.length > 0 ? fechasArray[0] : ['N/A', 0];
+    const maxUnidadesProd = (masVendido[1] as number) > 0 ? (masVendido[1] as number) : 1;
+
+    return { masVendido, menosVendido, mejorDia, productosArray, maxUnidadesProd };
+  })();
+
   async function guardarProveedorInteligente(nombreProducto: string, idProd?: number) {
     const nuevoProv = editandoProveedor[nombreProducto];
     if (!nuevoProv || !nuevoProv.trim()) { alert('⚠️ Escribe el lugar de compra.'); return; }
@@ -537,7 +594,6 @@ export default function AdminPage() {
   return (
     <main className="min-h-screen bg-[#004e8c] text-white p-3 font-sans max-w-md mx-auto space-y-4 pb-20">
       
-      {/* HEADER */}
       <header className="bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl flex justify-between items-center shadow-lg">
         <div>
           <h1 className="text-sm font-black text-white">🛡️ ADMIN CENTRAL</h1>
@@ -546,7 +602,6 @@ export default function AdminPage() {
         <button onClick={() => router.back()} className="bg-[#031d35] hover:bg-[#003d6d] px-3 py-1.5 rounded-xl text-xs font-bold border border-[#0066b3] cursor-pointer">Volver</button>
       </header>
 
-      {/* CALENDARIO GENERAL (RANGO DE FECHAS) */}
       <div className="bg-[#0b2b48] border border-[#0066b3] p-3 rounded-2xl shadow-md space-y-2">
         <label className="text-[10px] font-extrabold text-sky-300 uppercase block">📅 Rango de Fechas de Consulta:</label>
         <div className="grid grid-cols-2 gap-2">
@@ -578,7 +633,7 @@ export default function AdminPage() {
       {cargando ? <div className="text-center py-10 text-xs font-bold text-sky-200">Cargando datos...</div> : (
         <div className="space-y-3">
 
-          {/* MÓDULO 1: GESTIÓN LOGÍSTICA */}
+          {/* MÓDULO 1 */}
           <div className="border border-[#0066b3] bg-[#0b2b48] rounded-2xl overflow-hidden shadow-lg">
             <button 
               onClick={() => toggleModulo('logistica')}
@@ -803,7 +858,7 @@ export default function AdminPage() {
             )}
           </div>
 
-          {/* MÓDULO 2: AUDITORÍA Y CIERRES DE CAJA / DESCUADRES */}
+          {/* MÓDULO 2 */}
           <div className="border border-[#0066b3] bg-[#0b2b48] rounded-2xl overflow-hidden shadow-lg">
             <button 
               onClick={() => toggleModulo('cierres')}
@@ -825,7 +880,6 @@ export default function AdminPage() {
                   <button onClick={() => setSubPestanaCierres('descuadres')} className={`py-2 rounded-xl font-extrabold text-[11px] uppercase border ${subPestanaCierres === 'descuadres' ? 'bg-emerald-700 border-emerald-400 text-white' : 'bg-[#0b2b48] border-[#0066b3] text-sky-300'}`}>🔍 Descuadres</button>
                 </div>
 
-                {/* VISTA 1: CIERRES DE CAJA CON NÓMINAS INCLUIDAS */}
                 {subPestanaCierres === 'caja' && (
                   <div className="space-y-3">
                     {sedeSeleccionada === 'todos' ? (
@@ -943,7 +997,6 @@ export default function AdminPage() {
                   </div>
                 )}
 
-                {/* VISTA 2: DESCUADRES DESDE 'diferencia_inventario' */}
                 {subPestanaCierres === 'descuadres' && (
                   <div className="space-y-2">
                     <p className="text-[11px] text-sky-200 italic px-1">
@@ -1001,7 +1054,7 @@ export default function AdminPage() {
             )}
           </div>
 
-          {/* MÓDULO 3: INVENTARIOS Y STOCK GENERAL */}
+          {/* MÓDULO 3 */}
           <div className="border border-[#0066b3] bg-[#0b2b48] rounded-2xl overflow-hidden shadow-lg">
             <button 
               onClick={() => toggleModulo('inventarios')}
@@ -1037,24 +1090,16 @@ export default function AdminPage() {
                         {abierto && (
                           <div className="p-3 pt-0 bg-[#031d35] text-xs space-y-3 border-t border-[#0066b3]/30">
                             
-                            {/* DETALLE PALETAS */}
                             <div className="pt-2">
                               <span className="text-[10px] font-black text-amber-300 uppercase block border-b border-[#0066b3]/40 pb-1 mb-1">
                                 🧊 Stock Paletas
                               </span>
-                              {Object.keys(infoSede.detallePaletas).length === 0 ? (
-                                <p className="text-[10px] text-sky-400 italic py-1">Sin paletas registradas en stock.</p>
-                              ) : (
-                                Object.entries(infoSede.detallePaletas).map(([prod, cant], idx) => (
-                                  <div key={idx} className="flex justify-between text-[11px] text-white border-b border-[#0066b3]/20 py-1">
-                                    <span>{prod}</span>
-                                    <span className={`font-bold ${Number(cant) < 0 ? 'text-rose-400' : 'text-emerald-300'}`}>x{cant}</span>
-                                  </div>
-                                ))
-                              )}
+                              <div className="flex justify-between text-[11px] text-white border-b border-[#0066b3]/20 py-1">
+                                <span>Total Paletas</span>
+                                <span className="font-bold text-emerald-300">x{infoSede.totalPaletas}</span>
+                              </div>
                             </div>
 
-                            {/* DETALLE EMPAQUES */}
                             <div>
                               <span className="text-[10px] font-black text-amber-300 uppercase block border-b border-[#0066b3]/40 pb-1 mb-1">
                                 📦 Stock Empaques
@@ -1082,7 +1127,7 @@ export default function AdminPage() {
             )}
           </div>
 
-          {/* MÓDULO 4: NÓMINA Y REGISTRO DE TURNOS */}
+          {/* MÓDULO 4 */}
           <div className="border border-[#0066b3] bg-[#0b2b48] rounded-2xl overflow-hidden shadow-lg">
             <button 
               onClick={() => toggleModulo('modulo_nomina')}
@@ -1133,6 +1178,146 @@ export default function AdminPage() {
                   )}
                 </div>
 
+              </div>
+            )}
+          </div>
+
+          {/* MÓDULO 5: VENTAS */}
+          <div className="border border-[#0066b3] bg-[#0b2b48] rounded-2xl overflow-hidden shadow-lg">
+            <button 
+              onClick={() => toggleModulo('ventas_abanico')}
+              className="w-full p-4 flex justify-between items-center text-xs font-black uppercase text-cyan-300 bg-[#0b2b48] cursor-pointer"
+            >
+              <span className="flex items-center gap-2">
+                <span>{moduloAbierto === 'ventas_abanico' ? '▼' : '▶'}</span> 📊 5. VENTAS
+              </span>
+              <span className="bg-[#031d35] text-cyan-300 font-bold text-[10px] px-2 py-0.5 rounded border border-[#0066b3]">
+                {Object.keys(ventasAbanicoPorSede).length} Sedes
+              </span>
+            </button>
+
+            {moduloAbierto === 'ventas_abanico' && (
+              <div className="p-3 space-y-3 border-t border-[#0066b3]/30 bg-[#031d35]/60">
+                {Object.keys(ventasAbanicoPorSede).length === 0 ? (
+                  <p className="text-center text-xs text-sky-300 py-6 font-semibold">No hay registros en el histórico de ventas para este rango.</p>
+                ) : (
+                  Object.entries(ventasAbanicoPorSede).map(([nombreSede, productosObj]) => {
+                    const abierto = !!acordeonesVentasAbanico[nombreSede];
+                    const totalUnidadesSede = Object.values(productosObj).reduce((acc: number, val: any) => acc + (Number(val) || 0), 0);
+
+                    return (
+                      <div key={nombreSede} className="border border-[#0066b3] bg-[#0b2b48] rounded-xl overflow-hidden shadow-sm">
+                        <button 
+                          onClick={() => setAcordeonesVentasAbanico(prev => ({ ...prev, [nombreSede]: !abierto }))} 
+                          className="w-full p-3 flex justify-between items-center text-xs font-bold text-white uppercase cursor-pointer"
+                        >
+                          <span className="flex items-center gap-2">
+                            <span>{abierto ? '👁️‍🗨️' : '👁️'}</span> 📍 {nombreSede}
+                          </span>
+                          <span className="text-[10px] bg-cyan-950 text-cyan-300 px-2.5 py-0.5 rounded-full border border-cyan-500/50">
+                            Total Unidades: {totalUnidadesSede}
+                          </span>
+                        </button>
+
+                        {abierto && (
+                          <div className="p-3 pt-0 bg-[#031d35] text-xs space-y-1.5 border-t border-[#0066b3]/30">
+                            <div className="grid grid-cols-2 font-black text-[10px] text-cyan-300 border-b border-[#0066b3]/40 pb-1 mt-2">
+                              <span>PRODUCTO / SABOR</span>
+                              <span className="text-right">CANTIDAD VENDIDA</span>
+                            </div>
+                            <div className="space-y-1 pt-1 max-h-48 overflow-y-auto pr-1">
+                              {Object.entries(productosObj).map(([prod, cant]: [string, any], idx) => (
+                                <div key={idx} className="grid grid-cols-2 items-center text-[11px] border-b border-[#0066b3]/20 py-1 text-white">
+                                  <span className="truncate pr-1">{prod}</span>
+                                  <span className="text-right font-bold text-emerald-300">x{cant}</span>
+                                </div>
+                              ))}
+                            </div>
+                            <div className="flex justify-between pt-2 border-t border-[#0066b3]/40 font-black text-xs text-white">
+                              <span>Total General Sede:</span>
+                              <span className="text-cyan-300">{totalUnidadesSede} unidades</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* MÓDULO 6: INTELIGENCIA DE NEGOCIO (BI) */}
+          <div className="border border-[#0066b3] bg-[#0b2b48] rounded-2xl overflow-hidden shadow-lg">
+            <button 
+              onClick={() => toggleModulo('bi')}
+              className="w-full p-4 flex justify-between items-center text-xs font-black uppercase text-amber-300 bg-[#0b2b48] cursor-pointer"
+            >
+              <span className="flex items-center gap-2">
+                <span>{moduloAbierto === 'bi' ? '▼' : '▶'}</span> 🧠 6. INTELIGENCIA DE NEGOCIO (BI)
+              </span>
+              <span className="bg-[#031d35] text-amber-300 font-bold text-[10px] px-2 py-0.5 rounded border border-[#0066b3]">
+                Analítica Avanzada
+              </span>
+            </button>
+
+            {moduloAbierto === 'bi' && (
+              <div className="p-3 space-y-3 border-t border-[#0066b3]/30 bg-[#031d35]/60">
+                {historicoVentasBD.length === 0 ? (
+                  <p className="text-center text-xs text-sky-300 py-6 font-semibold">No hay suficientes datos de ventas en este rango para analizar.</p>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="bg-[#0b2b48] border border-emerald-500/50 p-2.5 rounded-xl space-y-1">
+                        <span className="text-[9px] text-emerald-300 font-black uppercase block">🔥 Más Vendido</span>
+                        <p className="text-xs font-black text-white truncate">{String(datosBI.masVendido[0])}</p>
+                        <span className="text-[10px] bg-emerald-950 text-emerald-300 px-1.5 py-0.5 rounded font-bold">x{String(datosBI.masVendido[1])} unids</span>
+                      </div>
+
+                      <div className="bg-[#0b2b48] border border-rose-500/50 p-2.5 rounded-xl space-y-1">
+                        <span className="text-[9px] text-rose-300 font-black uppercase block">❄️ Menos Vendido</span>
+                        <p className="text-xs font-black text-white truncate">{String(datosBI.menosVendido[0])}</p>
+                        <span className="text-[10px] bg-rose-950 text-rose-300 px-1.5 py-0.5 rounded font-bold">x{String(datosBI.menosVendido[1])} unids</span>
+                      </div>
+                    </div>
+
+                    <div className="bg-[#0b2b48] border border-amber-500/50 p-3 rounded-xl flex justify-between items-center">
+                      <div>
+                        <span className="text-[9px] text-amber-300 font-black uppercase block">⭐ El Mejor Día de Ventas</span>
+                        <p className="text-xs font-black text-white">{String(datosBI.mejorDia[0])}</p>
+                      </div>
+                      <span className="text-xs bg-amber-950 text-amber-300 px-2.5 py-1 rounded-lg font-black border border-amber-500/40">
+                        {String(datosBI.mejorDia[1])} Unidades
+                      </span>
+                    </div>
+
+                    <div className="bg-[#0b2b48] border border-[#0066b3] p-3 rounded-xl space-y-2">
+                      <span className="text-[10px] font-black text-sky-300 uppercase block border-b border-[#0066b3]/40 pb-1">
+                        📊 Gráfico de Rendimiento por Producto
+                      </span>
+                      
+                      <div className="space-y-2 pt-1 max-h-52 overflow-y-auto pr-1">
+                        {datosBI.productosArray.map(([prod, cant], idx) => {
+                          const porcentaje = Math.round((Number(cant) / datosBI.maxUnidadesProd) * 100);
+                          return (
+                            <div key={idx} className="space-y-1">
+                              <div className="flex justify-between text-[11px] text-white">
+                                <span className="truncate pr-2 font-semibold">{prod}</span>
+                                <span className="font-bold text-cyan-300">x{String(cant)}</span>
+                              </div>
+                              <div className="w-full bg-[#031d35] h-2 rounded-full overflow-hidden border border-[#0066b3]/30">
+                                <div 
+                                  className="bg-gradient-to-r from-cyan-500 to-emerald-400 h-full rounded-full transition-all duration-500" 
+                                  style={{ width: `${porcentaje}%` }}
+                                ></div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

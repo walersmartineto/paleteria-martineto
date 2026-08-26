@@ -30,7 +30,7 @@ export default function VivaPage() {
   const router = useRouter();
   const [sesion, setSesion] = useState<any>(null);
 
-  // ESTADO DE TARIFAS (SE CARGA DINÁMICAMENTE DESDE configuracion_tarifa)
+  // ESTADO DE TARIFAS
   const [tarifas, setTarifas] = useState<TarifasViva>({
     subsidio: 0,
     transporte: 0,
@@ -57,9 +57,10 @@ export default function VivaPage() {
   const [cajasMostrador, setCajasMostrador, limpiarCajasMostrador] = useAutoSave<number | ''>('viva_cajasMostrador', '');
   const [observaciones, setObservaciones, limpiarObsInv] = useAutoSave<string>('viva_observacionesInv', '');
 
-  // AUDITORÍA / HISTORIAL DE MOVIMIENTOS Y VENTAS EN VIVA
+  // AUDITORÍA / HISTORIAL DE MOVIMIENTOS Y VENTAS
   const [, setMovimientosDiaBD] = useState<any[]>([]);
   const [ventasDiaBD, setVentasDiaBD] = useState<any[]>([]);
+  const [registrosNominaDia, setRegistrosNominaDia] = useState<any[]>([]);
 
   // AUTO-SAVE: Requisición de Pedidos
   const [mostrarModuloPedidos, setMostrarModuloPedidos] = useState(false);
@@ -96,7 +97,6 @@ export default function VivaPage() {
   const [mostrarModalResumen, setMostrarModalResumen] = useState(false);
   const [efectivoContadoCierre, setEfectivoContadoCierre] = useState<number | ''>('');
   const [guardandoCierre, setGuardandoCierre] = useState(false);
-  const [nominaPagadaEnTurno, setNominaPagadaEnTurno] = useState(false);
 
   // MODAL CAMBIO DE TURNO
   const [mostrarModalCambioTurno, setMostrarModalCambioTurno] = useState(false);
@@ -188,7 +188,7 @@ export default function VivaPage() {
       const hoyInicio = new Date();
       hoyInicio.setHours(0, 0, 0, 0);
 
-      // 1. Cargar Caja de Hoy
+      // 1. Cargar Caja Abierta de Hoy (La caja NUNCA se cierra en el cambio de turno)
       const { data: cajaHoyBD } = await supabase
         .from('caja')
         .select('*')
@@ -221,7 +221,7 @@ export default function VivaPage() {
         setTipoMovimiento('nuevas');
       }
 
-      // 3. Cargar Movimientos del Día para Auditoría
+      // 3. Cargar Movimientos del Día
       const { data: movsBD } = await supabase
         .from('inventario_diario')
         .select('*')
@@ -250,7 +250,18 @@ export default function VivaPage() {
         setVentasDiaBD(vtsBD);
       }
 
-      // 5. Cargar Tarifas de Nómina
+      // 5. Cargar Nóminas Registradas Hoy (para el resumen de la noche)
+      const { data: nomBD } = await supabase
+        .from('nomina')
+        .select('*')
+        .eq('sede_id', SEDE_ID_VIVA)
+        .gte('fecha', hoyInicio.toISOString());
+
+      if (nomBD) {
+        setRegistrosNominaDia(nomBD);
+      }
+
+      // 6. Cargar Tarifas de Nómina
       const { data: configBD } = await supabase
         .from('configuracion_tarifa')
         .select('*')
@@ -458,7 +469,6 @@ export default function VivaPage() {
     }
   }
 
-  // ACTUALIZACIÓN Y GUARDADO DE INVENTARIO
   async function handleGuardarInventario() {
     if (!sesion) {
       alert('⚠️ No hay sesión activa.');
@@ -479,7 +489,6 @@ export default function VivaPage() {
       let diferenciaEmpaquesJson: { [key: string]: number } = {};
       let sumaTotalDiferencia = 0;
 
-      // 1. Procesar paletas contadas
       const itemsPaletas = Object.entries(cantidadesSabores);
       for (const [saborIdStr, cantidadFisicaRaw] of itemsPaletas) {
         const cantidadIngresada = Number(cantidadFisicaRaw) || 0;
@@ -506,11 +515,7 @@ export default function VivaPage() {
 
           await supabase
             .from('inventario_empaques_sedes')
-            .update({
-              stock: nuevoStock,
-              diferencia: difCalculada,
-              fecha_actualizacion: new Date().toISOString(),
-            })
+            .update({ stock: nuevoStock, diferencia: difCalculada, fecha_actualizacion: new Date().toISOString() })
             .eq('sede_id', sedeId)
             .eq('nombre', saborObj.nombre);
 
@@ -518,10 +523,7 @@ export default function VivaPage() {
           nuevoStock = stockViejo + cantidadIngresada;
           await supabase
             .from('inventario_empaques_sedes')
-            .update({
-              stock: nuevoStock,
-              fecha_actualizacion: new Date().toISOString(),
-            })
+            .update({ stock: nuevoStock, fecha_actualizacion: new Date().toISOString() })
             .eq('sede_id', sedeId)
             .eq('nombre', saborObj.nombre);
 
@@ -529,10 +531,7 @@ export default function VivaPage() {
           nuevoStock = Math.max(0, stockViejo - cantidadIngresada);
           await supabase
             .from('inventario_empaques_sedes')
-            .update({
-              stock: nuevoStock,
-              fecha_actualizacion: new Date().toISOString(),
-            })
+            .update({ stock: nuevoStock, fecha_actualizacion: new Date().toISOString() })
             .eq('sede_id', sedeId)
             .eq('nombre', saborObj.nombre);
 
@@ -541,17 +540,12 @@ export default function VivaPage() {
           const vendidasCalculadas = Math.max(0, stockViejo - cantidadIngresada);
           await supabase
             .from('inventario_empaques_sedes')
-            .update({
-              stock: nuevoStock,
-              vendidas: vendidasCalculadas,
-              fecha_actualizacion: new Date().toISOString(),
-            })
+            .update({ stock: nuevoStock, vendidas: vendidasCalculadas, fecha_actualizacion: new Date().toISOString() })
             .eq('sede_id', sedeId)
             .eq('nombre', saborObj.nombre);
         }
       }
 
-      // 2. Procesar Caja Mostac
       if (cajasMostrador !== '') {
         const cantMostac = Number(cajasMostrador) || 0;
         const { data: regAnterior } = await supabase
@@ -572,11 +566,7 @@ export default function VivaPage() {
 
           await supabase
             .from('inventario_empaques_sedes')
-            .update({
-              stock: nuevoStockMostac,
-              diferencia: difCalculada,
-              fecha_actualizacion: new Date().toISOString(),
-            })
+            .update({ stock: nuevoStockMostac, diferencia: difCalculada, fecha_actualizacion: new Date().toISOString() })
             .eq('sede_id', sedeId)
             .eq('nombre', 'Caja Mostac');
 
@@ -584,10 +574,7 @@ export default function VivaPage() {
           nuevoStockMostac = stockViejo + cantMostac;
           await supabase
             .from('inventario_empaques_sedes')
-            .update({
-              stock: nuevoStockMostac,
-              fecha_actualizacion: new Date().toISOString(),
-            })
+            .update({ stock: nuevoStockMostac, fecha_actualizacion: new Date().toISOString() })
             .eq('sede_id', sedeId)
             .eq('nombre', 'Caja Mostac');
 
@@ -595,10 +582,7 @@ export default function VivaPage() {
           nuevoStockMostac = Math.max(0, stockViejo - cantMostac);
           await supabase
             .from('inventario_empaques_sedes')
-            .update({
-              stock: nuevoStockMostac,
-              fecha_actualizacion: new Date().toISOString(),
-            })
+            .update({ stock: nuevoStockMostac, fecha_actualizacion: new Date().toISOString() })
             .eq('sede_id', sedeId)
             .eq('nombre', 'Caja Mostac');
 
@@ -608,19 +592,69 @@ export default function VivaPage() {
 
           await supabase
             .from('inventario_empaques_sedes')
-            .update({
-              stock: nuevoStockMostac,
-              vendidas: vendidasCalculadas,
-              fecha_actualizacion: new Date().toISOString(),
-            })
+            .update({ stock: nuevoStockMostac, vendidas: vendidasCalculadas, fecha_actualizacion: new Date().toISOString() })
             .eq('sede_id', sedeId)
             .eq('nombre', 'Caja Mostac');
         }
       }
 
-      // 3. Registro en diferencia_inventario solo si es Apertura
+      // --- REGISTRO AUTOMÁTICO EN HISTORICO_VENTAS DESPUÉS DEL CIERRE ---
+      if (tipoMovimiento === 'cierre') {
+        const jsonVentasCierre: { [nombreProd: string]: number } = {};
+
+        for (const [saborIdStr, cantidadFisicaRaw] of itemsPaletas) {
+          const cantidadIngresada = Number(cantidadFisicaRaw) || 0;
+          const saborObj = saboresViva.find((s) => s.id === Number(saborIdStr));
+          if (!saborObj) continue;
+
+          const { data: regAnterior } = await supabase
+            .from('inventario_empaques_sedes')
+            .select('stock')
+            .eq('sede_id', sedeId)
+            .eq('nombre', saborObj.nombre)
+            .maybeSingle();
+
+          const stockPrevio = regAnterior ? Number(regAnterior.stock) : 0;
+          const diferenciaVenta = Math.max(0, stockPrevio - cantidadIngresada);
+
+          if (diferenciaVenta > 0) {
+            jsonVentasCierre[saborObj.nombre] = diferenciaVenta;
+          }
+        }
+
+        if (cajasMostrador !== '') {
+          const cantMostac = Number(cajasMostrador) || 0;
+          const { data: regAnteriorMostac } = await supabase
+            .from('inventario_empaques_sedes')
+            .select('stock')
+            .eq('sede_id', sedeId)
+            .eq('nombre', 'Caja Mostac')
+            .maybeSingle();
+
+          const stockPrevioMostac = regAnteriorMostac ? Number(regAnteriorMostac.stock) : 0;
+          const difMostac = Math.max(0, stockPrevioMostac - cantMostac);
+          if (difMostac > 0) {
+            jsonVentasCierre['Caja Mostac'] = difMostac;
+          }
+        }
+
+        if (Object.keys(jsonVentasCierre).length > 0) {
+          const { error: errorHistorico } = await supabase.from('historico_ventas').insert([
+            {
+              sede_id: sedeId,
+              fecha: new Date().toISOString(),
+              productos: jsonVentasCierre,
+            },
+          ]);
+
+          if (errorHistorico) {
+            console.error('Error al guardar en historico_ventas:', errorHistorico.message);
+          }
+        }
+      }
+
       if (tipoMovimiento === 'apertura') {
-        const { error: errorDif } = await supabase.from('diferencia_inventario').insert([
+        await supabase.from('diferencia_inventario').insert([
           {
             sede_id: sedeId,
             usuario_id: usuarioId,
@@ -630,11 +664,8 @@ export default function VivaPage() {
             fecha_registro: new Date().toISOString(),
           },
         ]);
-
-        if (errorDif) console.error('Error guardando en diferencia_inventario:', errorDif);
       }
 
-      // 4. Registro auditoría en inventario_diario
       const detallePaletasObj: { [saborNombre: string]: number } = {};
       itemsPaletas.forEach(([saborId, cant]) => {
         const num = Number(cant) || 0;
@@ -665,16 +696,6 @@ export default function VivaPage() {
 
       await supabase.from('inventario_diario').insert([payloadInventario]);
 
-      setMovimientosDiaBD((prev) => [
-        ...prev,
-        {
-          tipo: tipoMovimiento,
-          totalPaletas: totalPaletasSuma,
-          detallePaletas: detallePaletasObj,
-          detalleEmpaques: detalleEmpaquesObj,
-        },
-      ]);
-
       if (tipoMovimiento === 'apertura') {
         setAperturaRealizada(true);
         setTipoMovimiento('nuevas');
@@ -683,7 +704,7 @@ export default function VivaPage() {
       }
 
       setGuardando(false);
-      alert(`✅ ¡Inventario (${tipoMovimiento.toUpperCase()}) guardado y stock actualizado en la base de datos!`);
+      alert(`✅ ¡Inventario (${tipoMovimiento.toUpperCase()}) guardado con éxito!`);
 
       limpiarCantidadesSabores();
       limpiarCajasMostrador();
@@ -691,7 +712,6 @@ export default function VivaPage() {
 
     } catch (err: any) {
       setGuardando(false);
-      console.error('Error guardando inventario:', err);
       alert(`❌ Error inesperado: ${err?.message || 'Error de conexión'}`);
     }
   }
@@ -763,24 +783,20 @@ export default function VivaPage() {
         alert('Error al registrar en la base de datos.');
       }
     } catch (err: any) {
-      console.error('Error enviando pedido:', err);
       alert(`Error al registrar la solicitud: ${err?.message || 'Error de conexión'}`);
     } finally {
       setGuardando(false);
     }
   }
 
-  // CÁLCULOS FINANCIEROS AUDITORÍA VIVA
+  // CÁLCULOS FINANCIEROS Y DE NÓMINA ACUMULADA
   const totalEfectivoIngresado = ventasDiaBD.reduce((acc, v) => acc + Number(v.pago_efectivo || 0), 0);
   const totalNequiIngresado = ventasDiaBD.reduce((acc, v) => acc + Number(v.pago_nequi || 0), 0);
   const totalDaviplataIngresado = ventasDiaBD.reduce((acc, v) => acc + Number(v.pago_daviplata || 0), 0);
   const totalDescuentosDia = ventasDiaBD.reduce((acc, v) => acc + Number(v.descuento || 0), 0);
+  
   const listaMotivosUnicosDescuento = Array.from(
-    new Set(
-      ventasDiaBD
-        .map((v) => v.motivo_descuento)
-        .filter((m): m is string => Boolean(m && m.trim() !== ''))
-    )
+    new Set(ventasDiaBD.map((v) => v.motivo_descuento).filter((m): m is string => Boolean(m && m.trim() !== '')))
   );
 
   const totalVentasElectronicas = totalNequiIngresado + totalDaviplataIngresado;
@@ -789,7 +805,8 @@ export default function VivaPage() {
   const gast = Number(gastos) || 0;
   const cajaDisponibleCalculadaViva = (Number(baseCaja) || 0) + totalEfectivoIngresado - gast;
 
-  // PAGAR NÓMINA VIVA EXCLUSIVAMENTE EN LA TABLA 'nomina'
+  const sumaNominaTotalDia = registrosNominaDia.reduce((acc, n) => acc + Number(n.monto_pago || n.monto || 0), 0);
+
   async function pagarNominaBD() {
     if (totalNomina <= 0) {
       alert('⚠️ El valor a pagar de nómina debe ser mayor a 0 (ingresa las horas trabajadas).');
@@ -808,63 +825,38 @@ export default function VivaPage() {
       fecha: new Date().toISOString(),
     };
 
-    const { error } = await supabase.from('nomina').insert([payloadNomina]);
+    const { data, error } = await supabase.from('nomina').insert([payloadNomina]).select();
 
     if (error) {
       alert('❌ Error al guardar en la tabla nomina: ' + error.message);
       return;
     }
 
-    setNominaPagadaEnTurno(true);
-    alert(`💸 Pago de Nómina de $ ${totalNomina.toLocaleString('es-CO')} registrado exitosamente en la tabla nomina.`);
+    if (data && data.length > 0) {
+      setRegistrosNominaDia(prev => [...prev, data[0]]);
+    }
+
+    alert(`💸 Pago de Nómina de $ ${totalNomina.toLocaleString('es-CO')} registrado con éxito.`);
   }
 
-  // FUNCION CAMBIO TURNO NORMALIZADA
   async function handleEjecutarCambioTurno() {
-    if (totalNomina <= 0) {
-      alert('Ingresa las horas trabajadas.');
+    const efCaja = Number(efectivoCaja) || 0;
+    if (efCaja <= 0) {
+      alert('⚠️ Ingresa el monto de efectivo que queda en caja para el turno siguiente.');
       return;
     }
 
-    const efCaja = Number(efectivoCaja) || 0;
-    const neq = Number(nequi) || 0;
-    const dav = Number(daviplata) || 0;
-    const gst = Number(gastos) || 0;
-
-    const usuarioId = sesion?.usuario_id || sesion?.id || 1;
-    const sedeId = SEDE_ID_VIVA;
-
-    const datosPayload = {
-      sedeId,
-      usuarioId,
-      tipoDia: tipoDia === 'domingo_festivo' ? 'festivo' : 'entre_semana',
-      horasDia: hDia,
-      horasNoche: hNoche,
-      subsidio: tarifas.subsidio,
-      transporte: tarifas.transporte,
-      totalPagado: totalNomina,
-      efectivoCaja: efCaja,
-      nequi: esTurnoCierre ? neq : 0,
-      daviplata: esTurnoCierre ? dav : 0,
-      gastos: esTurnoCierre ? gst : 0,
-      motivoGasto: esTurnoCierre ? motivoGasto : '',
-    };
-
-    setGuardando(true);
-    const ok = await registrarNominaYCambioTurno(datosPayload);
-    setGuardando(false);
-
-    if (ok) {
-      setEfectivoTurnoManana(efCaja);
-      localStorage.setItem('martineto_efectivo_manana', efCaja.toString());
-      alert(`¡Nómina registrada con éxito!\n\nEfectivo dejado en caja para la tarde: $ ${efCaja.toLocaleString('es-CO')}\n\nA continuación, ingresa el operario que recibe el turno.`);
-      setMostrarModalCambioTurno(true);
-    } else {
-      alert('Error al registrar cambio de turno.');
+    if (totalNomina > 0) {
+      await pagarNominaBD();
     }
+
+    setEfectivoTurnoManana(efCaja);
+    localStorage.setItem('martineto_efectivo_manana', efCaja.toString());
+
+    alert(`✅ ¡Arqueo de turno registrado con éxito!\n\nEfectivo dejado en caja: $ ${efCaja.toLocaleString('es-CO')}\n\nA continuación, ingresa el operario que recibe el turno.`);
+    setMostrarModalCambioTurno(true);
   }
 
-  // GUARDA EL CIERRE DEFINITIVO TOTAL DE VIVA
   async function guardarCierreDefinitivoBD() {
     if (efectivoContadoCierre === '') {
       alert('⚠️ Ingresa la cantidad exacta de efectivo que estás dejando en caja.');
@@ -875,32 +867,10 @@ export default function VivaPage() {
     const difCaja = efecContado - cajaDisponibleCalculadaViva;
 
     setGuardandoCierre(true);
-    const usuarioId = sesion?.usuario_id || sesion?.id;
+    const hoyInicio = new Date();
+    hoyInicio.setHours(0, 0, 0, 0);
 
     try {
-      const hoyInicio = new Date();
-      hoyInicio.setHours(0, 0, 0, 0);
-
-      // 1. PROCESAR NÓMINA SI AÚN NO HA SIDO PAGADA
-      if (!nominaPagadaEnTurno && totalNomina > 0) {
-        const payloadNomina = {
-          sede_id: SEDE_ID_VIVA,
-          usuario_id: usuarioId ? Number(usuarioId) : null,
-          monto_pago: totalNomina,
-          horas_dia: Number(horasDia) || 0,
-          horas_noche: Number(horasNoche) || 0,
-          tipo_dia: tipoDia,
-          fecha: new Date().toISOString(),
-        };
-
-        const { error: errorNomina } = await supabase.from('nomina').insert([payloadNomina]);
-        if (errorNomina) {
-          throw new Error('Error al registrar pago de nómina: ' + errorNomina.message);
-        }
-        setNominaPagadaEnTurno(true);
-      }
-
-      // 2. ACTUALIZAR REGISTRO DE CAJA CON EL RESUMEN TOTAL
       let queryCaja = supabase
         .from('caja')
         .update({
@@ -994,13 +964,14 @@ export default function VivaPage() {
       setClaveOperarioEntrante('');
       setOperarioEntranteId('');
 
-      setBaseGuardada(true);
-      setAperturaRealizada(true);
-      setCierreRealizado(false);
-      setTipoMovimiento('nuevas');
+      limpiarHorasDia();
+      limpiarHorasNoche();
+      limpiarEfCaja();
+      limpiarGastos();
+      limpiarMotivoGasto();
 
       setValidandoEntrante(false);
-      alert(`✅ ¡Turno entregado con éxito!\nBienvenido(a) ${nuevaSesion.nombre}. Puedes continuar con la atención y operación normal de la sede.`);
+      alert(`✅ ¡Turno entregado con éxito!\nBienvenido(a) ${nuevaSesion.nombre}.`);
     } else {
       setValidandoEntrante(false);
       alert('❌ Código de acceso / PIN incorrecto para este operario.');
@@ -1025,7 +996,6 @@ export default function VivaPage() {
 
   return (
     <main className="min-h-screen bg-[#004e8c] text-[#f1f5f9] p-4 font-sans max-w-6xl mx-auto space-y-4 relative">
-      {/* Header Banner con Logo Walers */}
       <header className="bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl flex justify-between items-center shadow-lg">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-[#003d6d] border border-[#0066b3] p-1 flex items-center justify-center overflow-hidden shrink-0 shadow">
@@ -1055,7 +1025,6 @@ export default function VivaPage() {
         </button>
       </header>
 
-      {/* Base Inicial de Caja y Efectivo de Cambio de Turno */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div className="bg-[#0b2b48] border border-emerald-400/50 p-4 rounded-2xl space-y-2 shadow-md">
           <span className="text-xs md:text-sm font-black text-emerald-300 block">
@@ -1085,13 +1054,12 @@ export default function VivaPage() {
           </div>
         </div>
 
-        {/* CUADRO DEL EFECTIVO RECIBIDO POR CAMBIO DE TURNO DE LA MAÑANA */}
         <div className="bg-[#0b2b48] border border-amber-400/50 p-4 rounded-2xl space-y-1 shadow-md flex flex-col justify-center">
           <span className="text-xs font-black text-amber-300 block uppercase">
-            ☀️ Efectivo Recibido del Turno Mañana:
+            ☀️ Efectivo Recibido del Turno Anterior:
           </span>
           <div className="bg-[#051829] border border-amber-500/40 p-2.5 rounded-xl flex justify-between items-center">
-            <span className="text-xs text-sky-200 font-bold">Efectivo disponible en caja para la tarde:</span>
+            <span className="text-xs text-sky-200 font-bold">Efectivo disponible en caja:</span>
             <span className="text-sm font-black text-amber-300 bg-[#0e385e] px-3 py-1 rounded-lg border border-amber-500/40">
               {efectivoTurnoManana !== null ? `$ ${efectivoTurnoManana.toLocaleString('es-CO')}` : 'Sin cambio de turno previo'}
             </span>
@@ -1105,10 +1073,7 @@ export default function VivaPage() {
         </div>
       )}
 
-      {/* GRID DOS COLUMNAS */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-        
-        {/* COLUMNA IZQUIERDA: INVENTARIO POR SABORES */}
         <div className="bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-4 shadow-md">
           <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
             <h2 className="text-xs md:text-sm font-black text-white">🍦 Conteo de Paletas por Sabor</h2>
@@ -1210,9 +1175,7 @@ export default function VivaPage() {
           </button>
         </div>
 
-        {/* COLUMNA DERECHA: PEDIDOS Y CIERRE DE CAJA / NÓMINA */}
         <div className={`space-y-4 transition-opacity ${bloqueadoPorApertura ? 'opacity-50 pointer-events-none select-none' : 'opacity-100'}`}>
-          
           <div className="bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md">
             <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
               <h2 className="text-xs md:text-sm font-black text-white flex items-center gap-1.5">
@@ -1378,7 +1341,6 @@ export default function VivaPage() {
                                     type="button"
                                     onClick={() => setCantidadesPedidoPaletas((prev) => ({ ...prev, [saborId]: '' }))}
                                     className="text-rose-400 hover:text-rose-200 font-black px-1.5 py-0.5 rounded text-[11px] cursor-pointer"
-                                    title="Borrar producto"
                                   >
                                     ✕
                                   </button>
@@ -1398,7 +1360,6 @@ export default function VivaPage() {
                                   type="button"
                                   onClick={() => setCantidadesRichi((prev) => ({ ...prev, [nombre]: '' }))}
                                   className="text-rose-400 hover:text-rose-200 font-black px-1.5 py-0.5 rounded text-[11px] cursor-pointer"
-                                  title="Borrar producto"
                                 >
                                   ✕
                                 </button>
@@ -1417,7 +1378,6 @@ export default function VivaPage() {
                                   type="button"
                                   onClick={() => setCantidadesInsumos((prev) => ({ ...prev, [nombre]: '' }))}
                                   className="text-rose-400 hover:text-rose-200 font-black px-1.5 py-0.5 rounded text-[11px] cursor-pointer"
-                                  title="Borrar producto"
                                 >
                                   ✕
                                 </button>
@@ -1436,7 +1396,6 @@ export default function VivaPage() {
                                   type="button"
                                   onClick={() => setCantidadesAseo((prev) => ({ ...prev, [nombre]: '' }))}
                                   className="text-rose-400 hover:text-rose-200 font-black px-1.5 py-0.5 rounded text-[11px] cursor-pointer"
-                                  title="Borrar producto"
                                 >
                                   ✕
                                 </button>
@@ -1454,7 +1413,6 @@ export default function VivaPage() {
                                 type="button"
                                 onClick={() => setOtroInsumoTexto('')}
                                 className="text-rose-400 hover:text-rose-200 font-black px-1.5 py-0.5 rounded text-[11px] cursor-pointer"
-                                title="Borrar producto"
                               >
                                 ✕
                               </button>
@@ -1476,7 +1434,6 @@ export default function VivaPage() {
             )}
           </div>
 
-          {/* ARQUEO DE CAJA Y NÓMINA */}
           <div className="bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-4 shadow-md">
             <h2 className="text-xs md:text-sm font-black text-white border-b border-[#0066b3]/50 pb-2 flex justify-between">
               <span>{esTurnoCierre ? '🌙 Cierre de Jornada y Arqueo' : '👥 Cambio de Turno / Arqueo y Nómina'}</span>
@@ -1524,7 +1481,7 @@ export default function VivaPage() {
               </div>
 
               <div className="flex justify-between items-center bg-rose-950/60 p-2 rounded-lg border border-rose-500/50 text-xs font-bold text-rose-200">
-                <span>Total Nómina:</span>
+                <span>Total Nómina Turno:</span>
                 <span className="text-sm font-black text-rose-300">$ {totalNomina.toLocaleString('es-CO')}</span>
               </div>
             </div>
@@ -1553,7 +1510,7 @@ export default function VivaPage() {
                   <input 
                     ref={(el) => { inputsRef.current['cierre_nequi'] = el; }}
                     type="text" 
-                    placeholder={esTurnoCierre ? "$ 0" : "N/A (Sólo Cierre)"} 
+                    placeholder={esTurnoCierre ? "$ 0" : "N/A (Cierre)"} 
                     value={esTurnoCierre ? formatearMoneda(nequi) : ''} 
                     onChange={(e) => setNequi(desformatearMoneda(e.target.value))} 
                     disabled={!esTurnoCierre}
@@ -1571,7 +1528,7 @@ export default function VivaPage() {
                   <input 
                     ref={(el) => { inputsRef.current['cierre_daviplata'] = el; }}
                     type="text" 
-                    placeholder={esTurnoCierre ? "$ 0" : "N/A (Sólo Cierre)"} 
+                    placeholder={esTurnoCierre ? "$ 0" : "N/A (Cierre)"} 
                     value={esTurnoCierre ? formatearMoneda(daviplata) : ''} 
                     onChange={(e) => setDaviplata(desformatearMoneda(e.target.value))} 
                     disabled={!esTurnoCierre}
@@ -1616,7 +1573,7 @@ export default function VivaPage() {
 
               <div className="flex justify-between items-center bg-[#0e385e] p-2.5 rounded-xl border border-emerald-400/50 text-xs font-bold mt-2">
                 <span className="text-emerald-300 uppercase font-black">
-                  {esTurnoCierre ? 'Total Recaudado (Ventas):' : 'Efectivo en Caja:'}
+                  {esTurnoCierre ? 'Total Recaudado (Ventas):' : 'Efectivo a Dejar en Caja:'}
                 </span>
                 <span className="text-base font-black text-emerald-300 bg-[#051829] px-3 py-1 rounded-lg border border-emerald-500/50">
                   $ {(esTurnoCierre ? totalVentasGlobal : Number(efectivoCaja) || 0).toLocaleString('es-CO')}
@@ -1661,7 +1618,6 @@ export default function VivaPage() {
         </div>
       </div>
 
-      {/* MODAL AUDITORÍA / CIERRE TOTAL VIVA */}
       {mostrarModalResumen && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 font-sans">
           <div className="bg-[#0b2b48] border-2 border-emerald-400 rounded-2xl p-6 max-w-3xl w-full space-y-4 shadow-2xl text-white max-h-[90vh] overflow-y-auto">
@@ -1676,12 +1632,6 @@ export default function VivaPage() {
                 ✕
               </button>
             </div>
-
-            {!nominaPagadaEnTurno && (
-              <div className="bg-amber-950/90 border border-amber-500 p-3 rounded-xl text-xs text-amber-200 font-bold flex items-center gap-2">
-                <span>ℹ️ NOTA NÓMINA:</span> Se registrará automáticamente el pago de la nómina al guardar este cierre.
-              </div>
-            )}
 
             <div className="space-y-3 text-xs font-bold">
               <span className="text-sky-300 block uppercase font-black border-b border-[#0066b3]/40 pb-1">
@@ -1720,6 +1670,11 @@ export default function VivaPage() {
                   <span>- $ {gast.toLocaleString('es-CO')}</span>
                 </div>
 
+                <div className="flex justify-between text-fuchsia-300 font-black pt-1 border-t border-[#0066b3]/30">
+                  <span>👥 Total Nómina Pagada en el Día ({registrosNominaDia.length} registros):</span>
+                  <span>- $ {sumaNominaTotalDia.toLocaleString('es-CO')}</span>
+                </div>
+
                 {totalDescuentosDia > 0 && (
                   <div className="bg-amber-950/60 border border-amber-500/40 p-2.5 rounded-lg space-y-1 text-amber-300">
                     <div className="flex justify-between font-black">
@@ -1733,6 +1688,22 @@ export default function VivaPage() {
                   <span>💵 PRODUCIDO / EN CAJA (Calculado):</span>
                   <span>$ {cajaDisponibleCalculadaViva.toLocaleString('es-CO')}</span>
                 </div>
+              </div>
+
+              <div className="bg-[#051829] border border-fuchsia-500/40 p-3 rounded-xl space-y-1.5">
+                <span className="text-xs text-fuchsia-300 font-black uppercase block">
+                  👥 Detalle de Nóminas del Día:
+                </span>
+                {registrosNominaDia.length === 0 ? (
+                  <p className="text-[11px] text-sky-400 italic">No hay pagos de nómina registrados hoy.</p>
+                ) : (
+                  registrosNominaDia.map((n, i) => (
+                    <div key={i} className="flex justify-between text-[11px] text-white border-b border-[#0066b3]/30 py-1">
+                      <span>Turno / Operario #{n.usuario_id || 'N/A'}</span>
+                      <span className="font-bold text-fuchsia-300">$ {Number(n.monto_pago || n.monto || 0).toLocaleString('es-CO')}</span>
+                    </div>
+                  ))
+                )}
               </div>
 
               <div className="bg-[#051829] border border-emerald-400 p-3 rounded-xl space-y-1">
@@ -1775,7 +1746,6 @@ export default function VivaPage() {
         </div>
       )}
 
-      {/* MODAL CREAR NUEVO PRODUCTO / INSUMO */}
       {mostrarModalNuevoProd && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
           <div className="bg-[#0b2b48] border-2 border-emerald-400 rounded-2xl p-5 max-w-md w-full space-y-4 shadow-2xl">
@@ -1889,7 +1859,6 @@ export default function VivaPage() {
         </div>
       )}
 
-      {/* MODAL CAMBIO DE TURNO */}
       {mostrarModalCambioTurno && (
         <div className="fixed inset-0 bg-[#051829]/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-[#0b2b48] border border-[#0066b3] p-6 rounded-3xl max-w-sm w-full space-y-5 shadow-2xl text-center">
