@@ -160,13 +160,13 @@ export async function registrarMovimientoCentro(
   }
 }
 
-// 6. CREAR PEDIDO DE INSUMOS (REQUISICIÓN)
+// 6. CREAR PEDIDO DE INSUMOS (REQUISICIÓN) - 'produccion' AHORA ES OPCIONAL
 export async function crearPedidoInsumosCentro(payload: {
   sedeId: number;
   usuarioId: number;
   paletas: { [key: string]: number };
   richi: { [key: string]: number };
-  produccion: { [key: string]: number };
+  produccion?: { [key: string]: number };
   insumos: { [key: string]: number };
   aseo: { [key: string]: number };
   observaciones: string;
@@ -177,7 +177,7 @@ export async function crearPedidoInsumosCentro(payload: {
         sede_id: payload.sedeId,
         usuario_id: payload.usuarioId,
         pedidos_paletas: payload.paletas,
-        pedidos_produccion: payload.produccion,
+        pedidos_produccion: payload.produccion || {},
         pedidos_richi: payload.richi,
         pedidos_insumos: payload.insumos,
         pedidos_aseo: payload.aseo,

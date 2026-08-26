@@ -2,38 +2,19 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabase';
 import { useAutoSave } from '@/hooks/useAutoSave';
 import {
-  obtenerTarifasViva,
-  registrarBaseCajaViva,
-  crearPedidoInsumosViva,
+  obtenerTarifasCentro,
+  registrarBaseCajaCentro,
+  crearPedidoInsumosCentro,
   obtenerUsuariosOperarios,
   registrarNominaYCambioTurno,
-  obtenerSaboresViva,
-  TarifasViva,
-} from '@/lib/vivaQueries';
+  obtenerSaboresCentro,
+  TarifasCentro,
+} from '@/lib/centroQueries';
+import { supabase } from '@/lib/supabase';
 
-const LUGARES_COMPRA_INICIALES = [
-  'Avicampo',
-  'Carnaval del Dulce',
-  'Chispazo',
-  'D1',
-  'Flesman',
-  'Makro',
-  'Plaza de Mercado',
-  'Plasticos Richi',
-];
-
-const LISTA_EMPAQUES_CENTRO = [
-  'Caja Mostac',
-  'Muñeco Gold',
-  'Muñeco Lego',
-  'Vaso Soft',
-  'Vaso Croyurth',
-  'Vaso Malteada',
-];
-
+// FUNCIONES DE FORMATO DE MONEDA
 const formatearMoneda = (val: number | string): string => {
   if (val === '' || val === null || val === undefined) return '';
   const num = typeof val === 'string' ? Number(val.replace(/\D/g, '')) : val;
@@ -50,13 +31,14 @@ export default function CentroPage() {
   const router = useRouter();
   const [sesion, setSesion] = useState<any>(null);
 
-  const [tarifas, setTarifas] = useState<TarifasViva>({
-    subsidio: 9600,
-    transporte: 8400,
-    horaDiaEntreSemana: 7200,
-    horaNocheEntreSemana: 10700,
-    horaDiaFestivo: 12700,
-    horaNocheFestivo: 15200,
+  // ESTADO DE TARIFAS
+  const [tarifas, setTarifas] = useState<TarifasCentro>({
+    subsidio: 0,
+    transporte: 0,
+    horaDiaEntreSemana: 0,
+    horaNocheEntreSemana: 0,
+    horaDiaFestivo: 0,
+    horaNocheFestivo: 0,
   });
 
   // AUTO-SAVE: Base de Caja
@@ -64,17 +46,18 @@ export default function CentroPage() {
   const [baseGuardada, setBaseGuardada] = useState(false);
   const [aperturaRealizada, setAperturaRealizada] = useState(false);
   const [cierreRealizado, setCierreRealizado] = useState(false);
-
+  
+  // EFECTIVO ENTREGADO EN CAMBIO DE TURNO (VISUAL)
   const [efectivoTurnoManana, setEfectivoTurnoManana] = useState<number | null>(null);
 
-  // AUTO-SAVE: Movimientos e Inventario
+  // AUTO-SAVE: Inventario por Sabores y Caja Mostac
   const [tipoMovimiento, setTipoMovimiento] = useState<string>('apertura');
-  const [totalPaletasNumero, setTotalPaletasNumero, limpiarTotalPaletasNumero] = useAutoSave<number | ''>('centro_totalPaletasNumero', '');
   const [saboresCentro, setSaboresCentro] = useState<any[]>([]);
-  const [cantidadesEmpaquesCentro, setCantidadesEmpaquesCentro, limpiarCantidadesEmpaques] = useAutoSave<{ [item: string]: number | '' }>('centro_cantidadesEmpaques', {});
+  const [cantidadesSabores, setCantidadesSabores, limpiarCantidadesSabores] = useAutoSave<{ [saborId: number]: number | '' }>('centro_cantidadesSabores', {});
+  const [cajasMostrador, setCajasMostrador, limpiarCajasMostrador] = useAutoSave<number | ''>('centro_cajasMostrador', '');
   const [observaciones, setObservaciones, limpiarObsInv] = useAutoSave<string>('centro_observacionesInv', '');
 
-  // AUTO-SAVE: Pedidos de Insumos
+  // AUTO-SAVE: Requisición de Pedidos
   const [mostrarModuloPedidos, setMostrarModuloPedidos] = useState(false);
   const [categoriaPedido, setCategoriaPedido] = useState<'paletas' | 'richi' | 'insumos' | 'aseo'>('paletas');
   const [cantidadesPedidoPaletas, setCantidadesPedidoPaletas, limpiarPedPaletas] = useAutoSave<{ [saborId: number]: number | '' }>('centro_pedPaletas', {});
@@ -84,17 +67,18 @@ export default function CentroPage() {
   const [otroInsumoTexto, setOtroInsumoTexto, limpiarOtroInsumo] = useAutoSave<string>('centro_otroInsumo', '');
   const [obsPedido, setObsPedido, limpiarObsPedido] = useAutoSave<string>('centro_obsPedido', '');
 
+  // ESTADOS MODAL CREAR NUEVO PRODUCTO / INSUMO EN BD
   const [productosInsumosBD, setProductosInsumosBD] = useState<any[]>([]);
   const [mostrarModalNuevoProd, setMostrarModalNuevoProd] = useState(false);
   const [nuevoProdNombre, setNuevoProdNombre] = useState('');
   const [nuevoProdCategoria, setNuevoProdCategoria] = useState('Paleta');
   const [nuevoProdGrupo, setNuevoProdGrupo] = useState('');
-  const [nuevoProdDondeComprar, setNuevoProdDondeComprar] = useState('Plaza de Mercado');
+  const [nuevoProdDondeComprar, setNuevoProdDondeComprar] = useState('');
   const [dondeComprarPersonalizado, setDondeComprarPersonalizado] = useState('');
   const [esProductoGlobal, setEsProductoGlobal] = useState(true);
   const [guardandoProducto, setGuardandoProducto] = useState(false);
 
-  // AUTO-SAVE: Cierre de Turno y Nómina
+  // AUTO-SAVE: Nómina y Arqueo de Caja
   const [tipoDia, setTipoDia] = useState<'entre_semana' | 'domingo_festivo'>('entre_semana');
   const [horasDia, setHorasDia, limpiarHorasDia] = useAutoSave<number | ''>('centro_horasDia', '');
   const [horasNoche, setHorasNoche, limpiarHorasNoche] = useAutoSave<number | ''>('centro_horasNoche', '');
@@ -104,6 +88,7 @@ export default function CentroPage() {
   const [gastos, setGastos, limpiarGastos] = useAutoSave<number | ''>('centro_gastos', '');
   const [motivoGasto, setMotivoGasto, limpiarMotivoGasto] = useAutoSave<string>('centro_motivoGasto', '');
 
+  // MODAL CAMBIO DE TURNO
   const [mostrarModalCambioTurno, setMostrarModalCambioTurno] = useState(false);
   const [listaOperarios, setListaOperarios] = useState<any[]>([]);
   const [operarioEntranteId, setOperarioEntranteId] = useState<string>('');
@@ -126,45 +111,46 @@ export default function CentroPage() {
 
   const SEDE_ID_CENTRO = 2;
 
-  // Listas de productos dinámicas filtradas de la base de datos
-  const productosRichiBD = productosInsumosBD.filter((p) => p.categoriaLimpia === 'richi');
-  const productosInsumosListaBD = productosInsumosBD.filter((p) => p.categoriaLimpia === 'insumos');
-  const productosAseoBD = productosInsumosBD.filter((p) => p.categoriaLimpia === 'aseo');
-
+  // OBTENER LUGARES DE COMPRA EXCLUSIVAMENTE DESDE LA BASE DE DATOS
   const listaLugaresCompraUnica = Array.from(
-    new Set([
-      ...LUGARES_COMPRA_INICIALES,
-      ...productosInsumosBD
+    new Set(
+      productosInsumosBD
         .map((p) => p.donde_comprar)
-        .filter((lugar): lugar is string => Boolean(lugar && lugar.trim() !== '')),
-    ])
-  ).sort();
+        .filter((lugar): lugar is string => Boolean(lugar && lugar.trim() !== ''))
+        .map((lugar) => {
+          const l = lugar.trim();
+          return l.charAt(0).toUpperCase() + l.slice(1).toLowerCase();
+        })
+    )
+  )
+    .filter((lugar) => !lugar.toLowerCase().includes('hermanita'))
+    .sort();
 
+  // FILTROS DINÁMICOS DESDE LA BD
   const paletasFiltradas = saboresCentro.filter((p) => {
     const cat = String(p.categoria || '').trim().toLowerCase();
-    const grp = String(p.grupo || '').trim().toLowerCase();
-    const nom = String(p.nombre || '').toLowerCase();
-
-    const esPaletaCategoria = cat === 'paleta' || cat === '';
-
-    const esExcluido =
-      cat.includes('aseo') ||
-      cat.includes('insumo') ||
-      cat.includes('materia') ||
-      cat.includes('empaque') ||
-      cat.includes('richi') ||
-      grp.includes('aseo') ||
-      grp.includes('insumo') ||
-      grp.includes('richi') ||
-      nom.includes('antibacterial') ||
-      nom.includes('servilleta') ||
-      nom.includes('sal limón') ||
-      nom.includes('girasol');
-
-    return esPaletaCategoria && !esExcluido;
+    return cat === 'paleta' || cat === '';
   });
 
-  const totalPaletasSuma = Number(totalPaletasNumero) || 0;
+  const richiFiltrados = productosInsumosBD.filter((p) => {
+    const cat = String(p.categoriaLimpia || '');
+    return cat.includes('richi') || cat.includes('empaque');
+  });
+
+  const insumosFiltrados = productosInsumosBD.filter((p) => {
+    const cat = String(p.categoriaLimpia || '');
+    return cat.includes('insumo') || cat.includes('topping') || cat.includes('materia');
+  });
+
+  const aseoFiltrados = productosInsumosBD.filter((p) => {
+    const cat = String(p.categoriaLimpia || '');
+    return cat.includes('aseo');
+  });
+
+  const totalPaletasSuma = Object.values(cantidadesSabores).reduce(
+    (acc: number, val) => acc + (Number(val) || 0),
+    0
+  );
 
   const esTurnoCierre = (() => {
     if (!sesion) return false;
@@ -191,76 +177,104 @@ export default function CentroPage() {
 
   async function cargarInicial() {
     setCargando(true);
-    const [configTarifas, operarios, listaSabores] = await Promise.all([
-      obtenerTarifasViva(),
-      obtenerUsuariosOperarios(),
-      obtenerSaboresViva(),
-    ]);
 
-    setTarifas(configTarifas);
-    setListaOperarios(operarios);
-    setSaboresCentro(listaSabores || []);
+    try {
+      const hoyInicio = new Date();
+      hoyInicio.setHours(0, 0, 0, 0);
 
-    const { data: prodsInsumosBD } = await supabase
-      .from('producto')
-      .select('*')
-      .or(`sede_id.eq.${SEDE_ID_CENTRO},sede_id.eq.0,sede_id.is.null`);
+      // --- 1. VALIDACIÓN AUTOMÁTICA DE CAJA ABIERTA PARA HOY ---
+      const { data: cajaHoyBD } = await supabase
+        .from('caja')
+        .select('*')
+        .eq('sede_id', SEDE_ID_CENTRO)
+        .gte('fecha', hoyInicio.toISOString())
+        .eq('estado', 'abierta')
+        .order('id', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-    if (prodsInsumosBD) {
-      setProductosInsumosBD(
-        prodsInsumosBD.map((p: any) => ({
+      if (cajaHoyBD) {
+        setBaseCaja(Number(cajaHoyBD.monto_apertura) || 0);
+        setBaseGuardada(true);
+      }
+
+      // --- 2. VALIDACIÓN AUTOMÁTICA DE INVENTARIO DE APERTURA PARA HOY ---
+      const { data: invHoyBD } = await supabase
+        .from('inventario_diario')
+        .select('*')
+        .eq('sede_id', SEDE_ID_CENTRO)
+        .gte('fecha_registro', hoyInicio.toISOString())
+        .ilike('tipo_movimiento', 'apertura')
+        .order('id', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (invHoyBD) {
+        setAperturaRealizada(true);
+        setTipoMovimiento('nuevas');
+      }
+
+      const { data: configBD } = await supabase
+        .from('configuracion_tarifa')
+        .select('*')
+        .single();
+
+      if (configBD) {
+        setTarifas({
+          subsidio: Number(configBD.subsidio) || 0,
+          transporte: Number(configBD.transporte) || 0,
+          horaDiaEntreSemana: Number(configBD.hora_dia_entre_semana) || 0,
+          horaNocheEntreSemana: Number(configBD.hora_noche_entre_semana) || 0,
+          horaDiaFestivo: Number(configBD.hora_dia_festivo) || 0,
+          horaNocheFestivo: Number(configBD.hora_noche_festivo) || 0,
+        });
+      } else {
+        const configTarifasAux = await obtenerTarifasCentro();
+        if (configTarifasAux) setTarifas(configTarifasAux);
+      }
+
+      const [operarios, listaSabores] = await Promise.all([
+        obtenerUsuariosOperarios(),
+        obtenerSaboresCentro(),
+      ]);
+
+      setListaOperarios(operarios);
+      setSaboresCentro(listaSabores || []);
+
+      const { data: prodsInsumosBD } = await supabase
+        .from('producto')
+        .select('*')
+        .or(`sede_id.eq.${SEDE_ID_CENTRO},sede_id.eq.0,sede_id.is.null`);
+
+      if (prodsInsumosBD) {
+        const mapeados = prodsInsumosBD.map((p: any) => ({
           ...p,
           nombre: p.nombre || p.Nombre || '',
           categoriaLimpia: String(p.categoria || p.Categoria || 'general').trim().toLowerCase(),
           grupoLimpio: String(p.grupo || p.Grupo || '').trim().toLowerCase(),
           donde_comprar: p.donde_comprar || '',
-        }))
-      );
-    }
+        }));
+        setProductosInsumosBD(mapeados);
 
-    setCargando(false);
-  }
+        const lugaresUnicos = Array.from(
+          new Set(
+            mapeados
+              .map((p: any) => p.donde_comprar)
+              .filter((l: string) => Boolean(l && l.trim() !== ''))
+              .map((l: string) => l.trim().charAt(0).toUpperCase() + l.trim().slice(1).toLowerCase())
+          )
+        ).filter((l: string) => !l.toLowerCase().includes('hermanita'));
 
-  async function procesarDiferenciaAperturaAutomaticaCentro(
-    usuarioId: number,
-    totalPaletasHoy: number,
-    detalleEmpaquesHoy: { [nombre: string]: number }
-  ) {
-    try {
-      const { data: ultimoCierre } = await supabase
-        .from('inventario_diario')
-        .select('total_paletas, detalle_empaques')
-        .eq('sede_id', SEDE_ID_CENTRO)
-        .ilike('tipo_movimiento', 'cierre')
-        .order('fecha_registro', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      const totalPaletasAyer = Number(ultimoCierre?.total_paletas || 0);
-      const jsonCierreEmpaques = ultimoCierre?.detalle_empaques || {};
-
-      const difPaletasGlobal = totalPaletasHoy - totalPaletasAyer;
-      const difEmpaquesObj: { [nombre: string]: number } = {};
-      let totalDiferenciaGlobal = difPaletasGlobal;
-
-      Object.entries(detalleEmpaquesHoy).forEach(([nombreItem, cantHoy]) => {
-        const cantAyer = Number(jsonCierreEmpaques[nombreItem] || 0);
-        const dif = Number(cantHoy) - cantAyer;
-        difEmpaquesObj[nombreItem] = dif;
-        totalDiferenciaGlobal += dif;
-      });
-
-      await supabase.from('diferencia_inventario').insert([
-        {
-          sede_id: SEDE_ID_CENTRO,
-          usuario_id: usuarioId,
-          diferencia_paletas: { "Total Paletas": difPaletasGlobal },
-          diferencia_empaques: difEmpaquesObj,
-          total_diferencia: totalDiferenciaGlobal,
-        },
-      ]);
-    } catch (e) {
-      console.error('Error calculando la diferencia consolidada (Centro):', e);
+        if (lugaresUnicos.length > 0) {
+          setNuevoProdDondeComprar(lugaresUnicos[0]);
+        } else {
+          setNuevoProdDondeComprar('Otro');
+        }
+      }
+    } catch (error) {
+      console.error('Error cargando datos iniciales en Centro:', error);
+    } finally {
+      setCargando(false);
     }
   }
 
@@ -304,28 +318,31 @@ export default function CentroPage() {
         donde_comprar: data[0].donde_comprar || '',
       };
       setProductosInsumosBD((prev) => [...prev, nuevoObj]);
-      setSaboresCentro((prev) => [...prev, nuevoObj]);
+      if (nuevoProdCategoria === 'Paleta') {
+        setSaboresCentro((prev) => [...prev, nuevoObj]);
+      }
     }
 
     setNuevoProdNombre('');
     setNuevoProdGrupo('');
-    setNuevoProdDondeComprar(LUGARES_COMPRA_INICIALES[0]);
     setDondeComprarPersonalizado('');
     setMostrarModalNuevoProd(false);
     setGuardandoProducto(false);
   }
 
-  function handleEmpaqueCantidadChange(item: string, rawVal: string) {
+  function handleSaborCantidadChange(saborId: number, rawVal: string) {
     const val = rawVal === '' ? '' : Math.max(0, Number(rawVal));
-    setCantidadesEmpaquesCentro((prev) => ({ ...prev, [item]: val }));
+    setCantidadesSabores((prev) => ({ ...prev, [saborId]: val }));
   }
 
-  function handleKeyDownEmpaque(e: React.KeyboardEvent<HTMLInputElement>, index: number) {
+  function handleKeyDownSabor(e: React.KeyboardEvent<HTMLInputElement>, index: number) {
     if (e.key === 'Enter') {
       e.preventDefault();
-      if (index < LISTA_EMPAQUES_CENTRO.length - 1) {
-        const siguienteItem = LISTA_EMPAQUES_CENTRO[index + 1];
-        inputsRef.current[`empaque_${siguienteItem}`]?.focus();
+      if (index < paletasFiltradas.length - 1) {
+        const siguienteSabor = paletasFiltradas[index + 1];
+        inputsRef.current[`sabor_${siguienteSabor.id}`]?.focus();
+      } else {
+        inputsRef.current['caja_mostac']?.focus();
       }
     }
   }
@@ -353,52 +370,10 @@ export default function CentroPage() {
     setCantidadesPedidoPaletas((prev) => ({ ...prev, [saborId]: val }));
   }
 
-  function handleItemGenericoChange(itemKey: string, rawVal: string, setter: React.Dispatch<React.SetStateAction<{ [key: string]: number | '' }>>) {
+  function handleItemGenericoChange(item: string, rawVal: string, setter: React.Dispatch<React.SetStateAction<{ [key: string]: number | '' }>>) {
     const val = rawVal === '' ? '' : Math.max(0, Number(rawVal));
-    setter((prev) => ({ ...prev, [itemKey]: val }));
+    setter((prev) => ({ ...prev, [item]: val }));
   }
-
-  const obtenerResumenPedidoActual = () => {
-    const listaResumen: { categoria: string; claveId: any; nombre: string; cantidad: number }[] = [];
-
-    Object.entries(cantidadesPedidoPaletas).forEach(([saborId, cant]) => {
-      const num = Number(cant) || 0;
-      if (num > 0) {
-        const saborObj = saboresCentro.find((s) => s.id === Number(saborId));
-        if (saborObj) {
-          listaResumen.push({ categoria: 'paletas', claveId: saborId, nombre: saborObj.nombre, cantidad: num });
-        }
-      }
-    });
-
-    Object.entries(cantidadesRichi).forEach(([itemKey, cant]) => {
-      const num = Number(cant) || 0;
-      if (num > 0) {
-        const prod = productosRichiBD.find((p) => String(p.id) === String(itemKey));
-        listaResumen.push({ categoria: 'richi', claveId: itemKey, nombre: prod?.nombre || itemKey, cantidad: num });
-      }
-    });
-
-    Object.entries(cantidadesInsumos).forEach(([itemKey, cant]) => {
-      const num = Number(cant) || 0;
-      if (num > 0) {
-        const prod = productosInsumosListaBD.find((p) => String(p.id) === String(itemKey));
-        listaResumen.push({ categoria: 'insumos', claveId: itemKey, nombre: prod?.nombre || itemKey, cantidad: num });
-      }
-    });
-
-    Object.entries(cantidadesAseo).forEach(([itemKey, cant]) => {
-      const num = Number(cant) || 0;
-      if (num > 0) {
-        const prod = productosAseoBD.find((p) => String(p.id) === String(itemKey));
-        listaResumen.push({ categoria: 'aseo', claveId: itemKey, nombre: prod?.nombre || itemKey, cantidad: num });
-      }
-    });
-
-    return listaResumen;
-  };
-
-  const resumenPedidoActual = obtenerResumenPedidoActual();
 
   async function handleGuardarBase() {
     const monto = baseCaja === '' ? 0 : Number(baseCaja);
@@ -419,7 +394,7 @@ export default function CentroPage() {
 
     setGuardando(true);
     try {
-      const exito = await registrarBaseCajaViva(sedeId, usuarioId, monto, turnoId);
+      const exito = await registrarBaseCajaCentro(sedeId, usuarioId, monto, turnoId);
       if (exito) {
         setBaseGuardada(true);
         alert('¡Base inicial guardada con éxito en la tabla CAJA!');
@@ -445,21 +420,148 @@ export default function CentroPage() {
       return;
     }
 
-    const detallePaletasObj: { [saborNombre: string]: number } = {
-      'Total Paletas': totalPaletasSuma
-    };
-
-    const detalleEmpaquesObj: { [itemNombre: string]: number } = {};
-    Object.entries(cantidadesEmpaquesCentro).forEach(([item, cant]) => {
-      const num = Number(cant) || 0;
-      if (num > 0) detalleEmpaquesObj[item] = num;
-    });
-
     const usuarioId = sesion?.usuario_id || sesion?.id || 1;
     const sedeId = SEDE_ID_CENTRO;
 
     setGuardando(true);
     try {
+      let diferenciaPaletasJson: { [key: string]: number } = {};
+      let diferenciaEmpaquesJson: { [key: string]: number } = {};
+      let sumaTotalDiferencia = 0;
+
+      const itemsPaletas = Object.entries(cantidadesSabores);
+      for (const [saborIdStr, cantidadFisicaRaw] of itemsPaletas) {
+        const cantidadFisica = Number(cantidadFisicaRaw) || 0;
+        const saborObj = saboresCentro.find((s) => s.id === Number(saborIdStr));
+        if (!saborObj) continue;
+
+        if (tipoMovimiento === 'apertura') {
+          const { data: regAnterior } = await supabase
+            .from('inventario_empaques_sedes')
+            .select('stock')
+            .eq('sede_id', sedeId)
+            .eq('nombre', saborObj.nombre)
+            .maybeSingle();
+
+          const stockViejo = regAnterior ? Number(regAnterior.stock) : 0;
+          const difCalculada = cantidadFisica - stockViejo;
+
+          diferenciaPaletasJson[saborObj.nombre] = difCalculada;
+          sumaTotalDiferencia += Math.abs(difCalculada);
+
+          await supabase
+            .from('inventario_empaques_sedes')
+            .update({
+              stock: cantidadFisica,
+              diferencia: difCalculada,
+              fecha_actualizacion: new Date().toISOString(),
+            })
+            .eq('sede_id', sedeId)
+            .eq('nombre', saborObj.nombre);
+
+        } else if (tipoMovimiento === 'cierre') {
+          const { data: regAnterior } = await supabase
+            .from('inventario_empaques_sedes')
+            .select('stock')
+            .eq('sede_id', sedeId)
+            .eq('nombre', saborObj.nombre)
+            .maybeSingle();
+
+          const stockViejo = regAnterior ? Number(regAnterior.stock) : 0;
+          const vendidasCalculadas = Math.max(0, stockViejo - cantidadFisica);
+
+          await supabase
+            .from('inventario_empaques_sedes')
+            .update({
+              stock: cantidadFisica,
+              vendidas: vendidasCalculadas,
+              fecha_actualizacion: new Date().toISOString(),
+            })
+            .eq('sede_id', sedeId)
+            .eq('nombre', saborObj.nombre);
+        }
+      }
+
+      if (cajasMostrador !== '') {
+        const cantMostac = Number(cajasMostrador) || 0;
+        if (tipoMovimiento === 'apertura') {
+          const { data: regAnterior } = await supabase
+            .from('inventario_empaques_sedes')
+            .select('stock')
+            .eq('sede_id', sedeId)
+            .eq('nombre', 'Caja Mostac')
+            .maybeSingle();
+
+          const stockViejo = regAnterior ? Number(regAnterior.stock) : 0;
+          const difCalculada = cantMostac - stockViejo;
+
+          diferenciaEmpaquesJson['Caja Mostac'] = difCalculada;
+          sumaTotalDiferencia += Math.abs(difCalculada);
+
+          await supabase
+            .from('inventario_empaques_sedes')
+            .update({
+              stock: cantMostac,
+              diferencia: difCalculada,
+              fecha_actualizacion: new Date().toISOString(),
+            })
+            .eq('sede_id', sedeId)
+            .eq('nombre', 'Caja Mostac');
+
+        } else if (tipoMovimiento === 'cierre') {
+          const { data: regAnterior } = await supabase
+            .from('inventario_empaques_sedes')
+            .select('stock')
+            .eq('sede_id', sedeId)
+            .eq('nombre', 'Caja Mostac')
+            .maybeSingle();
+
+          const stockViejo = regAnterior ? Number(regAnterior.stock) : 0;
+          const vendidasCalculadas = Math.max(0, stockViejo - cantMostac);
+
+          await supabase
+            .from('inventario_empaques_sedes')
+            .update({
+              stock: cantMostac,
+              vendidas: vendidasCalculadas,
+              fecha_actualizacion: new Date().toISOString(),
+            })
+            .eq('sede_id', sedeId)
+            .eq('nombre', 'Caja Mostac');
+        }
+      }
+
+      if (tipoMovimiento === 'apertura') {
+        const { error: errorDif } = await supabase.from('diferencia_inventario').insert([
+          {
+            sede_id: sedeId,
+            usuario_id: usuarioId,
+            diferencia_paletas: diferenciaPaletasJson,
+            diferencia_empaques: diferenciaEmpaquesJson,
+            total_diferencia: sumaTotalDiferencia,
+            fecha_registro: new Date().toISOString(),
+          },
+        ]);
+
+        if (errorDif) {
+          console.error('Error guardando en diferencia_inventario:', errorDif);
+        }
+      }
+
+      const detallePaletasObj: { [saborNombre: string]: number } = {};
+      itemsPaletas.forEach(([saborId, cant]) => {
+        const num = Number(cant) || 0;
+        if (num > 0) {
+          const saborObj = saboresCentro.find((s) => s.id === Number(saborId));
+          if (saborObj) detallePaletasObj[saborObj.nombre] = num;
+        }
+      });
+
+      const detalleEmpaquesObj: { [itemNombre: string]: number } = {};
+      if (Number(cajasMostrador) > 0) {
+        detalleEmpaquesObj['Caja Mostac'] = Number(cajasMostrador);
+      }
+
       const payloadInventario: any = {
         sede_id: sedeId,
         usuario_id: usuarioId,
@@ -474,35 +576,20 @@ export default function CentroPage() {
         payloadInventario.turno_id = Number(sesion.turno_id);
       }
 
-      const { error } = await supabase
-        .from('inventario_diario')
-        .insert([payloadInventario])
-        .select();
-
-      setGuardando(false);
-
-      if (error) {
-        console.error('Error insertando en inventario_diario:', error);
-        alert(`❌ Error de Supabase: ${error.message}`);
-        return;
-      }
+      await supabase.from('inventario_diario').insert([payloadInventario]);
 
       if (tipoMovimiento === 'apertura') {
-        await procesarDiferenciaAperturaAutomaticaCentro(
-          usuarioId, 
-          totalPaletasSuma, 
-          detalleEmpaquesObj
-        );
         setAperturaRealizada(true);
         setTipoMovimiento('nuevas');
       } else if (tipoMovimiento === 'cierre') {
         setCierreRealizado(true);
       }
 
-      alert(`✅ ¡Inventario guardado con éxito!`);
-      
-      limpiarTotalPaletasNumero();
-      limpiarCantidadesEmpaques();
+      setGuardando(false);
+      alert(`✅ ¡Inventario guardado y sincronizado con el histórico de diferencias con éxito!`);
+
+      limpiarCantidadesSabores();
+      limpiarCajasMostrador();
       limpiarObsInv();
 
     } catch (err: any) {
@@ -525,30 +612,18 @@ export default function CentroPage() {
     });
 
     const richiObj: { [key: string]: number } = {};
-    Object.entries(cantidadesRichi).forEach(([itemKey, cant]) => {
-      const num = Number(cant) || 0;
-      if (num > 0) {
-        const prod = productosRichiBD.find((p) => String(p.id) === String(itemKey));
-        richiObj[prod?.nombre || itemKey] = num;
-      }
+    Object.entries(cantidadesRichi).forEach(([item, cant]) => {
+      if (Number(cant) > 0) richiObj[item] = Number(cant);
     });
 
     const insumosObj: { [key: string]: number } = {};
-    Object.entries(cantidadesInsumos).forEach(([itemKey, cant]) => {
-      const num = Number(cant) || 0;
-      if (num > 0) {
-        const prod = productosInsumosListaBD.find((p) => String(p.id) === String(itemKey));
-        insumosObj[prod?.nombre || itemKey] = num;
-      }
+    Object.entries(cantidadesInsumos).forEach(([item, cant]) => {
+      if (Number(cant) > 0) insumosObj[item] = Number(cant);
     });
 
     const aseoObj: { [key: string]: number } = {};
-    Object.entries(cantidadesAseo).forEach(([itemKey, cant]) => {
-      const num = Number(cant) || 0;
-      if (num > 0) {
-        const prod = productosAseoBD.find((p) => String(p.id) === String(itemKey));
-        aseoObj[prod?.nombre || itemKey] = num;
-      }
+    Object.entries(cantidadesAseo).forEach(([item, cant]) => {
+      if (Number(cant) > 0) aseoObj[item] = Number(cant);
     });
 
     if (otroInsumoTexto.trim()) insumosObj[`Otro: ${otroInsumoTexto.trim()}`] = 1;
@@ -569,7 +644,7 @@ export default function CentroPage() {
     const sedeId = SEDE_ID_CENTRO;
 
     try {
-      const ok = await crearPedidoInsumosViva({
+      const ok = await crearPedidoInsumosCentro({
         sedeId,
         usuarioId,
         paletas: paletasObj,
@@ -580,7 +655,7 @@ export default function CentroPage() {
       });
 
       if (ok) {
-        alert('¡Pedido de Sede Centro registrado correctamente!');
+        alert('¡Pedido de Centro registrado correctamente!');
         limpiarPedPaletas();
         limpiarPedRichi();
         limpiarPedInsumos();
@@ -639,6 +714,16 @@ export default function CentroPage() {
 
     if (ok) {
       if (esTurnoCierre) {
+        const hoyInicio = new Date();
+        hoyInicio.setHours(0, 0, 0, 0);
+
+        await supabase
+          .from('caja')
+          .update({ estado: 'cerrada', efectivo_cierre: efCaja })
+          .eq('sede_id', SEDE_ID_CENTRO)
+          .gte('fecha', hoyInicio.toISOString())
+          .eq('estado', 'abierta');
+
         alert(`¡Cierre de jornada completado con éxito!\n\nNómina: $ ${totalNomina.toLocaleString('es-CO')}\nTotal Recaudado: $ ${totalVentasCalculado.toLocaleString('es-CO')}\nGastos: $ ${gst.toLocaleString('es-CO')}\n\n¡Hasta mañana!`);
         localStorage.removeItem('martineto_efectivo_manana_centro');
         
@@ -738,18 +823,27 @@ export default function CentroPage() {
 
   return (
     <main className="min-h-screen bg-[#004e8c] text-[#f1f5f9] p-4 font-sans max-w-6xl mx-auto space-y-4 relative">
+      {/* Header Banner con Logo Walers */}
       <header className="bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl flex justify-between items-center shadow-lg">
-        <div>
-          <h1 className="text-base md:text-lg font-black text-white tracking-wide flex items-center gap-2">
-            <span className="w-3 h-3 rounded-full bg-[#00a4ef] inline-block shadow-sm"></span>
-            🏛️ WALERS CENTRO
-          </h1>
-          <p className="text-xs text-sky-200 font-medium">
-            Operador en Turno: <b className="text-white font-bold">{sesion?.nombre || 'Operador'}</b>
-            <span className="ml-2 text-sky-100 font-bold uppercase bg-[#003d6d] px-2 py-0.5 rounded-md border border-[#0066b3]">
-              ({esTurnoCierre ? 'Día Completo / Cierre' : 'Mañana / Apertura'})
-            </span>
-          </p>
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-[#003d6d] border border-[#0066b3] p-1 flex items-center justify-center overflow-hidden shrink-0 shadow">
+            <img
+              src="/walers.png.jpeg"
+              alt="Walers Centro"
+              className="w-full h-full object-contain"
+            />
+          </div>
+          <div>
+            <h1 className="text-base md:text-lg font-black text-white tracking-wide flex items-center gap-2">
+              WALERS CENTRO
+            </h1>
+            <p className="text-xs text-sky-200 font-medium">
+              Operador en Turno: <b className="text-white font-bold">{sesion?.nombre || 'Operador'}</b>
+              <span className="ml-2 text-sky-100 font-bold uppercase bg-[#003d6d] px-2 py-0.5 rounded-md border border-[#0066b3]">
+                ({esTurnoCierre ? 'Día Completo / Cierre' : 'Mañana / Apertura'})
+              </span>
+            </p>
+          </div>
         </div>
         <button
           onClick={cerrarSesion}
@@ -811,10 +905,10 @@ export default function CentroPage() {
       {/* GRID DOS COLUMNAS */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
         
-        {/* COLUMNA IZQUIERDA: INVENTARIO */}
+        {/* COLUMNA IZQUIERDA: INVENTARIO POR SABORES */}
         <div className="bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-4 shadow-md">
           <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
-            <h2 className="text-xs md:text-sm font-black text-white">🍦 Conteo de Inventario</h2>
+            <h2 className="text-xs md:text-sm font-black text-white">🍦 Conteo de Paletas por Sabor</h2>
             <span className="text-[11px] text-sky-200 font-bold uppercase bg-[#003d6d] px-2 py-0.5 rounded-md border border-[#0066b3]">{tipoMovimiento}</span>
           </div>
 
@@ -838,42 +932,58 @@ export default function CentroPage() {
             </select>
           </div>
 
-          {/* CAMPO ÚNICO PARA TOTAL DE PALETAS EN TODOS LOS MOVIMIENTOS */}
-          <div className="bg-[#051829] border border-[#0066b3] p-4 rounded-xl space-y-2">
-            <span className="text-xs font-black text-emerald-300 block uppercase">
-              📥 Total de Paletas ({tipoMovimiento.toUpperCase()}):
+          <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1 border border-[#0066b3]/50 p-2.5 rounded-xl bg-[#051829]">
+            <span className="text-[10px] text-sky-300 font-bold uppercase block mb-1">Ingresar Cantidad por Sabor:</span>
+            {paletasFiltradas.length === 0 ? (
+              <p className="text-xs text-amber-200 text-center py-4 font-semibold">
+                ⚠️ No se encontraron paletas registradas.
+              </p>
+            ) : (
+              paletasFiltradas.map((s, idx) => (
+                <div key={s.id} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2 shadow-sm">
+                  <div className="truncate">
+                    <p className="font-bold text-xs text-white truncate">{s.nombre}</p>
+                    <span className="text-[10px] font-semibold text-sky-300 block -mt-0.5 capitalize">
+                      {s.grupo || s.categoria || 'Paleta'}
+                    </span>
+                  </div>
+                  <input
+                    ref={(el) => { inputsRef.current[`sabor_${s.id}`] = el; }}
+                    type="number"
+                    placeholder="0"
+                    value={cantidadesSabores[s.id] ?? ''}
+                    onChange={(e) => handleSaborCantidadChange(s.id, e.target.value)}
+                    onKeyDown={(e) => handleKeyDownSabor(e, idx)}
+                    onFocus={(e) => e.target.select()}
+                    className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  />
+                </div>
+              ))
+            )}
+          </div>
+
+          <div className="bg-[#0e385e] p-3 rounded-2xl border border-[#0066b3] flex justify-between items-center shadow-inner">
+            <span className="text-xs font-black text-sky-200 uppercase">
+              Total Paletas ({tipoMovimiento.toUpperCase()}):
             </span>
-            <input
-              type="number"
-              placeholder="0"
-              value={totalPaletasNumero}
-              onChange={(e) => setTotalPaletasNumero(e.target.value === '' ? '' : Math.max(0, Number(e.target.value)))}
-              onFocus={(e) => e.target.select()}
-              className="w-full bg-[#0e385e] border border-emerald-400 text-emerald-300 font-black text-lg text-center rounded-xl p-3 outline-none focus:border-emerald-300 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-            />
-            <p className="text-[10px] text-sky-300 text-center font-medium">
-              Ingresa la cantidad total de paletas para esta operación.
-            </p>
+            <span className="text-xl font-black text-white bg-[#051829] px-4 py-1.5 rounded-xl border border-[#0066b3] shadow">
+              {totalPaletasSuma}
+            </span>
           </div>
 
           <div className="bg-[#0e385e] p-3 rounded-xl border border-[#0066b3]/60 space-y-2">
-            <span className="text-[10px] text-sky-300 font-extrabold uppercase block">📦 Conteo de Empaques y Envases (Centro):</span>
-            <div className="space-y-1.5 max-h-[200px] overflow-y-auto pr-1">
-              {LISTA_EMPAQUES_CENTRO.map((item, idx) => (
-                <div key={item} className="flex justify-between items-center bg-[#051829] p-2 rounded-lg border border-[#0066b3]/60">
-                  <span className="text-xs text-white font-bold">{item}:</span>
-                  <input 
-                    ref={(el) => { inputsRef.current[`empaque_${item}`] = el; }}
-                    type="number" 
-                    placeholder="0" 
-                    value={cantidadesEmpaquesCentro[item] ?? ''} 
-                    onChange={(e) => handleEmpaqueCantidadChange(item, e.target.value)}
-                    onKeyDown={(e) => handleKeyDownEmpaque(e, idx)}
-                    onFocus={(e) => e.target.select()} 
-                    className="w-24 bg-[#0e385e] text-sky-200 font-black text-center text-sm rounded-lg p-1.5 outline-none focus:border-[#00a4ef] border border-[#0066b3] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
-                  />
-                </div>
-              ))}
+            <span className="text-[10px] text-sky-300 font-extrabold uppercase block">Conteo de Empaques:</span>
+            <div className="flex justify-between items-center bg-[#051829] p-2.5 rounded-lg border border-[#0066b3]">
+              <span className="text-xs text-white font-bold">📦 Caja Mostac:</span>
+              <input 
+                ref={(el) => { inputsRef.current['caja_mostac'] = el; }}
+                type="number" 
+                placeholder="0" 
+                value={cajasMostrador} 
+                onChange={(e) => setCajasMostrador(e.target.value === '' ? '' : Number(e.target.value))} 
+                onFocus={(e) => e.target.select()} 
+                className="w-24 bg-[#0e385e] text-sky-200 font-black text-center text-sm rounded-lg p-2 outline-none focus:border-[#00a4ef] border border-[#0066b3] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+              />
             </div>
           </div>
 
@@ -934,7 +1044,7 @@ export default function CentroPage() {
 
                 {categoriaPedido === 'paletas' && (
                   <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 border border-[#0066b3]/50 p-2.5 rounded-xl bg-[#051829]">
-                    <span className="text-[10px] text-sky-300 font-bold uppercase block">Seleccionar Sabores a Solicitar a Bodega:</span>
+                    <span className="text-[10px] text-sky-300 font-bold uppercase block">Seleccionar Sabores a Solicitar:</span>
                     {paletasFiltradas.map((s, idx) => (
                       <div key={s.id} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2">
                         <div className="truncate">
@@ -960,20 +1070,20 @@ export default function CentroPage() {
 
                 {categoriaPedido === 'richi' && (
                   <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 border border-[#0066b3]/50 p-2.5 rounded-xl bg-[#051829]">
-                    <span className="text-[10px] text-sky-300 font-bold uppercase block">Plásticos Richi (BD)</span>
-                    {productosRichiBD.length === 0 ? (
-                      <p className="text-xs text-sky-400 italic text-center py-4">No hay productos en categoría Richi.</p>
+                    <span className="text-[10px] text-sky-300 font-bold uppercase block">Empaques / Richi:</span>
+                    {richiFiltrados.length === 0 ? (
+                      <p className="text-xs text-amber-200 text-center py-4 font-semibold">No hay empaques guardados en la BD.</p>
                     ) : (
-                      productosRichiBD.map((item, idx) => (
+                      richiFiltrados.map((item, idx) => (
                         <div key={item.id} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2">
                           <span className="text-xs font-bold text-white truncate">{item.nombre}</span>
                           <input 
                             ref={(el) => { inputsRef.current[`pedido_richi_${item.id}`] = el; }}
                             type="number" 
                             placeholder="0" 
-                            value={cantidadesRichi[item.id] ?? ''} 
-                            onChange={(e) => handleItemGenericoChange(String(item.id), e.target.value, setCantidadesRichi)} 
-                            onKeyDown={(e) => handleKeyDownPedido(e, idx, productosRichiBD, 'pedido_richi')}
+                            value={cantidadesRichi[item.nombre] ?? ''} 
+                            onChange={(e) => handleItemGenericoChange(item.nombre, e.target.value, setCantidadesRichi)} 
+                            onKeyDown={(e) => handleKeyDownPedido(e, idx, richiFiltrados, 'pedido_richi')}
                             onFocus={(e) => e.target.select()} 
                             className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
                           />
@@ -985,20 +1095,20 @@ export default function CentroPage() {
 
                 {categoriaPedido === 'insumos' && (
                   <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 border border-[#0066b3]/50 p-2.5 rounded-xl bg-[#051829]">
-                    <span className="text-[10px] text-sky-300 font-bold uppercase block">Insumos y Toppings (BD)</span>
-                    {productosInsumosListaBD.length === 0 ? (
-                      <p className="text-xs text-sky-400 italic text-center py-4">No hay productos en categoría Insumos.</p>
+                    <span className="text-[10px] text-sky-300 font-bold uppercase block">Insumos y Toppings:</span>
+                    {insumosFiltrados.length === 0 ? (
+                      <p className="text-xs text-amber-200 text-center py-4 font-semibold">No hay insumos guardados en la BD.</p>
                     ) : (
-                      productosInsumosListaBD.map((item, idx) => (
+                      insumosFiltrados.map((item, idx) => (
                         <div key={item.id} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2">
                           <span className="text-xs font-bold text-white truncate">{item.nombre}</span>
                           <input 
                             ref={(el) => { inputsRef.current[`pedido_ins_${item.id}`] = el; }}
                             type="number" 
                             placeholder="0" 
-                            value={cantidadesInsumos[item.id] ?? ''} 
-                            onChange={(e) => handleItemGenericoChange(String(item.id), e.target.value, setCantidadesInsumos)} 
-                            onKeyDown={(e) => handleKeyDownPedido(e, idx, productosInsumosListaBD, 'pedido_ins')}
+                            value={cantidadesInsumos[item.nombre] ?? ''} 
+                            onChange={(e) => handleItemGenericoChange(item.nombre, e.target.value, setCantidadesInsumos)} 
+                            onKeyDown={(e) => handleKeyDownPedido(e, idx, insumosFiltrados, 'pedido_ins')}
                             onFocus={(e) => e.target.select()} 
                             className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
                           />
@@ -1010,20 +1120,20 @@ export default function CentroPage() {
 
                 {categoriaPedido === 'aseo' && (
                   <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 border border-[#0066b3]/50 p-2.5 rounded-xl bg-[#051829]">
-                    <span className="text-[10px] text-sky-300 font-bold uppercase block">Implementos de Aseo (BD)</span>
-                    {productosAseoBD.length === 0 ? (
-                      <p className="text-xs text-sky-400 italic text-center py-4">No hay productos en categoría Aseo.</p>
+                    <span className="text-[10px] text-sky-300 font-bold uppercase block">Implementos de Aseo:</span>
+                    {aseoFiltrados.length === 0 ? (
+                      <p className="text-xs text-amber-200 text-center py-4 font-semibold">No hay artículos de aseo guardados en la BD.</p>
                     ) : (
-                      productosAseoBD.map((item, idx) => (
+                      aseoFiltrados.map((item, idx) => (
                         <div key={item.id} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2">
                           <span className="text-xs font-bold text-white truncate">{item.nombre}</span>
                           <input 
                             ref={(el) => { inputsRef.current[`pedido_aseo_${item.id}`] = el; }}
                             type="number" 
                             placeholder="0" 
-                            value={cantidadesAseo[item.id] ?? ''} 
-                            onChange={(e) => handleItemGenericoChange(String(item.id), e.target.value, setCantidadesAseo)} 
-                            onKeyDown={(e) => handleKeyDownPedido(e, idx, productosAseoBD, 'pedido_aseo')}
+                            value={cantidadesAseo[item.nombre] ?? ''} 
+                            onChange={(e) => handleItemGenericoChange(item.nombre, e.target.value, setCantidadesAseo)} 
+                            onKeyDown={(e) => handleKeyDownPedido(e, idx, aseoFiltrados, 'pedido_aseo')}
                             onFocus={(e) => e.target.select()} 
                             className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
                           />
@@ -1033,57 +1143,131 @@ export default function CentroPage() {
                   </div>
                 )}
 
-                <div className="bg-[#051829] border border-[#0066b3] p-3 rounded-xl space-y-2">
-                  <span className="text-[11px] font-black text-sky-200 uppercase block border-b border-[#0066b3]/40 pb-1">
-                    🛒 Listado del Pedido en Curso ({resumenPedidoActual.length} ítems)
+                <div className="bg-[#051829] border border-amber-400/40 p-3 rounded-xl space-y-2">
+                  <span className="text-[10px] font-black text-amber-300 uppercase block border-b border-[#0066b3]/40 pb-1">
+                    📋 Listado de Pedido Actual (Por Categorías)
                   </span>
-                  
-                  <div className="max-h-40 overflow-y-auto space-y-1.5 pr-1">
-                    {resumenPedidoActual.length === 0 ? (
-                      <p className="text-[11px] text-sky-400 italic text-center py-3">
-                        Aún no has seleccionado ningún producto para este pedido.
-                      </p>
-                    ) : (
-                      resumenPedidoActual.map((item, idx) => (
-                        <div key={`${item.categoria}_${item.claveId}_${idx}`} className="bg-[#0e385e] border border-[#0066b3] p-2 rounded-lg flex justify-between items-center text-xs">
-                          <div>
-                            <span className="font-bold text-white block">{item.nombre}</span>
-                            <span className="text-[9px] text-sky-300 uppercase">Cat: {item.categoria}</span>
+
+                  {(() => {
+                    const paletasSeleccionadas = Object.entries(cantidadesPedidoPaletas).filter(([_, cant]) => Number(cant) > 0);
+                    const richiSeleccionados = Object.entries(cantidadesRichi).filter(([_, cant]) => Number(cant) > 0);
+                    const insumosSeleccionados = Object.entries(cantidadesInsumos).filter(([_, cant]) => Number(cant) > 0);
+                    const aseoSeleccionados = Object.entries(cantidadesAseo).filter(([_, cant]) => Number(cant) > 0);
+                    const tieneOtro = Boolean(otroInsumoTexto.trim());
+
+                    const totalSeleccionados = paletasSeleccionadas.length + richiSeleccionados.length + insumosSeleccionados.length + aseoSeleccionados.length + (tieneOtro ? 1 : 0);
+
+                    if (totalSeleccionados === 0) {
+                      return <p className="text-[11px] text-sky-400 italic text-center py-2">No hay productos agregados al pedido todavía.</p>;
+                    }
+
+                    return (
+                      <div className="space-y-2 max-h-40 overflow-y-auto pr-1 text-xs">
+                        {paletasSeleccionadas.length > 0 && (
+                          <div className="space-y-1">
+                            <span className="text-[10px] font-bold text-sky-300 block">🍦 Paletas:</span>
+                            {paletasSeleccionadas.map(([saborId, cant]) => {
+                              const sObj = saboresCentro.find((s) => s.id === Number(saborId));
+                              return (
+                                <div key={saborId} className="flex justify-between items-center bg-[#0e385e] px-2.5 py-1 rounded-lg border border-[#0066b3]/40">
+                                  <span className="text-white truncate">{sObj?.nombre || 'Sabor'} <b className="text-emerald-300">x{cant}</b></span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setCantidadesPedidoPaletas((prev) => ({ ...prev, [saborId]: '' }))}
+                                    className="text-rose-400 hover:text-rose-200 font-black px-1.5 py-0.5 rounded text-[11px] cursor-pointer"
+                                    title="Borrar producto"
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              );
+                            })}
                           </div>
-                          <div className="flex items-center gap-2">
-                            <span className="bg-emerald-600 text-white font-black text-[11px] px-2 py-0.5 rounded-md">
-                              {item.cantidad} un.
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (item.categoria === 'paletas') {
-                                  setCantidadesPedidoPaletas((prev) => ({ ...prev, [item.claveId]: '' }));
-                                } else if (item.categoria === 'richi') {
-                                  setCantidadesRichi((prev) => ({ ...prev, [item.claveId]: '' }));
-                                } else if (item.categoria === 'insumos') {
-                                  setCantidadesInsumos((prev) => ({ ...prev, [item.claveId]: '' }));
-                                } else if (item.categoria === 'aseo') {
-                                  setCantidadesAseo((prev) => ({ ...prev, [item.claveId]: '' }));
-                                }
-                              }}
-                              title="Quitar ítem"
-                              className="text-sky-300 hover:text-rose-400 font-black text-sm px-1 rounded transition-colors cursor-pointer"
-                            >
-                              ✕
-                            </button>
+                        )}
+
+                        {richiSeleccionados.length > 0 && (
+                          <div className="space-y-1">
+                            <span className="text-[10px] font-bold text-sky-300 block">🛍️ Richi / Empaques:</span>
+                            {richiSeleccionados.map(([nombre, cant]) => (
+                              <div key={nombre} className="flex justify-between items-center bg-[#0e385e] px-2.5 py-1 rounded-lg border border-[#0066b3]/40">
+                                <span className="text-white truncate">{nombre} <b className="text-emerald-300">x{cant}</b></span>
+                                <button
+                                  type="button"
+                                  onClick={() => setCantidadesRichi((prev) => ({ ...prev, [nombre]: '' }))}
+                                  className="text-rose-400 hover:text-rose-200 font-black px-1.5 py-0.5 rounded text-[11px] cursor-pointer"
+                                  title="Borrar producto"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            ))}
                           </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
+                        )}
+
+                        {insumosSeleccionados.length > 0 && (
+                          <div className="space-y-1">
+                            <span className="text-[10px] font-bold text-sky-300 block">🍫 Insumos:</span>
+                            {insumosSeleccionados.map(([nombre, cant]) => (
+                              <div key={nombre} className="flex justify-between items-center bg-[#0e385e] px-2.5 py-1 rounded-lg border border-[#0066b3]/40">
+                                <span className="text-white truncate">{nombre} <b className="text-emerald-300">x{cant}</b></span>
+                                <button
+                                  type="button"
+                                  onClick={() => setCantidadesInsumos((prev) => ({ ...prev, [nombre]: '' }))}
+                                  className="text-rose-400 hover:text-rose-200 font-black px-1.5 py-0.5 rounded text-[11px] cursor-pointer"
+                                  title="Borrar producto"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {aseoSeleccionados.length > 0 && (
+                          <div className="space-y-1">
+                            <span className="text-[10px] font-bold text-sky-300 block">🧹 Aseo:</span>
+                            {aseoSeleccionados.map(([nombre, cant]) => (
+                              <div key={nombre} className="flex justify-between items-center bg-[#0e385e] px-2.5 py-1 rounded-lg border border-[#0066b3]/40">
+                                <span className="text-white truncate">{nombre} <b className="text-emerald-300">x{cant}</b></span>
+                                <button
+                                  type="button"
+                                  onClick={() => setCantidadesAseo((prev) => ({ ...prev, [nombre]: '' }))}
+                                  className="text-rose-400 hover:text-rose-200 font-black px-1.5 py-0.5 rounded text-[11px] cursor-pointer"
+                                  title="Borrar producto"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {tieneOtro && (
+                          <div className="space-y-1">
+                            <span className="text-[10px] font-bold text-sky-300 block">✏️ Otro Adicional:</span>
+                            <div className="flex justify-between items-center bg-[#0e385e] px-2.5 py-1 rounded-lg border border-[#0066b3]/40">
+                              <span className="text-white truncate">{otroInsumoTexto}</span>
+                              <button
+                                type="button"
+                                onClick={() => setOtroInsumoTexto('')}
+                                className="text-rose-400 hover:text-rose-200 font-black px-1.5 py-0.5 rounded text-[11px] cursor-pointer"
+                                title="Borrar producto"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 <input type="text" placeholder="Otro producto adicional..." value={otroInsumoTexto} onChange={(e) => setOtroInsumoTexto(e.target.value)} className="w-full bg-[#051829] border border-[#0066b3] text-white p-2.5 rounded-xl outline-none text-xs focus:border-[#00a4ef]" />
                 <input type="text" placeholder="Observación general del pedido..." value={obsPedido} onChange={(e) => setObsPedido(e.target.value)} className="w-full bg-[#051829] border border-[#0066b3] text-white p-2.5 rounded-xl outline-none text-xs focus:border-[#00a4ef]" />
 
                 <button onClick={handleGuardarPedidoInsumos} disabled={guardando} className="w-full bg-[#0078d4] hover:bg-[#0086e6] text-white font-black py-2.5 rounded-xl text-xs uppercase transition-all shadow-md cursor-pointer disabled:opacity-50">
-                  {guardando ? 'Guardando pedido...' : `🚀 Enviar Pedido a Bodega (${resumenPedidoActual.length} productos)`}
+                  {guardando ? 'Guardando pedido...' : '🚀 Enviar Pedido a Bodega'}
                 </button>
               </div>
             )}
@@ -1383,7 +1567,7 @@ export default function CentroPage() {
                 🔄
               </div>
               <h3 className="text-lg font-black text-white tracking-wide">
-                Recepción de Turno
+                Recepción de Turno — Walers Centro
               </h3>
               <p className="text-xs text-sky-200 font-medium">
                 Selecciona al operario entrante e ingresa sus credenciales

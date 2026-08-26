@@ -54,7 +54,7 @@ export default function MartinetoPOSPage() {
   // MÓDULO ACTIVO NAVEGACIÓN
   const [moduloActivo, setModuloActivo] = useState<ModuloPrincipal>('movimientos');
 
-  // AUTO-SAVE: Base de Caja (Limpiamos residuos de '1' al iniciar)
+  // AUTO-SAVE: Base de Caja
   const [baseCaja, setBaseCaja, limpiarBaseCaja] = useAutoSave<number | ''>('martineto_baseCaja', '');
   const [baseGuardada, setBaseGuardada] = useState(false);
   const [aperturaRealizada, setAperturaRealizada] = useState(false);
@@ -212,7 +212,6 @@ export default function MartinetoPOSPage() {
     const ses = JSON.parse(sesionLocal);
     setSesion(ses);
 
-    // Limpieza preventiva de residuos '1' en la base de caja al ingresar por primera vez (si no se ha guardado base)
     const valorActualCaja = localStorage.getItem('martineto_baseCaja');
     if (valorActualCaja === '1' || valorActualCaja === 'ús') {
       localStorage.removeItem('martineto_baseCaja');
@@ -467,6 +466,41 @@ export default function MartinetoPOSPage() {
           sesionActual.turno_nombre = turnoData[0].nombre;
           setSesion({ ...sesionActual });
         }
+      }
+
+      // --- VALIDACIÓN AUTOMÁTICA DE CAJA ABIIERTA PARA HOY ---
+      const hoyInicio = new Date();
+      hoyInicio.setHours(0, 0, 0, 0);
+
+      const { data: cajaHoyBD } = await supabase
+        .from('caja')
+        .select('*')
+        .eq('sede_id', SEDE_ID_MARTINETO)
+        .gte('fecha', hoyInicio.toISOString())
+        .eq('estado', 'abierta')
+        .order('id', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (cajaHoyBD) {
+        setBaseCaja(Number(cajaHoyBD.monto_apertura) || 0);
+        setBaseGuardada(true);
+      }
+
+      // --- VALIDACIÓN AUTOMÁTICA DE INVENTARIO DE APERTURA PARA HOY ---
+      const { data: invHoyBD } = await supabase
+        .from('inventario_diario')
+        .select('*')
+        .eq('sede_id', SEDE_ID_MARTINETO)
+        .gte('fecha_registro', hoyInicio.toISOString())
+        .ilike('tipo_movimiento', 'apertura')
+        .order('id', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (invHoyBD) {
+        setAperturaRealizada(true);
+        setTipoMovimiento('nuevas');
       }
 
       const { data: configTarifas } = await supabase
@@ -1876,22 +1910,16 @@ export default function MartinetoPOSPage() {
     const turnoId = sesion?.turno_id ? Number(sesion.turno_id) : null;
 
     try {
-      const payloadCaja = {
-        sede_id: SEDE_ID_MARTINETO,
-        usuario_id: usuarioId ? Number(usuarioId) : null,
-        turno_id: turnoId,
-        monto_apertura: Number(baseCaja) || 0,
-        efectivo_cierre: efecContado,
-        nequi: totalNequiIngresado,
-        daviplata: totalDaviplataIngresado,
-        monto_gasto: sumaGastosTotal,
-        descuento: totalDescuentosDia,
-        motivo_descuento: listaMotivosUnicosDescuento,
-        diferencia: difCaja,
-      };
+      const hoyInicio = new Date();
+      hoyInicio.setHours(0, 0, 0, 0);
 
-      const { error: errCaja } = await supabase.from('caja').insert([payloadCaja]);
-      if (errCaja) throw new Error(`Error guardando en caja: ${errCaja.message}`);
+      // --- CAMBIAR ESTADO DE LA CAJA A 'cerrada' PARA HOY ---
+      await supabase
+        .from('caja')
+        .update({ estado: 'cerrada', efectivo_cierre: efecContado, diferencia: difCaja })
+        .eq('sede_id', SEDE_ID_MARTINETO)
+        .gte('fecha', hoyInicio.toISOString())
+        .eq('estado', 'abierta');
 
       const detallePaletasCierre: { [key: string]: number } = {};
       const detalleEmpaquesCierre: { [key: string]: number } = {};
@@ -3170,14 +3198,14 @@ export default function MartinetoPOSPage() {
             <div className="flex gap-2 pt-2">
               <button
                 onClick={() => setMostrarModalResumen(false)}
-                className="w-1/2 bg-[#051829] hover:bg-[#003d6d] text-sky-200 border border-[#0066b3] font-bold py-3 rounded-xl text-xs uppercase cursor-pointer"
+                className="w-1/2 bg-[#051829] hover:bg-[#003d6d] text-sky-200 border border-[#0066b3] font-bold py-2 rounded-xl text-xs uppercase cursor-pointer"
               >
                 Cerrar Auditoría
               </button>
               <button
                 onClick={guardarCierreDefinitivoBD}
                 disabled={guardandoCierre || !nominaPagadaEnTurno}
-                className="w-1/2 bg-emerald-600 hover:bg-emerald-500 text-white font-black py-3 rounded-xl text-xs uppercase cursor-pointer shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-1/2 bg-emerald-600 hover:bg-emerald-500 text-white font-black py-2 rounded-xl text-xs uppercase cursor-pointer shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {guardandoCierre ? 'Guardando en BD...' : '💾 Confirmar y Guardar Cierre en BD'}
               </button>
