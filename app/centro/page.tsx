@@ -34,57 +34,6 @@ const LISTA_EMPAQUES_CENTRO = [
   'Vaso Malteada',
 ];
 
-const LISTA_PLASTICOS_RICHI = [
-  'Bolsa Blanca',
-  'Bolsa de Papel',
-  'Cucharitas',
-  'Vaso agua',
-];
-
-const LISTA_INSUMOS_MATERIA = [
-  'Capacillos',
-  'Chamoy',
-  'Chip chocolate',
-  'Chocolate cobertura Blanco',
-  'Chocolate Cobertura Negro',
-  'Flips',
-  'Galleta oreo',
-  'Gomitas',
-  'Grasa',
-  'Leche condensada',
-  'Mani',
-  'Nerds',
-  'Nutella',
-  'Pepitas colores',
-  'Pistacho',
-  'Plato Mostac',
-  'Quipitos',
-  'Sal limón',
-  'Semillas de girasol',
-  'Servilletas',
-  'Tajín',
-  'Zumo de Limon',
-];
-
-const LISTA_ASEO = [
-  'Antibacterial',
-  'Bolsas de basura',
-  'Clorox',
-  'Escoba',
-  'Esponjillas',
-  'Guantes de Nitrilo',
-  'Jabon de Manos',
-  'Jabón loza',
-  'Jabón en polvo',
-  'Limpia Pisos',
-  'Liquido Verde',
-  'Papel higiénico',
-  'Tapabocas',
-  'Toallas de papel',
-  'Trapero',
-  'Trapitos',
-];
-
 const formatearMoneda = (val: number | string): string => {
   if (val === '' || val === null || val === undefined) return '';
   const num = typeof val === 'string' ? Number(val.replace(/\D/g, '')) : val;
@@ -120,9 +69,8 @@ export default function CentroPage() {
 
   // AUTO-SAVE: Movimientos e Inventario
   const [tipoMovimiento, setTipoMovimiento] = useState<string>('apertura');
-  const [totalPaletasApertura, setTotalPaletasApertura, limpiarTotalApertura] = useAutoSave<number | ''>('centro_totalPaletasApertura', '');
+  const [totalPaletasNumero, setTotalPaletasNumero, limpiarTotalPaletasNumero] = useAutoSave<number | ''>('centro_totalPaletasNumero', '');
   const [saboresCentro, setSaboresCentro] = useState<any[]>([]);
-  const [cantidadesSabores, setCantidadesSabores, limpiarCantidadesSabores] = useAutoSave<{ [saborId: number]: number | '' }>('centro_cantidadesSabores', {});
   const [cantidadesEmpaquesCentro, setCantidadesEmpaquesCentro, limpiarCantidadesEmpaques] = useAutoSave<{ [item: string]: number | '' }>('centro_cantidadesEmpaques', {});
   const [observaciones, setObservaciones, limpiarObsInv] = useAutoSave<string>('centro_observacionesInv', '');
 
@@ -178,6 +126,11 @@ export default function CentroPage() {
 
   const SEDE_ID_CENTRO = 2;
 
+  // Listas de productos dinámicas filtradas de la base de datos
+  const productosRichiBD = productosInsumosBD.filter((p) => p.categoriaLimpia === 'richi');
+  const productosInsumosListaBD = productosInsumosBD.filter((p) => p.categoriaLimpia === 'insumos');
+  const productosAseoBD = productosInsumosBD.filter((p) => p.categoriaLimpia === 'aseo');
+
   const listaLugaresCompraUnica = Array.from(
     new Set([
       ...LUGARES_COMPRA_INICIALES,
@@ -211,9 +164,7 @@ export default function CentroPage() {
     return esPaletaCategoria && !esExcluido;
   });
 
-  const totalPaletasSuma = tipoMovimiento === 'apertura'
-    ? (Number(totalPaletasApertura) || 0)
-    : Object.values(cantidadesSabores).reduce((acc: number, val) => acc + (Number(val) || 0), 0);
+  const totalPaletasSuma = Number(totalPaletasNumero) || 0;
 
   const esTurnoCierre = (() => {
     if (!sesion) return false;
@@ -364,26 +315,9 @@ export default function CentroPage() {
     setGuardandoProducto(false);
   }
 
-  function handleSaborCantidadChange(saborId: number, rawVal: string) {
-    const val = rawVal === '' ? '' : Math.max(0, Number(rawVal));
-    setCantidadesSabores((prev) => ({ ...prev, [saborId]: val }));
-  }
-
   function handleEmpaqueCantidadChange(item: string, rawVal: string) {
     const val = rawVal === '' ? '' : Math.max(0, Number(rawVal));
     setCantidadesEmpaquesCentro((prev) => ({ ...prev, [item]: val }));
-  }
-
-  function handleKeyDownSabor(e: React.KeyboardEvent<HTMLInputElement>, index: number) {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      if (index < paletasFiltradas.length - 1) {
-        const siguienteSabor = paletasFiltradas[index + 1];
-        inputsRef.current[`sabor_${siguienteSabor.id}`]?.focus();
-      } else {
-        inputsRef.current[`empaque_${LISTA_EMPAQUES_CENTRO[0]}`]?.focus();
-      }
-    }
   }
 
   function handleKeyDownEmpaque(e: React.KeyboardEvent<HTMLInputElement>, index: number) {
@@ -419,9 +353,9 @@ export default function CentroPage() {
     setCantidadesPedidoPaletas((prev) => ({ ...prev, [saborId]: val }));
   }
 
-  function handleItemGenericoChange(item: string, rawVal: string, setter: React.Dispatch<React.SetStateAction<{ [key: string]: number | '' }>>) {
+  function handleItemGenericoChange(itemKey: string, rawVal: string, setter: React.Dispatch<React.SetStateAction<{ [key: string]: number | '' }>>) {
     const val = rawVal === '' ? '' : Math.max(0, Number(rawVal));
-    setter((prev) => ({ ...prev, [item]: val }));
+    setter((prev) => ({ ...prev, [itemKey]: val }));
   }
 
   const obtenerResumenPedidoActual = () => {
@@ -437,24 +371,27 @@ export default function CentroPage() {
       }
     });
 
-    Object.entries(cantidadesRichi).forEach(([item, cant]) => {
+    Object.entries(cantidadesRichi).forEach(([itemKey, cant]) => {
       const num = Number(cant) || 0;
       if (num > 0) {
-        listaResumen.push({ categoria: 'richi', claveId: item, nombre: item, cantidad: num });
+        const prod = productosRichiBD.find((p) => String(p.id) === String(itemKey));
+        listaResumen.push({ categoria: 'richi', claveId: itemKey, nombre: prod?.nombre || itemKey, cantidad: num });
       }
     });
 
-    Object.entries(cantidadesInsumos).forEach(([item, cant]) => {
+    Object.entries(cantidadesInsumos).forEach(([itemKey, cant]) => {
       const num = Number(cant) || 0;
       if (num > 0) {
-        listaResumen.push({ categoria: 'insumos', claveId: item, nombre: item, cantidad: num });
+        const prod = productosInsumosListaBD.find((p) => String(p.id) === String(itemKey));
+        listaResumen.push({ categoria: 'insumos', claveId: itemKey, nombre: prod?.nombre || itemKey, cantidad: num });
       }
     });
 
-    Object.entries(cantidadesAseo).forEach(([item, cant]) => {
+    Object.entries(cantidadesAseo).forEach(([itemKey, cant]) => {
       const num = Number(cant) || 0;
       if (num > 0) {
-        listaResumen.push({ categoria: 'aseo', claveId: item, nombre: item, cantidad: num });
+        const prod = productosAseoBD.find((p) => String(p.id) === String(itemKey));
+        listaResumen.push({ categoria: 'aseo', claveId: itemKey, nombre: prod?.nombre || itemKey, cantidad: num });
       }
     });
 
@@ -508,18 +445,9 @@ export default function CentroPage() {
       return;
     }
 
-    const detallePaletasObj: { [saborNombre: string]: number } = {};
-    if (tipoMovimiento === 'apertura') {
-      detallePaletasObj['Total Apertura'] = Number(totalPaletasApertura) || 0;
-    } else {
-      Object.entries(cantidadesSabores).forEach(([saborId, cant]) => {
-        const num = Number(cant) || 0;
-        if (num > 0) {
-          const saborObj = saboresCentro.find((s) => s.id === Number(saborId));
-          if (saborObj) detallePaletasObj[saborObj.nombre] = num;
-        }
-      });
-    }
+    const detallePaletasObj: { [saborNombre: string]: number } = {
+      'Total Paletas': totalPaletasSuma
+    };
 
     const detalleEmpaquesObj: { [itemNombre: string]: number } = {};
     Object.entries(cantidadesEmpaquesCentro).forEach(([item, cant]) => {
@@ -562,7 +490,7 @@ export default function CentroPage() {
       if (tipoMovimiento === 'apertura') {
         await procesarDiferenciaAperturaAutomaticaCentro(
           usuarioId, 
-          Number(totalPaletasApertura) || 0, 
+          totalPaletasSuma, 
           detalleEmpaquesObj
         );
         setAperturaRealizada(true);
@@ -573,8 +501,7 @@ export default function CentroPage() {
 
       alert(`✅ ¡Inventario guardado con éxito!`);
       
-      limpiarTotalApertura();
-      limpiarCantidadesSabores();
+      limpiarTotalPaletasNumero();
       limpiarCantidadesEmpaques();
       limpiarObsInv();
 
@@ -598,18 +525,30 @@ export default function CentroPage() {
     });
 
     const richiObj: { [key: string]: number } = {};
-    Object.entries(cantidadesRichi).forEach(([item, cant]) => {
-      if (Number(cant) > 0) richiObj[item] = Number(cant);
+    Object.entries(cantidadesRichi).forEach(([itemKey, cant]) => {
+      const num = Number(cant) || 0;
+      if (num > 0) {
+        const prod = productosRichiBD.find((p) => String(p.id) === String(itemKey));
+        richiObj[prod?.nombre || itemKey] = num;
+      }
     });
 
     const insumosObj: { [key: string]: number } = {};
-    Object.entries(cantidadesInsumos).forEach(([item, cant]) => {
-      if (Number(cant) > 0) insumosObj[item] = Number(cant);
+    Object.entries(cantidadesInsumos).forEach(([itemKey, cant]) => {
+      const num = Number(cant) || 0;
+      if (num > 0) {
+        const prod = productosInsumosListaBD.find((p) => String(p.id) === String(itemKey));
+        insumosObj[prod?.nombre || itemKey] = num;
+      }
     });
 
     const aseoObj: { [key: string]: number } = {};
-    Object.entries(cantidadesAseo).forEach(([item, cant]) => {
-      if (Number(cant) > 0) aseoObj[item] = Number(cant);
+    Object.entries(cantidadesAseo).forEach(([itemKey, cant]) => {
+      const num = Number(cant) || 0;
+      if (num > 0) {
+        const prod = productosAseoBD.find((p) => String(p.id) === String(itemKey));
+        aseoObj[prod?.nombre || itemKey] = num;
+      }
     });
 
     if (otroInsumoTexto.trim()) insumosObj[`Otro: ${otroInsumoTexto.trim()}`] = 1;
@@ -899,65 +838,23 @@ export default function CentroPage() {
             </select>
           </div>
 
-          {tipoMovimiento === 'apertura' ? (
-            <div className="bg-[#051829] border border-[#0066b3] p-4 rounded-xl space-y-2">
-              <span className="text-xs font-black text-emerald-300 block uppercase">
-                📥 Total de Paletas de Apertura (General):
-              </span>
-              <input
-                type="number"
-                placeholder="0"
-                value={totalPaletasApertura}
-                onChange={(e) => setTotalPaletasApertura(e.target.value === '' ? '' : Math.max(0, Number(e.target.value)))}
-                onFocus={(e) => e.target.select()}
-                className="w-full bg-[#0e385e] border border-emerald-400 text-emerald-300 font-black text-lg text-center rounded-xl p-3 outline-none focus:border-emerald-300 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-              />
-              <p className="text-[10px] text-sky-300 text-center font-medium">
-                Ingresa la cantidad global de paletas con la que inicia la sede en este turno.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1 border border-[#0066b3]/50 p-2.5 rounded-xl bg-[#051829]">
-              <span className="text-[10px] text-sky-300 font-bold uppercase block mb-1">Ingresar Cantidad por Sabor:</span>
-              {paletasFiltradas.length === 0 ? (
-                <p className="text-xs text-amber-200 text-center py-4 font-semibold">
-                  ⚠️ No se encontraron paletas registradas. Haz clic en "➕ Crear Producto" a la derecha para agregar nuevos.
-                </p>
-              ) : (
-                paletasFiltradas.map((s, idx) => (
-                  <div key={s.id} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2 shadow-sm">
-                    <div className="truncate">
-                      <p className="font-bold text-xs text-white truncate">{s.nombre}</p>
-                      <span className="text-[10px] font-semibold text-sky-300 block -mt-0.5 capitalize">
-                        {s.grupo || s.categoria || 'Paleta'}
-                      </span>
-                    </div>
-                    <input
-                      ref={(el) => { inputsRef.current[`sabor_${s.id}`] = el; }}
-                      type="number"
-                      placeholder="0"
-                      value={cantidadesSabores[s.id] ?? ''}
-                      onChange={(e) => handleSaborCantidadChange(s.id, e.target.value)}
-                      onKeyDown={(e) => handleKeyDownSabor(e, idx)}
-                      onFocus={(e) => e.target.select()}
-                      className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                    />
-                  </div>
-                ))
-              )}
-            </div>
-          )}
-
-          {tipoMovimiento !== 'apertura' && (
-            <div className="bg-[#0e385e] p-3 rounded-2xl border border-[#0066b3] flex justify-between items-center shadow-inner">
-              <span className="text-xs font-black text-sky-200 uppercase">
-                Total Paletas ({tipoMovimiento.toUpperCase()}):
-              </span>
-              <span className="text-xl font-black text-white bg-[#051829] px-4 py-1.5 rounded-xl border border-[#0066b3] shadow">
-                {totalPaletasSuma}
-              </span>
-            </div>
-          )}
+          {/* CAMPO ÚNICO PARA TOTAL DE PALETAS EN TODOS LOS MOVIMIENTOS */}
+          <div className="bg-[#051829] border border-[#0066b3] p-4 rounded-xl space-y-2">
+            <span className="text-xs font-black text-emerald-300 block uppercase">
+              📥 Total de Paletas ({tipoMovimiento.toUpperCase()}):
+            </span>
+            <input
+              type="number"
+              placeholder="0"
+              value={totalPaletasNumero}
+              onChange={(e) => setTotalPaletasNumero(e.target.value === '' ? '' : Math.max(0, Number(e.target.value)))}
+              onFocus={(e) => e.target.select()}
+              className="w-full bg-[#0e385e] border border-emerald-400 text-emerald-300 font-black text-lg text-center rounded-xl p-3 outline-none focus:border-emerald-300 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            />
+            <p className="text-[10px] text-sky-300 text-center font-medium">
+              Ingresa la cantidad total de paletas para esta operación.
+            </p>
+          </div>
 
           <div className="bg-[#0e385e] p-3 rounded-xl border border-[#0066b3]/60 space-y-2">
             <span className="text-[10px] text-sky-300 font-extrabold uppercase block">📦 Conteo de Empaques y Envases (Centro):</span>
@@ -1063,64 +960,76 @@ export default function CentroPage() {
 
                 {categoriaPedido === 'richi' && (
                   <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 border border-[#0066b3]/50 p-2.5 rounded-xl bg-[#051829]">
-                    <span className="text-[10px] text-sky-300 font-bold uppercase block">Plásticos Richi</span>
-                    {LISTA_PLASTICOS_RICHI.map((item, idx) => (
-                      <div key={item} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2">
-                        <span className="text-xs font-bold text-white truncate">{item}</span>
-                        <input 
-                          ref={(el) => { inputsRef.current[`pedido_richi_${item}`] = el; }}
-                          type="number" 
-                          placeholder="0" 
-                          value={cantidadesRichi[item] ?? ''} 
-                          onChange={(e) => handleItemGenericoChange(item, e.target.value, setCantidadesRichi)} 
-                          onKeyDown={(e) => handleKeyDownPedido(e, idx, LISTA_PLASTICOS_RICHI, 'pedido_richi')}
-                          onFocus={(e) => e.target.select()} 
-                          className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
-                        />
-                      </div>
-                    ))}
+                    <span className="text-[10px] text-sky-300 font-bold uppercase block">Plásticos Richi (BD)</span>
+                    {productosRichiBD.length === 0 ? (
+                      <p className="text-xs text-sky-400 italic text-center py-4">No hay productos en categoría Richi.</p>
+                    ) : (
+                      productosRichiBD.map((item, idx) => (
+                        <div key={item.id} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2">
+                          <span className="text-xs font-bold text-white truncate">{item.nombre}</span>
+                          <input 
+                            ref={(el) => { inputsRef.current[`pedido_richi_${item.id}`] = el; }}
+                            type="number" 
+                            placeholder="0" 
+                            value={cantidadesRichi[item.id] ?? ''} 
+                            onChange={(e) => handleItemGenericoChange(String(item.id), e.target.value, setCantidadesRichi)} 
+                            onKeyDown={(e) => handleKeyDownPedido(e, idx, productosRichiBD, 'pedido_richi')}
+                            onFocus={(e) => e.target.select()} 
+                            className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                          />
+                        </div>
+                      ))
+                    )}
                   </div>
                 )}
 
                 {categoriaPedido === 'insumos' && (
                   <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 border border-[#0066b3]/50 p-2.5 rounded-xl bg-[#051829]">
-                    <span className="text-[10px] text-sky-300 font-bold uppercase block">Insumos y Toppings</span>
-                    {LISTA_INSUMOS_MATERIA.map((item, idx) => (
-                      <div key={item} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2">
-                        <span className="text-xs font-bold text-white truncate">{item}</span>
-                        <input 
-                          ref={(el) => { inputsRef.current[`pedido_ins_${item}`] = el; }}
-                          type="number" 
-                          placeholder="0" 
-                          value={cantidadesInsumos[item] ?? ''} 
-                          onChange={(e) => handleItemGenericoChange(item, e.target.value, setCantidadesInsumos)} 
-                          onKeyDown={(e) => handleKeyDownPedido(e, idx, LISTA_INSUMOS_MATERIA, 'pedido_ins')}
-                          onFocus={(e) => e.target.select()} 
-                          className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
-                        />
-                      </div>
-                    ))}
+                    <span className="text-[10px] text-sky-300 font-bold uppercase block">Insumos y Toppings (BD)</span>
+                    {productosInsumosListaBD.length === 0 ? (
+                      <p className="text-xs text-sky-400 italic text-center py-4">No hay productos en categoría Insumos.</p>
+                    ) : (
+                      productosInsumosListaBD.map((item, idx) => (
+                        <div key={item.id} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2">
+                          <span className="text-xs font-bold text-white truncate">{item.nombre}</span>
+                          <input 
+                            ref={(el) => { inputsRef.current[`pedido_ins_${item.id}`] = el; }}
+                            type="number" 
+                            placeholder="0" 
+                            value={cantidadesInsumos[item.id] ?? ''} 
+                            onChange={(e) => handleItemGenericoChange(String(item.id), e.target.value, setCantidadesInsumos)} 
+                            onKeyDown={(e) => handleKeyDownPedido(e, idx, productosInsumosListaBD, 'pedido_ins')}
+                            onFocus={(e) => e.target.select()} 
+                            className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                          />
+                        </div>
+                      ))
+                    )}
                   </div>
                 )}
 
                 {categoriaPedido === 'aseo' && (
                   <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 border border-[#0066b3]/50 p-2.5 rounded-xl bg-[#051829]">
-                    <span className="text-[10px] text-sky-300 font-bold uppercase block">Implementos de Aseo</span>
-                    {LISTA_ASEO.map((item, idx) => (
-                      <div key={item} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2">
-                        <span className="text-xs font-bold text-white truncate">{item}</span>
-                        <input 
-                          ref={(el) => { inputsRef.current[`pedido_aseo_${item}`] = el; }}
-                          type="number" 
-                          placeholder="0" 
-                          value={cantidadesAseo[item] ?? ''} 
-                          onChange={(e) => handleItemGenericoChange(item, e.target.value, setCantidadesAseo)} 
-                          onKeyDown={(e) => handleKeyDownPedido(e, idx, LISTA_ASEO, 'pedido_aseo')}
-                          onFocus={(e) => e.target.select()} 
-                          className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
-                        />
-                      </div>
-                    ))}
+                    <span className="text-[10px] text-sky-300 font-bold uppercase block">Implementos de Aseo (BD)</span>
+                    {productosAseoBD.length === 0 ? (
+                      <p className="text-xs text-sky-400 italic text-center py-4">No hay productos en categoría Aseo.</p>
+                    ) : (
+                      productosAseoBD.map((item, idx) => (
+                        <div key={item.id} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2">
+                          <span className="text-xs font-bold text-white truncate">{item.nombre}</span>
+                          <input 
+                            ref={(el) => { inputsRef.current[`pedido_aseo_${item.id}`] = el; }}
+                            type="number" 
+                            placeholder="0" 
+                            value={cantidadesAseo[item.id] ?? ''} 
+                            onChange={(e) => handleItemGenericoChange(String(item.id), e.target.value, setCantidadesAseo)} 
+                            onKeyDown={(e) => handleKeyDownPedido(e, idx, productosAseoBD, 'pedido_aseo')}
+                            onFocus={(e) => e.target.select()} 
+                            className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                          />
+                        </div>
+                      ))
+                    )}
                   </div>
                 )}
 

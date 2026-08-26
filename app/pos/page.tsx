@@ -54,10 +54,13 @@ export default function MartinetoPOSPage() {
   // MÓDULO ACTIVO NAVEGACIÓN
   const [moduloActivo, setModuloActivo] = useState<ModuloPrincipal>('movimientos');
 
-  // AUTO-SAVE: Base de Caja
+  // AUTO-SAVE: Base de Caja (Limpiamos residuos de '1' al iniciar)
   const [baseCaja, setBaseCaja, limpiarBaseCaja] = useAutoSave<number | ''>('martineto_baseCaja', '');
   const [baseGuardada, setBaseGuardada] = useState(false);
   const [aperturaRealizada, setAperturaRealizada] = useState(false);
+
+  // NUEVA TABLA: EMPAQUES Y PALETAS DESDE BD
+  const [empaquesBD, setEmpaquesBD] = useState<any[]>([]);
 
   // AUTO-SAVE: Inventario y Movimientos
   const [tipoMovimiento, setTipoMovimiento] = useState<string>('apertura');
@@ -85,11 +88,13 @@ export default function MartinetoPOSPage() {
   // MODAL DE CONSULTA FLOTANTE DE CAJA Y VENTAS
   const [mostrarModalConsultaCaja, setMostrarModalConsultaCaja] = useState(false);
 
-  // MODAL DE COBRO / PAGO MIXTO Y ABONOS
+  // MODAL DE COBRO / PAGO MIXTO, ABONOS Y DESCUENTO CON MOTIVO
   const [mostrarModalCobro, setMostrarModalCobro] = useState(false);
   const [pagoEfectivo, setPagoEfectivo] = useState<number | ''>('');
   const [pagoNequi, setPagoNequi] = useState<number | ''>('');
   const [pagoDaviplata, setPagoDaviplata] = useState<number | ''>('');
+  const [descuentoVenta, setDescuentoVenta] = useState<number | ''>('');
+  const [motivoDescuentoVenta, setMotivoDescuentoVenta] = useState<string>('');
   const [procesandoPago, setProcesandoPago] = useState(false);
 
   // AUTO-SAVE: Requisiciones / Pedidos a Bodega
@@ -187,6 +192,17 @@ export default function MartinetoPOSPage() {
     ])
   ).sort();
 
+  async function actualizarEstadoMesaBD(idMesa: number, nuevoEstado: string) {
+    try {
+      await supabase
+        .from('mesa')
+        .update({ estado: nuevoEstado.toLowerCase() })
+        .eq('id', idMesa);
+    } catch (e) {
+      console.error('Error actualizando el estado de la mesa en Supabase:', e);
+    }
+  }
+
   useEffect(() => {
     const sesionLocal = localStorage.getItem('martineto_session');
     if (!sesionLocal) {
@@ -195,8 +211,72 @@ export default function MartinetoPOSPage() {
     }
     const ses = JSON.parse(sesionLocal);
     setSesion(ses);
+
+    // Limpieza preventiva de residuos '1' en la base de caja al ingresar por primera vez (si no se ha guardado base)
+    const valorActualCaja = localStorage.getItem('martineto_baseCaja');
+    if (valorActualCaja === '1' || valorActualCaja === 'ús') {
+      localStorage.removeItem('martineto_baseCaja');
+      setBaseCaja('');
+    }
+
     cargarInicial(ses);
   }, [router]);
+
+  // TIEMPO REAL: ESCUCHAR CAMBIOS EN LAS MESAS Y EN LA TABLA DE EMPAQUES
+  useEffect(() => {
+    const channelMesas = supabase
+      .channel('schema-db-changes-mesas')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'mesa',
+          filter: `sede_id=eq.${SEDE_ID_MARTINETO}`,
+        },
+        (payload) => {
+          const mesaActualizada = payload.new as any;
+          if (mesaActualizada && mesaActualizada.id) {
+            setMesas((prevMesas) =>
+              prevMesas.map((m) =>
+                m.id === mesaActualizada.id
+                  ? {
+                      ...m,
+                      estado: (mesaActualizada.estado || 'libre').toLowerCase(),
+                    }
+                  : m
+              )
+            );
+          }
+        }
+      )
+      .subscribe();
+
+    const channelEmpaques = supabase
+      .channel('schema-db-changes-empaques')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'empaques_martineto',
+        },
+        (payload) => {
+          const empActualizado = payload.new as any;
+          if (empActualizado && empActualizado.id) {
+            setEmpaquesBD((prev) =>
+              prev.map((e) => (e.id === empActualizado.id ? empActualizado : e))
+            );
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channelMesas);
+      supabase.removeChannel(channelEmpaques);
+    };
+  }, []);
 
   async function cargarHistorialPedidos() {
     const hoyLocal = new Date();
@@ -211,6 +291,70 @@ export default function MartinetoPOSPage() {
 
     if (!error && data) {
       setHistorialPedidosBD(data);
+    }
+  }
+
+  async function descontarStockEmpaquesPorVentaBD(itemsVendidos: any[]) {
+    try {
+      for (const item of itemsVendidos) {
+        const nombreLimpio = String(item.nombre || '').replace(' (LLEVAR)', '').trim();
+        const cantidadVendida = Number(item.cantidad || 1);
+
+        let empaquesAfectados: { nombre: string; cantidad: number }[] = [];
+        const norm = nombreLimpio.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+        if (norm.includes('paleta')) {
+          empaquesAfectados.push({ nombre: 'Total Paletas', cantidad: cantidadVendida });
+          if (norm.includes('mostac') || norm.includes('enchilada')) {
+            empaquesAfectados.push({ nombre: 'Caja Mostac', cantidad: cantidadVendida });
+          }
+        } else if (norm.includes('oblea')) {
+          empaquesAfectados.push({ nombre: 'Helado de Oblea', cantidad: cantidadVendida });
+        } else if (norm.includes('corralito') || norm.includes('waffle')) {
+          const esLlev = String(item.nombre || '').includes('(LLEVAR)');
+          empaquesAfectados.push({ nombre: 'Corralito', cantidad: cantidadVendida });
+          if (esLlev) {
+            empaquesAfectados.push({ nombre: 'Corralito', cantidad: cantidadVendida });
+          }
+        } else if (norm.includes('doritos') || norm.includes('dorinetos')) {
+          empaquesAfectados.push({ nombre: 'Doritos', cantidad: cantidadVendida });
+        } else if (
+          norm.includes('malteada') ||
+          norm.includes('yogurneto') ||
+          norm.includes('soda') ||
+          norm.includes('jugo') ||
+          norm.includes('limonada') ||
+          norm.includes('martifrappe') ||
+          norm.includes('maracumango') ||
+          norm.includes('achocolatada') ||
+          norm.includes('coffe') ||
+          norm.includes('coffee') ||
+          norm.includes('vaso 12')
+        ) {
+          empaquesAfectados.push({ nombre: 'Vaso 12 onzas', cantidad: cantidadVendida });
+        }
+
+        for (const emp of empaquesAfectados) {
+          const empEncontrado = empaquesBD.find(
+            (e) => e.nombre.toLowerCase().trim() === emp.nombre.toLowerCase().trim()
+          );
+
+          if (empEncontrado) {
+            const nuevoStock = Math.max(0, Number(empEncontrado.stock || 0) - emp.cantidad);
+
+            await supabase
+              .from('empaques_martineto')
+              .update({ stock: nuevoStock })
+              .eq('id', empEncontrado.id);
+
+            setEmpaquesBD((prev) =>
+              prev.map((e) => (e.id === empEncontrado.id ? { ...e, stock: nuevoStock } : e))
+            );
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Error descontando stock en empaques_martineto:', e);
     }
   }
 
@@ -341,6 +485,15 @@ export default function MartinetoPOSPage() {
         });
       }
 
+      const { data: empaquesData } = await supabase
+        .from('empaques_martineto')
+        .select('*')
+        .order('id', { ascending: true });
+
+      if (empaquesData) {
+        setEmpaquesBD(empaquesData);
+      }
+
       const mesasRes = await supabase
         .from('mesa')
         .select('*')
@@ -350,13 +503,13 @@ export default function MartinetoPOSPage() {
       let listaMesas = mesasRes.data || [];
       if (listaMesas.length === 0) {
         listaMesas = [
-          { id: 101, nombre: 'Mesa 1', estado: 'Libre', sede_id: SEDE_ID_MARTINETO },
-          { id: 102, nombre: 'Mesa 2', estado: 'Libre', sede_id: SEDE_ID_MARTINETO },
-          { id: 103, nombre: 'Mesa 3', estado: 'Libre', sede_id: SEDE_ID_MARTINETO },
-          { id: 104, nombre: 'Mesa 4', estado: 'Libre', sede_id: SEDE_ID_MARTINETO },
-          { id: 105, nombre: 'Mesa 5', estado: 'Libre', sede_id: SEDE_ID_MARTINETO },
-          { id: 106, nombre: 'Corredor 1', estado: 'Libre', sede_id: SEDE_ID_MARTINETO },
-          { id: 107, nombre: 'Corredor 2', estado: 'Libre', sede_id: SEDE_ID_MARTINETO },
+          { id: 101, nombre: 'Mesa 1', estado: 'libre', sede_id: SEDE_ID_MARTINETO },
+          { id: 102, nombre: 'Mesa 2', estado: 'libre', sede_id: SEDE_ID_MARTINETO },
+          { id: 103, nombre: 'Mesa 3', estado: 'libre', sede_id: SEDE_ID_MARTINETO },
+          { id: 104, nombre: 'Mesa 4', estado: 'libre', sede_id: SEDE_ID_MARTINETO },
+          { id: 105, nombre: 'Mesa 5', estado: 'libre', sede_id: SEDE_ID_MARTINETO },
+          { id: 106, nombre: 'Corredor 1', estado: 'libre', sede_id: SEDE_ID_MARTINETO },
+          { id: 107, nombre: 'Corredor 2', estado: 'libre', sede_id: SEDE_ID_MARTINETO },
         ];
       }
 
@@ -366,7 +519,7 @@ export default function MartinetoPOSPage() {
           items: [],
           total: 0,
           totalAbonado: 0,
-          estado: 'Libre',
+          estado: (m.estado || 'libre').toLowerCase(),
         }))
       );
 
@@ -400,8 +553,6 @@ export default function MartinetoPOSPage() {
 
         setListaCategoriasVenta(Array.from(catsSet));
         setCategoriaVentaSel('TODAS');
-      } else {
-        setErrorLecturaBD('La tabla produc_ven_martineto no devolvió registros.');
       }
 
       const { data: prodsInsumosBD } = await supabase
@@ -508,6 +659,7 @@ export default function MartinetoPOSPage() {
       donde_comprar: dondeComprarFinal,
       sede_id: esProductoGlobal ? 0 : SEDE_ID_MARTINETO,
       activo: true,
+      stock: 0,
     };
 
     const { data, error } = await supabase.from('producto').insert([payload]).select();
@@ -563,6 +715,13 @@ export default function MartinetoPOSPage() {
     })
     .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }));
 
+  const obtenerStockActualBD = (nombreEmpaque: string): number => {
+    const encontrado = empaquesBD.find(
+      (e) => e.nombre.toLowerCase().trim() === nombreEmpaque.toLowerCase().trim()
+    );
+    return encontrado ? Number(encontrado.stock || 0) : 0;
+  };
+
   function handleKeyDownTotalPaletas(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -607,7 +766,7 @@ export default function MartinetoPOSPage() {
     const turnoId = sesion?.turno_id ? Number(sesion.turno_id) : null;
 
     if (monto <= 0) {
-      alert('⚠️ Ingresa un monto de base válido mayor a 0.');
+      alert('⚠️ Ingresa un monto de base válido mayor al 0.');
       return;
     }
 
@@ -642,13 +801,21 @@ export default function MartinetoPOSPage() {
       const val = cantidadesInventario[key];
       if (val !== '' && val !== null && val !== undefined) {
         detalleEmpaquesLimpio[key] = Number(val);
+      } else if (tipoMovimiento === 'apertura') {
+        detalleEmpaquesLimpio[key] = obtenerStockActualBD(key);
+      } else {
+        detalleEmpaquesLimpio[key] = 0;
       }
     });
 
-    const totalPaletasNum = Number(totalPaletasInventario) || 0;
-    if (totalPaletasInventario !== '') {
-      detalleEmpaquesLimpio['Total Paletas'] = totalPaletasNum;
-    }
+    const totalPaletasNum =
+      totalPaletasInventario !== ''
+        ? Number(totalPaletasInventario)
+        : tipoMovimiento === 'apertura'
+        ? obtenerStockActualBD('Total Paletas')
+        : 0;
+
+    detalleEmpaquesLimpio['Total Paletas'] = totalPaletasNum;
 
     const exito = await registrarMovimientoMartineto(
       SEDE_ID_MARTINETO,
@@ -662,6 +829,38 @@ export default function MartinetoPOSPage() {
     );
 
     if (exito) {
+      try {
+        for (const [nombreProd, cantDigitada] of Object.entries(detalleEmpaquesLimpio)) {
+          const stockActual = obtenerStockActualBD(nombreProd);
+          let nuevoStockCalculado = stockActual;
+
+          if (tipoMovimiento === 'apertura') {
+            nuevoStockCalculado = cantDigitada;
+          } else if (tipoMovimiento === 'nuevas' || tipoMovimiento === 'compras') {
+            nuevoStockCalculado = stockActual + cantDigitada;
+          } else if (tipoMovimiento === 'debaja') {
+            nuevoStockCalculado = Math.max(0, stockActual - cantDigitada);
+          }
+
+          const empReg = empaquesBD.find(
+            (e) => e.nombre.toLowerCase().trim() === nombreProd.toLowerCase().trim()
+          );
+
+          if (empReg) {
+            await supabase
+              .from('empaques_martineto')
+              .update({ stock: nuevoStockCalculado })
+              .eq('id', empReg.id);
+
+            setEmpaquesBD((prev) =>
+              prev.map((e) => (e.id === empReg.id ? { ...e, stock: nuevoStockCalculado } : e))
+            );
+          }
+        }
+      } catch (err) {
+        console.error('Error al actualizar stock en empaques_martineto:', err);
+      }
+
       if (tipoMovimiento === 'apertura') {
         await procesarDiferenciaAperturaAutomaticaMartineto(
           Number(usuarioId),
@@ -679,7 +878,7 @@ export default function MartinetoPOSPage() {
         },
       ]);
 
-      alert(`¡${tipoMovimiento.toUpperCase()} registrada y guardada con éxito en BD!`);
+      alert(`¡${tipoMovimiento.toUpperCase()} registrada y stock actualizado con éxito en la BD!`);
 
       limpiarTotalPaletasInv();
       limpiarCantidadesInv();
@@ -812,15 +1011,18 @@ export default function MartinetoPOSPage() {
 
     if (!mesaDestino) return;
 
-    if (mesaDestino.estado !== 'Libre') {
+    if (mesaDestino.estado !== 'libre') {
       alert(`⚠️ La mesa ${mesaDestino.nombre} ya está ocupada o pagada.`);
       return;
     }
 
+    actualizarEstadoMesaBD(Number(mesaActivaId), 'libre');
+    actualizarEstadoMesaBD(destinoId, 'ocupada');
+
     setMesas((prev) =>
       prev.map((m) => {
         if (m.id === mesaActivaId) {
-          return { ...m, items: [], total: 0, totalAbonado: 0, estado: 'Libre' };
+          return { ...m, items: [], total: 0, totalAbonado: 0, estado: 'libre' };
         }
         if (m.id === destinoId) {
           return {
@@ -828,7 +1030,7 @@ export default function MartinetoPOSPage() {
             items: mesaActiva.items,
             total: mesaActiva.total,
             totalAbonado: mesaActiva.totalAbonado || 0,
-            estado: 'Ocupada',
+            estado: 'ocupada',
           };
         }
         return m;
@@ -840,151 +1042,7 @@ export default function MartinetoPOSPage() {
   }
 
   const calcularDisponibilidadActual = (nombreEmpaque: string) => {
-    let apertura = 0;
-
-    const movimientoApertura = movimientosDiaBD.find((m) => m.tipo === 'apertura');
-    if (movimientoApertura) {
-      if (nombreEmpaque === 'Total Paletas') {
-        apertura = Number(movimientoApertura.totalPaletas) || 0;
-      } else {
-        apertura = Number(movimientoApertura.detalle?.[nombreEmpaque]) || 0;
-      }
-    } else {
-      if (nombreEmpaque === 'Total Paletas') {
-        apertura = Number(totalPaletasInventario) || 0;
-      } else {
-        apertura = Number(cantidadesInventario[nombreEmpaque]) || 0;
-      }
-    }
-
-    const entradas = movimientosDiaBD
-      .filter((m) => m.tipo === 'nuevas' || m.tipo === 'compras')
-      .reduce((acc, m) => {
-        if (nombreEmpaque === 'Total Paletas') return acc + Number(m.totalPaletas || 0);
-        return acc + Number(m.detalle?.[nombreEmpaque] || 0);
-      }, 0);
-
-    let mermas = movimientosDiaBD
-      .filter((m) => m.tipo === 'debaja')
-      .reduce((acc, m) => {
-        if (nombreEmpaque === 'Total Paletas') return acc + Number(m.totalPaletas || 0);
-        return acc + Number(m.detalle?.[nombreEmpaque] || 0);
-      }, 0);
-
-    if (nombreEmpaque === 'Corralito') {
-      const tapasMermadasVentas = ventasDiaBD.reduce((accV, v) => {
-        return (
-          accV +
-          (v.items || []).reduce((accI: number, i: any) => {
-            const n = (i.nombre || '').toLowerCase();
-            if ((n.includes('corralito') || n.includes('waffle')) && n.includes('llevar')) {
-              return accI + Number(i.cantidad || 1);
-            }
-            return accI;
-          }, 0)
-        );
-      }, 0);
-
-      mermas += tapasMermadasVentas;
-    }
-
-    let vendidasCerradas = 0;
-    if (nombreEmpaque === 'Vaso 12 onzas') {
-      vendidasCerradas = ventasDiaBD.reduce((accV, v) => {
-        return (
-          accV +
-          (v.items || []).reduce((accI: number, i: any) => {
-            const n = (i.nombre || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-            if (
-              n.includes('malteada') ||
-              n.includes('yogurneto') ||
-              n.includes('soda') ||
-              n.includes('jugo') ||
-              n.includes('limonada') ||
-              n.includes('martifrappe') ||
-              n.includes('maracumango') ||
-              n.includes('achocolatada') ||
-              n.includes('coffe') ||
-              n.includes('coffee') ||
-              n.includes('vaso 12')
-            ) {
-              return accI + Number(i.cantidad || 1);
-            }
-            return accI;
-          }, 0)
-        );
-      }, 0);
-    } else if (nombreEmpaque === 'Helado de Oblea') {
-      vendidasCerradas = ventasDiaBD.reduce((accV, v) => {
-        return (
-          accV +
-          (v.items || []).reduce((accI: number, i: any) => {
-            const n = (i.nombre || '').toLowerCase();
-            if (n.includes('oblea') || n.includes('helado de oblea')) {
-              return accI + Number(i.cantidad || 1);
-            }
-            return accI;
-          }, 0)
-        );
-      }, 0);
-    } else if (nombreEmpaque === 'Caja Mostac') {
-      vendidasCerradas = ventasDiaBD.reduce((accV, v) => {
-        return (
-          accV +
-          (v.items || []).reduce((accI: number, i: any) => {
-            const n = (i.nombre || '').toLowerCase();
-            if (n.includes('mostac') || n.includes('paleta enchilada')) {
-              return accI + Number(i.cantidad || 1);
-            }
-            return accI;
-          }, 0)
-        );
-      }, 0);
-    } else if (nombreEmpaque === 'Doritos') {
-      vendidasCerradas = ventasDiaBD.reduce((accV, v) => {
-        return (
-          accV +
-          (v.items || []).reduce((accI: number, i: any) => {
-            const n = (i.nombre || '').toLowerCase();
-            if (n.includes('doritos') || n.includes('dorinetos')) {
-              return accI + Number(i.cantidad || 1);
-            }
-            return accI;
-          }, 0)
-        );
-      }, 0);
-    } else if (nombreEmpaque === 'Corralito') {
-      vendidasCerradas = ventasDiaBD.reduce((accV, v) => {
-        return (
-          accV +
-          (v.items || []).reduce((accI: number, i: any) => {
-            const n = (i.nombre || '').toLowerCase();
-            if (n.includes('corralito') || n.includes('waffle')) {
-              return accI + Number(i.cantidad || 1);
-            }
-            return accI;
-          }, 0)
-        );
-      }, 0);
-    } else if (nombreEmpaque === 'Total Paletas') {
-      vendidasCerradas = ventasDiaBD.reduce((accV, v) => {
-        return (
-          accV +
-          (v.items || []).reduce((accI: number, i: any) => {
-            const n = (i.nombre || '').toLowerCase();
-            if (n.includes('paleta')) return accI + Number(i.cantidad || 1);
-            return accI;
-          }, 0)
-        );
-      }, 0);
-    } else {
-      vendidasCerradas = ventasDiaBD.reduce((accV, v) => {
-        const coincidencias = (v.items || []).filter((i: any) =>
-          (i.nombre || '').toLowerCase().includes(nombreEmpaque.toLowerCase())
-        );
-        return accV + coincidencias.reduce((accI: number, item: any) => accI + Number(item.cantidad || 0), 0);
-      }, 0);
-    }
+    const stockEnBD = obtenerStockActualBD(nombreEmpaque);
 
     let ocupadasEnMesas = 0;
     const todasLasMesasYPedidos = [
@@ -1059,7 +1117,7 @@ export default function MartinetoPOSPage() {
       }, 0);
     }
 
-    const disponible = apertura + entradas - mermas - vendidasCerradas - ocupadasEnMesas;
+    const disponible = stockEnBD - ocupadasEnMesas;
     return Math.max(0, disponible);
   };
 
@@ -1177,6 +1235,8 @@ export default function MartinetoPOSPage() {
         })
       );
     } else {
+      actualizarEstadoMesaBD(Number(mesaActivaId), 'ocupada');
+
       setMesas((prevMesas) =>
         prevMesas.map((m) => {
           if (m.id !== mesaActivaId) return m;
@@ -1215,7 +1275,7 @@ export default function MartinetoPOSPage() {
             ...m,
             items: nuevosItems,
             total: nuevoTotal,
-            estado: 'Ocupada',
+            estado: 'ocupada',
           };
         })
       );
@@ -1241,12 +1301,14 @@ export default function MartinetoPOSPage() {
 
         let nuevoEstadoMesa = m.estado;
         if (estaTotalmentePagado) {
-          nuevoEstadoMesa = algunPendiente ? 'Ocupada' : 'Pagada';
+          nuevoEstadoMesa = algunPendiente ? 'ocupada' : 'pagada';
         } else if (algunPendiente) {
-          nuevoEstadoMesa = 'Ocupada';
+          nuevoEstadoMesa = 'ocupada';
         } else {
-          nuevoEstadoMesa = 'Entregado';
+          nuevoEstadoMesa = 'entregado';
         }
+
+        actualizarEstadoMesaBD(m.id, nuevoEstadoMesa);
 
         return {
           ...m,
@@ -1307,14 +1369,16 @@ export default function MartinetoPOSPage() {
               0
             );
 
-            let nuevoEstado = itemsActuales.length === 0 ? 'Libre' : m.estado;
+            let nuevoEstado = itemsActuales.length === 0 ? 'libre' : m.estado;
             if (itemsActuales.length > 0) {
               const algunPendiente = itemsActuales.some((i: any) => (i.estadoItem || 'pedido') === 'pedido');
               const estaTotalmentePagado = (m.totalAbonado || 0) >= nuevoTotal && nuevoTotal > 0;
-              if (estaTotalmentePagado) nuevoEstado = algunPendiente ? 'Ocupada' : 'Pagada';
-              else if (algunPendiente) nuevoEstado = 'Ocupada';
-              else nuevoEstado = 'Entregado';
+              if (estaTotalmentePagado) nuevoEstado = algunPendiente ? 'ocupada' : 'pagada';
+              else if (algunPendiente) nuevoEstado = 'ocupada';
+              else nuevoEstado = 'entregado';
             }
+
+            actualizarEstadoMesaBD(m.id, nuevoEstado);
 
             return { ...m, items: itemsActuales, total: nuevoTotal, estado: nuevoEstado };
           }
@@ -1345,11 +1409,14 @@ export default function MartinetoPOSPage() {
 
     const payloadVenta = {
       sede_id: SEDE_ID_MARTINETO,
+      mesa_id: null,
       usuario_id: usuarioId ? String(usuarioId) : null,
       monto_total: rappiActivo.total,
       pago_efectivo: 0,
       pago_nequi: 0,
       pago_daviplata: 0,
+      descuento: 0,
+      motivo_descuento: null,
       cambio: 0,
       estado: 'rappi',
       items: rappiActivo.items,
@@ -1364,6 +1431,7 @@ export default function MartinetoPOSPage() {
 
     if (data && data.length > 0) {
       setVentasDiaBD((prev) => [...prev, data[0]]);
+      await descontarStockEmpaquesPorVentaBD(rappiActivo.items);
     }
 
     setPedidosRappi((prev) => prev.filter((r) => r.id !== mesaActivaId));
@@ -1384,10 +1452,14 @@ export default function MartinetoPOSPage() {
             estadoItem: i.estadoItem === 'pedido' ? 'entregado' : i.estadoItem,
           }));
           const estaTotalmentePagado = (m.totalAbonado || 0) >= m.total && m.total > 0;
+          const nuevoEstado = estaTotalmentePagado ? 'pagada' : 'entregado';
+
+          actualizarEstadoMesaBD(m.id, nuevoEstado);
+
           return {
             ...m,
             items: itemsActuales,
-            estado: estaTotalmentePagado ? 'Pagada' : 'Entregado',
+            estado: nuevoEstado,
           };
         }
         return m;
@@ -1405,6 +1477,8 @@ export default function MartinetoPOSPage() {
     setPagoEfectivo(pendiente);
     setPagoNequi('');
     setPagoDaviplata('');
+    setDescuentoVenta('');
+    setMotivoDescuentoVenta('');
     setMostrarModalCobro(true);
   }
 
@@ -1414,11 +1488,25 @@ export default function MartinetoPOSPage() {
     const efec = Number(pagoEfectivo) || 0;
     const neq = Number(pagoNequi) || 0;
     const dav = Number(pagoDaviplata) || 0;
+    const desc = Number(descuentoVenta) || 0;
+    const motivoDesc = motivoDescuentoVenta.trim();
+
+    if (desc > 0 && !motivoDesc) {
+      alert('⚠️ Si aplicas un descuento, debes ingresar obligatoriamente el motivo.');
+      return;
+    }
+
+    const pendienteActualSinDesc = Math.max(0, mesaActiva.total - (mesaActiva.totalAbonado || 0));
+
+    if (desc > pendienteActualSinDesc) {
+      alert('⚠️ El descuento no puede ser mayor que el valor pendiente por pagar.');
+      return;
+    }
+
+    const pendienteAjustado = pendienteActualSinDesc - desc;
     const sumaAbonoActual = efec + neq + dav;
 
-    const pendienteActual = Math.max(0, mesaActiva.total - (mesaActiva.totalAbonado || 0));
-
-    if (sumaAbonoActual <= 0) {
+    if (sumaAbonoActual <= 0 && pendienteAjustado > 0) {
       alert('⚠️ Ingresa un monto válido para el abono o pago.');
       return;
     }
@@ -1426,15 +1514,20 @@ export default function MartinetoPOSPage() {
     setProcesandoPago(true);
     const usuarioId = sesion?.usuario_id || sesion?.id;
 
+    const montoTotalVentaAjustado = Math.max(0, mesaActiva.total - desc);
+
     const payloadVenta = {
       sede_id: SEDE_ID_MARTINETO,
+      mesa_id: typeof mesaActivaId === 'number' ? mesaActivaId : null,
       usuario_id: usuarioId ? String(usuarioId) : null,
-      monto_total: sumaAbonoActual,
+      monto_total: montoTotalVentaAjustado,
       pago_efectivo: efec,
       pago_nequi: neq,
       pago_daviplata: dav,
-      cambio: Math.max(0, sumaAbonoActual - pendienteActual),
-      estado: sumaAbonoActual >= pendienteActual ? 'pagado' : 'abono',
+      descuento: desc,
+      motivo_descuento: desc > 0 ? motivoDesc : null,
+      cambio: Math.max(0, sumaAbonoActual - pendienteAjustado),
+      estado: sumaAbonoActual >= pendienteAjustado ? 'pagado' : 'abono',
       items: mesaActiva.items,
     };
 
@@ -1448,10 +1541,11 @@ export default function MartinetoPOSPage() {
 
     if (data && data.length > 0) {
       setVentasDiaBD((prev) => [...prev, data[0]]);
+      await descontarStockEmpaquesPorVentaBD(mesaActiva.items);
     }
 
     const nuevoTotalAbonado = (mesaActiva.totalAbonado || 0) + sumaAbonoActual;
-    const estaCompletamentePagado = nuevoTotalAbonado >= mesaActiva.total;
+    const estaCompletamentePagado = (nuevoTotalAbonado + desc) >= mesaActiva.total;
 
     setMesas((prev) =>
       prev.map((m) => {
@@ -1460,13 +1554,16 @@ export default function MartinetoPOSPage() {
 
           let nuevoEstadoMesa = m.estado;
           if (estaCompletamentePagado) {
-            nuevoEstadoMesa = algunPendienteEntrega ? 'Ocupada' : 'Pagada';
+            nuevoEstadoMesa = algunPendienteEntrega ? 'ocupada' : 'pagada';
           } else {
-            nuevoEstadoMesa = 'Ocupada';
+            nuevoEstadoMesa = 'ocupada';
           }
+
+          actualizarEstadoMesaBD(m.id, nuevoEstadoMesa);
 
           return {
             ...m,
+            total: montoTotalVentaAjustado,
             totalAbonado: nuevoTotalAbonado,
             estado: nuevoEstadoMesa,
           };
@@ -1483,7 +1580,7 @@ export default function MartinetoPOSPage() {
     } else {
       alert(
         `✅ ¡Abono registrado con éxito! Saldo pendiente: $ ${(
-          mesaActiva.total - nuevoTotalAbonado
+          montoTotalVentaAjustado - nuevoTotalAbonado
         ).toLocaleString('es-CO')}`
       );
     }
@@ -1497,10 +1594,12 @@ export default function MartinetoPOSPage() {
       return;
     }
 
+    actualizarEstadoMesaBD(Number(mesaActivaId), 'libre');
+
     setMesas((prev) =>
       prev.map((m) =>
         m.id === mesaActivaId
-          ? { ...m, items: [], total: 0, totalAbonado: 0, estado: 'Libre' }
+          ? { ...m, items: [], total: 0, totalAbonado: 0, estado: 'libre' }
           : m
       )
     );
@@ -1534,7 +1633,7 @@ export default function MartinetoPOSPage() {
   const itemsVisualesAgrupados = itemActivoActual ? obtenerItemsAgrupados(itemActivoActual.items) : [];
   const hayProductosPorEntregar = itemActivoActual?.items?.some((i: any) => (i.estadoItem || 'pedido') === 'pedido') || false;
   const saldoPendienteActual = itemActivoActual ? Math.max(0, itemActivoActual.total - (itemActivoActual.totalAbonado || 0)) : 0;
-  
+
   const mesaTotalmentePagada =
     !esRappiActivo &&
     mesaActiva &&
@@ -1543,11 +1642,20 @@ export default function MartinetoPOSPage() {
     !hayProductosPorEntregar;
 
   const sumaGastosTotal = listaGastos.reduce((acc, g) => acc + Number(g.monto || 0), 0);
-  
+
   const totalEfectivoIngresado = ventasDiaBD.reduce((acc, v) => acc + Number(v.pago_efectivo || 0), 0);
   const totalNequiIngresado = ventasDiaBD.reduce((acc, v) => acc + Number(v.pago_nequi || 0), 0);
   const totalDaviplataIngresado = ventasDiaBD.reduce((acc, v) => acc + Number(v.pago_daviplata || 0), 0);
-  
+
+  const totalDescuentosDia = ventasDiaBD.reduce((acc, v) => acc + Number(v.descuento || 0), 0);
+  const listaMotivosUnicosDescuento = Array.from(
+    new Set(
+      ventasDiaBD
+        .map((v) => v.motivo_descuento)
+        .filter((m): m is string => Boolean(m && m.trim() !== ''))
+    )
+  );
+
   const totalRappiRealizados = ventasDiaBD
     .filter((v) => v.estado === 'rappi')
     .reduce((acc, v) => acc + Number(v.monto_total || 0), 0);
@@ -1568,11 +1676,7 @@ export default function MartinetoPOSPage() {
         cantApertura = Number(movimientoApertura.detalle?.[nombreProd]) || 0;
       }
     } else {
-      if (nombreProd === 'Total Paletas') {
-        cantApertura = Number(totalPaletasInventario) || 0;
-      } else {
-        cantApertura = Number(cantidadesInventario[nombreProd]) || 0;
-      }
+      cantApertura = obtenerStockActualBD(nombreProd);
     }
 
     const entradasAdicionales = movimientosDiaBD
@@ -1744,7 +1848,7 @@ export default function MartinetoPOSPage() {
       return;
     }
 
-    const mesasOcupadas = mesas.filter((m) => m.estado !== 'Libre');
+    const mesasOcupadas = mesas.filter((m) => m.estado !== 'libre');
     const hayRappiPendientes = pedidosRappi.length > 0;
 
     if (mesasOcupadas.length > 0 || hayRappiPendientes) {
@@ -1755,7 +1859,6 @@ export default function MartinetoPOSPage() {
       if (hayRappiPendientes) {
         mensajeError += `• Hay ${pedidosRappi.length} pedido(s) Rappi activos sin entregar.\n`;
       }
-      mensajeError += '\nTodas las mesas deben ser cobradas/liberadas antes de enviar la información del día a la base de datos.';
       alert(mensajeError);
       return;
     }
@@ -1782,6 +1885,8 @@ export default function MartinetoPOSPage() {
         nequi: totalNequiIngresado,
         daviplata: totalDaviplataIngresado,
         monto_gasto: sumaGastosTotal,
+        descuento: totalDescuentosDia,
+        motivo_descuento: listaMotivosUnicosDescuento,
         diferencia: difCaja,
       };
 
@@ -1793,7 +1898,11 @@ export default function MartinetoPOSPage() {
       let totalPaletasCierreNum = 0;
 
       listaAuditoriaInventario.forEach((item) => {
-        const cantFinal = Number(conteoFisicoProductos[item.nombre]) || 0;
+        const cantFinal =
+          conteoFisicoProductos[item.nombre] !== '' && conteoFisicoProductos[item.nombre] !== undefined
+            ? Number(conteoFisicoProductos[item.nombre])
+            : item.calculado;
+
         if (item.nombre === 'Total Paletas') {
           totalPaletasCierreNum = cantFinal;
         } else if (LISTA_EMPAQUES_MARTINETO.includes(item.nombre)) {
@@ -1816,9 +1925,21 @@ export default function MartinetoPOSPage() {
 
       if (!exitoInv) throw new Error('Error guardando el movimiento de cierre en inventario_diario.');
 
+      for (const [nombreProd, cantFinal] of Object.entries(detalleEmpaquesCierre)) {
+        const empReg = empaquesBD.find(
+          (e) => e.nombre.toLowerCase().trim() === nombreProd.toLowerCase().trim()
+        );
+        if (empReg) {
+          await supabase
+            .from('empaques_martineto')
+            .update({ stock: cantFinal })
+            .eq('id', empReg.id);
+        }
+      }
+
       alert('✅ ¡CIERRE TOTAL DEL DÍA GUARDADO CON ÉXITO EN LA BASE DE DATOS!');
       setMostrarModalResumen(false);
-      
+
       limpiarBaseCaja();
       limpiarTotalPaletasInv();
       limpiarCantidadesInv();
@@ -1876,7 +1997,7 @@ export default function MartinetoPOSPage() {
         </div>
       </header>
 
-      {/* BARRA DE NAVEGACIÓN INDEPENDIENTE, FLOTANTE Y ADAPTABLE */}
+      {/* BARRA DE NAVEGACIÓN INDEPENDIENTE CON BLOQUEO */}
       <nav className="sticky top-2 z-40 flex items-center gap-2 bg-[#0b2b48]/95 backdrop-blur-md p-2 rounded-2xl border border-[#0066b3] shadow-xl overflow-x-auto no-scrollbar">
         <button
           type="button"
@@ -1889,7 +2010,13 @@ export default function MartinetoPOSPage() {
         </button>
         <button
           type="button"
-          onClick={() => setModuloActivo('pedidos')}
+          onClick={() => {
+            if (bloqueadoPorApertura) {
+              alert('⚠️ Debes registrar primero la Base de Caja y la Apertura en el Módulo 1.');
+              return;
+            }
+            setModuloActivo('pedidos');
+          }}
           className={`px-4 py-2.5 rounded-xl text-xs font-black uppercase whitespace-nowrap transition-all cursor-pointer ${
             moduloActivo === 'pedidos' ? 'bg-[#00a4ef] text-white shadow-md' : 'bg-[#051829] text-sky-300 border border-[#0066b3] hover:text-white'
           }`}
@@ -1898,7 +2025,13 @@ export default function MartinetoPOSPage() {
         </button>
         <button
           type="button"
-          onClick={() => setModuloActivo('gastos')}
+          onClick={() => {
+            if (bloqueadoPorApertura) {
+              alert('⚠️ Debes registrar primero la Base de Caja y la Apertura en el Módulo 1.');
+              return;
+            }
+            setModuloActivo('gastos');
+          }}
           className={`px-4 py-2.5 rounded-xl text-xs font-black uppercase whitespace-nowrap transition-all cursor-pointer ${
             moduloActivo === 'gastos' ? 'bg-amber-600 text-white shadow-md' : 'bg-[#051829] text-sky-300 border border-[#0066b3] hover:text-white'
           }`}
@@ -1907,7 +2040,13 @@ export default function MartinetoPOSPage() {
         </button>
         <button
           type="button"
-          onClick={() => setModuloActivo('ventas')}
+          onClick={() => {
+            if (bloqueadoPorApertura) {
+              alert('⚠️ Debes registrar primero la Base de Caja y la Apertura en el Módulo 1.');
+              return;
+            }
+            setModuloActivo('ventas');
+          }}
           className={`px-4 py-2.5 rounded-xl text-xs font-black uppercase whitespace-nowrap transition-all cursor-pointer ${
             moduloActivo === 'ventas' ? 'bg-emerald-600 text-white shadow-md' : 'bg-[#051829] text-sky-300 border border-[#0066b3] hover:text-white'
           }`}
@@ -1916,7 +2055,13 @@ export default function MartinetoPOSPage() {
         </button>
         <button
           type="button"
-          onClick={() => setModuloActivo('cierre')}
+          onClick={() => {
+            if (bloqueadoPorApertura) {
+              alert('⚠️ Debes registrar primero la Base de Caja y la Apertura en el Módulo 1.');
+              return;
+            }
+            setModuloActivo('cierre');
+          }}
           className={`px-4 py-2.5 rounded-xl text-xs font-black uppercase whitespace-nowrap transition-all cursor-pointer ${
             moduloActivo === 'cierre' ? 'bg-purple-600 text-white shadow-md' : 'bg-[#051829] text-sky-300 border border-[#0066b3] hover:text-white'
           }`}
@@ -1990,37 +2135,41 @@ export default function MartinetoPOSPage() {
                 ref={(el) => { inputRefs.current['totalPaletas'] = el; }}
                 type="text"
                 inputMode="numeric"
-                placeholder="0"
+                placeholder={String(obtenerStockActualBD('Total Paletas'))}
                 value={totalPaletasInventario}
                 onChange={(e) => setTotalPaletasInventario(e.target.value === '' ? '' : Number(e.target.value.replace(/\D/g, '')))}
                 onKeyDown={handleKeyDownTotalPaletas}
-                className="w-28 bg-[#0e385e] text-sky-200 font-black text-center text-sm rounded-lg p-2 outline-none border border-[#0066b3]"
+                className="w-28 bg-[#0e385e] text-sky-200 placeholder-sky-300/40 font-black text-center text-sm rounded-lg p-2 outline-none border border-[#0066b3]"
               />
             </div>
           </div>
 
           <div className="space-y-1.5 max-h-[300px] overflow-y-auto pr-1">
             <span className="text-xs text-sky-300 font-bold block uppercase">CONTEO DE EMPAQUES (ORDEN ALFABÉTICO):</span>
-            {listaEmpaquesFiltrados.map((item, idx) => (
-              <div key={item} className="flex justify-between items-center bg-[#051829] p-2.5 rounded-lg border border-[#0066b3]">
-                <span className="text-xs text-white font-bold flex items-center gap-1.5">📦 {item}:</span>
-                <input
-                  ref={(el) => { inputRefs.current[item] = el; }}
-                  type="text"
-                  inputMode="numeric"
-                  placeholder="0"
-                  value={cantidadesInventario[item] ?? ''}
-                  onChange={(e) =>
-                    setCantidadesInventario({
-                      ...cantidadesInventario,
-                      [item]: e.target.value === '' ? '' : Number(e.target.value.replace(/\D/g, '')),
-                    })
-                  }
-                  onKeyDown={(e) => handleKeyDownEmpaques(e, idx)}
-                  className="w-28 bg-[#0e385e] text-sky-200 font-black text-center text-xs rounded p-2 outline-none border border-[#0066b3]"
-                />
-              </div>
-            ))}
+            {listaEmpaquesFiltrados.map((item, idx) => {
+              const stockItem = obtenerStockActualBD(item);
+
+              return (
+                <div key={item} className="flex justify-between items-center bg-[#051829] p-2.5 rounded-lg border border-[#0066b3]">
+                  <span className="text-xs text-white font-bold flex items-center gap-1.5">📦 {item}:</span>
+                  <input
+                    ref={(el) => { inputRefs.current[item] = el; }}
+                    type="text"
+                    inputMode="numeric"
+                    placeholder={String(stockItem)}
+                    value={cantidadesInventario[item] ?? ''}
+                    onChange={(e) =>
+                      setCantidadesInventario({
+                        ...cantidadesInventario,
+                        [item]: e.target.value === '' ? '' : Number(e.target.value.replace(/\D/g, '')),
+                      })
+                    }
+                    onKeyDown={(e) => handleKeyDownEmpaques(e, idx)}
+                    className="w-28 bg-[#0e385e] text-sky-200 placeholder-sky-300/40 font-black text-center text-xs rounded p-2 outline-none border border-[#0066b3]"
+                  />
+                </div>
+              );
+            })}
           </div>
 
           <textarea
@@ -2040,7 +2189,7 @@ export default function MartinetoPOSPage() {
         </div>
       )}
 
-      {/* MÓDULO 2: PEDIDOS A BODEGA CON LISTADO PREVIO */}
+      {/* MÓDULO 2: PEDIDOS A BODEGA */}
       {moduloActivo === 'pedidos' && (
         <div className={`grid grid-cols-1 lg:grid-cols-12 gap-4 items-start ${bloqueadoPorApertura ? 'opacity-50 pointer-events-none' : ''}`}>
           <div className="lg:col-span-7 bg-[#0b2b48] border border-[#0066b3] p-5 rounded-2xl space-y-4 shadow-md">
@@ -2350,7 +2499,7 @@ export default function MartinetoPOSPage() {
         </div>
       )}
 
-      {/* MÓDULO 4: VENTAS (MESAS, RAPPI Y COBRO) */}
+      {/* MÓDULO 4: VENTAS */}
       {moduloActivo === 'ventas' && (
         <div className={`grid grid-cols-1 lg:grid-cols-12 gap-4 items-start ${bloqueadoPorApertura ? 'opacity-50 pointer-events-none' : ''}`}>
           <div className={`${!mesaActivaId ? 'lg:col-span-12' : itemActivoActual && itemActivoActual.items.length > 0 ? 'lg:col-span-3' : 'lg:col-span-4'} bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md transition-all duration-300`}>
@@ -2400,9 +2549,10 @@ export default function MartinetoPOSPage() {
               })}
 
               {mesas.map((mesa) => {
-                const ocupada = mesa.estado === 'Ocupada';
-                const entregado = mesa.estado === 'Entregado';
-                const pagada = mesa.estado === 'Pagada';
+                const estadoLimpio = String(mesa.estado || 'libre').toLowerCase();
+                const ocupada = estadoLimpio === 'ocupada';
+                const entregado = estadoLimpio === 'entregado';
+                const pagada = estadoLimpio === 'pagada';
                 const activa = mesaActivaId === mesa.id;
 
                 let estiloColor = 'bg-[#051829] border-[#0066b3] hover:border-[#00a4ef]';
@@ -2492,7 +2642,9 @@ export default function MartinetoPOSPage() {
                     return (
                       <div key={prod.id || prod.nombre} className="bg-[#0e385e] border border-[#0066b3] p-2.5 rounded-xl flex flex-col justify-between shadow-sm">
                         <div>
-                          <p className="font-bold text-white text-xs truncate">{prod.nombre}</p>
+                          <div className="flex justify-between items-start gap-1">
+                            <p className="font-bold text-white text-xs truncate">{prod.nombre}</p>
+                          </div>
                           <p className="text-[10px] text-sky-300 uppercase mt-0.5">{prod.categoriaMostrar}</p>
                           <p className="text-xs text-emerald-300 font-black mt-1">$ {Number(prod.precio || 0).toLocaleString('es-CO')}</p>
                         </div>
@@ -2606,7 +2758,7 @@ export default function MartinetoPOSPage() {
                         -- Seleccionar Mesa Libre --
                       </option>
                       {mesas
-                        .filter((m) => m.id !== mesaActivaId && m.estado === 'Libre')
+                        .filter((m) => m.id !== mesaActivaId && String(m.estado || '').toLowerCase() === 'libre')
                         .map((m) => (
                           <option key={m.id} value={m.id}>
                             🪑 Mover a {m.nombre}
@@ -2685,13 +2837,12 @@ export default function MartinetoPOSPage() {
               </div>
             </div>
           )}
-
         </div>
       )}
 
       {/* MÓDULO 5: CIERRE Y PAGO DE NÓMINA */}
       {moduloActivo === 'cierre' && (
-        <div className="bg-[#0b2b48] border border-[#0066b3] p-5 rounded-2xl space-y-4 shadow-md max-w-2xl mx-auto">
+        <div className={`bg-[#0b2b48] border border-[#0066b3] p-5 rounded-2xl space-y-4 shadow-md max-w-2xl mx-auto ${bloqueadoPorApertura ? 'opacity-50 pointer-events-none' : ''}`}>
           <h2 className="text-sm font-black text-white border-b border-[#0066b3]/50 pb-2 flex justify-between items-center">
             <span>5. 🌙 Pago de Nómina y Cierre Final del Día</span>
             <span className="text-xs text-sky-300 font-bold">
@@ -2756,7 +2907,7 @@ export default function MartinetoPOSPage() {
             >
               💸 Pagar Nómina (Descontar de Caja)
             </button>
-            
+
             <button
               onClick={() => setMostrarModalResumen(true)}
               className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black py-3 rounded-xl text-xs uppercase cursor-pointer shadow-lg transition-all flex items-center justify-center gap-2"
@@ -2819,6 +2970,12 @@ export default function MartinetoPOSPage() {
                   <span>🛵 Rappi:</span>
                   <span>$ {totalRappiRealizados.toLocaleString('es-CO')}</span>
                 </div>
+                {totalDescuentosDia > 0 && (
+                  <div className="flex justify-between text-amber-400 font-black pt-1 border-t border-[#0066b3]/30">
+                    <span>🏷️ Descuentos Totales Concedidos:</span>
+                    <span>$ {totalDescuentosDia.toLocaleString('es-CO')}</span>
+                  </div>
+                )}
               </div>
 
               <div className="bg-emerald-950/80 border border-emerald-500 p-3 rounded-xl flex justify-between items-center text-sm font-black text-emerald-300">
@@ -2869,7 +3026,7 @@ export default function MartinetoPOSPage() {
                   <span>💵 Base Apertura:</span>
                   <span className="text-emerald-300 font-black">$ {(Number(baseCaja) || 0).toLocaleString('es-CO')}</span>
                 </div>
-                
+
                 <div className="flex justify-between text-amber-300 font-black pt-1 border-t border-[#0066b3]/30">
                   <span>🛍️ TOTAL VENTAS:</span>
                   <span>$ {totalVentasGlobal.toLocaleString('es-CO')}</span>
@@ -2896,6 +3053,20 @@ export default function MartinetoPOSPage() {
                   <span>💸 Gastos Directos y Nómina (Efectivo):</span>
                   <span>- $ {sumaGastosTotal.toLocaleString('es-CO')}</span>
                 </div>
+
+                {totalDescuentosDia > 0 && (
+                  <div className="bg-amber-950/60 border border-amber-500/40 p-2.5 rounded-lg space-y-1 text-amber-300">
+                    <div className="flex justify-between font-black">
+                      <span>🏷️ Descuentos Totales del Día:</span>
+                      <span>$ {totalDescuentosDia.toLocaleString('es-CO')}</span>
+                    </div>
+                    {listaMotivosUnicosDescuento.length > 0 && (
+                      <p className="text-[10px] text-amber-200/90 font-normal">
+                        <b>Motivos:</b> {listaMotivosUnicosDescuento.join(', ')}
+                      </p>
+                    )}
+                  </div>
+                )}
 
                 <div className="flex justify-between pt-2 border-t-2 border-[#0066b3] text-sm font-black text-emerald-400">
                   <span>💵 PRODUCIDO / EN CAJA (Calculado):</span>
@@ -2957,7 +3128,7 @@ export default function MartinetoPOSPage() {
                           ref={(el) => { inputRefs.current[`cierre_${item.nombre}`] = el; }}
                           type="text"
                           inputMode="numeric"
-                          placeholder="0"
+                          placeholder={String(item.calculado)}
                           value={conteoFisicoProductos[item.nombre] ?? ''}
                           onChange={(e) =>
                             setConteoFisicoProductos({
@@ -2966,7 +3137,7 @@ export default function MartinetoPOSPage() {
                             })
                           }
                           onKeyDown={(e) => handleKeyDownEmpaques(e, idx, 'cierre')}
-                          className="w-full bg-[#051829] text-sky-200 font-black text-center text-xs rounded p-1 outline-none border border-[#0066b3]"
+                          className="w-full bg-[#051829] text-sky-200 placeholder-sky-400/50 font-black text-center text-xs rounded p-1 outline-none border border-[#0066b3]"
                         />
                       </span>
                     </div>
@@ -3124,7 +3295,7 @@ export default function MartinetoPOSPage() {
         </div>
       )}
 
-      {/* MODAL COBRO */}
+      {/* MODAL COBRO CON DESCUENTO Y MOTIVO */}
       {mostrarModalCobro && mesaActiva && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
           <div className="bg-[#0b2b48] border-2 border-[#00a4ef] rounded-2xl p-5 max-w-md w-full space-y-4 shadow-2xl">
@@ -3171,15 +3342,50 @@ export default function MartinetoPOSPage() {
                   className="w-full bg-[#051829] border border-[#0066b3] text-rose-300 font-black text-sm p-2 rounded-xl outline-none"
                 />
               </div>
+
+              <div className="pt-1 border-t border-[#0066b3]/50">
+                <label className="text-[10px] text-amber-300 font-bold block mb-1">🏷️ Descuento ($):</label>
+                <input
+                  type="text"
+                  placeholder="0"
+                  value={formatearMoneda(descuentoVenta)}
+                  onChange={(e) => setDescuentoVenta(desformatearMoneda(e.target.value))}
+                  className="w-full bg-[#051829] border border-amber-500 text-amber-300 font-black text-sm p-2 rounded-xl outline-none"
+                />
+              </div>
+
+              {Number(descuentoVenta) > 0 && (
+                <div>
+                  <label className="text-[10px] text-amber-300 font-bold block mb-1">✏️ Motivo del Descuento *:</label>
+                  <input
+                    type="text"
+                    placeholder="Ej. Promoción 2x1, Cortesía, Empleado..."
+                    value={motivoDescuentoVenta}
+                    onChange={(e) => setMotivoDescuentoVenta(e.target.value)}
+                    className="w-full bg-[#051829] border border-amber-400 text-white font-bold text-xs p-2 rounded-xl outline-none"
+                  />
+                </div>
+              )}
             </div>
 
             {(() => {
-              const abonadoAhora = (Number(pagoEfectivo) || 0) + (Number(pagoNequi) || 0) + (Number(pagoDaviplata) || 0);
-              const pendienteActual = Math.max(0, mesaActiva.total - (mesaActiva.totalAbonado || 0));
-              const diferencia = abonadoAhora - pendienteActual;
+              const efec = Number(pagoEfectivo) || 0;
+              const neq = Number(pagoNequi) || 0;
+              const dav = Number(pagoDaviplata) || 0;
+              const desc = Number(descuentoVenta) || 0;
+
+              const abonadoAhora = efec + neq + dav;
+              const pendienteSinDesc = Math.max(0, mesaActiva.total - (mesaActiva.totalAbonado || 0));
+              const pendienteFinal = Math.max(0, pendienteSinDesc - desc);
+
+              const diferencia = abonadoAhora - pendienteFinal;
 
               return (
                 <div className="bg-[#051829] p-3 rounded-xl border border-[#0066b3] space-y-1">
+                  <div className="flex justify-between text-xs font-bold text-sky-200">
+                    <span>Monto con Descuento:</span>
+                    <span>$ {pendienteFinal.toLocaleString('es-CO')}</span>
+                  </div>
                   <div className="flex justify-between text-xs font-bold text-white">
                     <span>Abono Ingresado:</span>
                     <span>$ {abonadoAhora.toLocaleString('es-CO')}</span>
@@ -3211,7 +3417,7 @@ export default function MartinetoPOSPage() {
                 disabled={procesandoPago}
                 className="w-1/2 bg-emerald-600 hover:bg-emerald-500 text-white font-black py-2 rounded-xl text-xs uppercase cursor-pointer shadow-md disabled:opacity-50"
               >
-                {procesandoPago ? 'Procesando...' : '✓ Confirmar Abono'}
+                {procesandoPago ? 'Procesando...' : '✓ Confirmar Pago'}
               </button>
             </div>
           </div>
