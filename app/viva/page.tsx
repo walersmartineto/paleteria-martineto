@@ -111,7 +111,6 @@ export default function VivaPage() {
 
   const SEDE_ID_VIVA = 1;
 
-  // OBTENER LUGARES DE COMPRA EXCLUSIVAMENTE DESDE LA BASE DE DATOS
   const listaLugaresCompraUnica = Array.from(
     new Set(
       productosInsumosBD
@@ -126,7 +125,6 @@ export default function VivaPage() {
     .filter((lugar) => !lugar.toLowerCase().includes('hermanita'))
     .sort();
 
-  // FILTROS DINÁMICOS DESDE LA BD
   const paletasFiltradas = saboresViva.filter((p) => {
     const cat = String(p.categoria || '').trim().toLowerCase();
     return cat === 'paleta' || cat === '';
@@ -182,7 +180,6 @@ export default function VivaPage() {
       const hoyInicio = new Date();
       hoyInicio.setHours(0, 0, 0, 0);
 
-      // --- 1. VALIDACIÓN AUTOMÁTICA DE CAJA ABIERTA PARA HOY ---
       const { data: cajaHoyBD } = await supabase
         .from('caja')
         .select('*')
@@ -198,7 +195,6 @@ export default function VivaPage() {
         setBaseGuardada(true);
       }
 
-      // --- 2. VALIDACIÓN AUTOMÁTICA DE INVENTARIO DE APERTURA PARA HOY ---
       const { data: invHoyBD } = await supabase
         .from('inventario_diario')
         .select('*')
@@ -409,7 +405,7 @@ export default function VivaPage() {
     }
   }
 
-  // --- LÓGICA DE APERTURA Y CIERRE CON INVENTARIO Y REGISTRO EN diferencia_inventario ---
+  // --- LÓGICA DE ACTUALIZACIÓN DINÁMICA DE STOCK SEGÚN EL TIPO DE MOVIMIENTO ---
   async function handleGuardarInventario() {
     if (!sesion) {
       alert('⚠️ No hay sesión activa.');
@@ -433,51 +429,72 @@ export default function VivaPage() {
       // 1. Procesar paletas contadas
       const itemsPaletas = Object.entries(cantidadesSabores);
       for (const [saborIdStr, cantidadFisicaRaw] of itemsPaletas) {
-        const cantidadFisica = Number(cantidadFisicaRaw) || 0;
+        const cantidadIngresada = Number(cantidadFisicaRaw) || 0;
+        if (cantidadIngresada <= 0 && tipoMovimiento !== 'apertura' && tipoMovimiento !== 'cierre') continue;
+
         const saborObj = saboresViva.find((s) => s.id === Number(saborIdStr));
         if (!saborObj) continue;
 
+        // Consultar registro actual en inventario_empaques_sedes
+        const { data: regAnterior } = await supabase
+          .from('inventario_empaques_sedes')
+          .select('stock')
+          .eq('sede_id', sedeId)
+          .eq('nombre', saborObj.nombre)
+          .maybeSingle();
+
+        const stockViejo = regAnterior ? Number(regAnterior.stock) : 0;
+        let nuevoStock = stockViejo;
+
         if (tipoMovimiento === 'apertura') {
-          // --- APERTURA: Compara, guarda diferencia y reemplaza stock ---
-          const { data: regAnterior } = await supabase
-            .from('inventario_empaques_sedes')
-            .select('stock')
-            .eq('sede_id', sedeId)
-            .eq('nombre', saborObj.nombre)
-            .maybeSingle();
-
-          const stockViejo = regAnterior ? Number(regAnterior.stock) : 0;
-          const difCalculada = cantidadFisica - stockViejo;
-
+          // APERTURA: Reemplaza stock y guarda la diferencia
+          nuevoStock = cantidadIngresada;
+          const difCalculada = cantidadIngresada - stockViejo;
           diferenciaPaletasJson[saborObj.nombre] = difCalculada;
           sumaTotalDiferencia += Math.abs(difCalculada);
 
           await supabase
             .from('inventario_empaques_sedes')
             .update({
-              stock: cantidadFisica,
+              stock: nuevoStock,
               diferencia: difCalculada,
               fecha_actualizacion: new Date().toISOString(),
             })
             .eq('sede_id', sedeId)
             .eq('nombre', saborObj.nombre);
 
-        } else if (tipoMovimiento === 'cierre') {
-          // --- CIERRE: Guarda vendidas (diferencia) y actualiza stock ---
-          const { data: regAnterior } = await supabase
-            .from('inventario_empaques_sedes')
-            .select('stock')
-            .eq('sede_id', sedeId)
-            .eq('nombre', saborObj.nombre)
-            .maybeSingle();
-
-          const stockViejo = regAnterior ? Number(regAnterior.stock) : 0;
-          const vendidasCalculadas = Math.max(0, stockViejo - cantidadFisica);
-
+        } else if (tipoMovimiento === 'nuevas' || tipoMovimiento === 'compras') {
+          // NUEVAS Y COMPRAS: Suma al stock actual
+          nuevoStock = stockViejo + cantidadIngresada;
           await supabase
             .from('inventario_empaques_sedes')
             .update({
-              stock: cantidadFisica,
+              stock: nuevoStock,
+              fecha_actualizacion: new Date().toISOString(),
+            })
+            .eq('sede_id', sedeId)
+            .eq('nombre', saborObj.nombre);
+
+        } else if (tipoMovimiento === 'debaja') {
+          // DE BAJA: Resta del stock actual
+          nuevoStock = Math.max(0, stockViejo - cantidadIngresada);
+          await supabase
+            .from('inventario_empaques_sedes')
+            .update({
+              stock: nuevoStock,
+              fecha_actualizacion: new Date().toISOString(),
+            })
+            .eq('sede_id', sedeId)
+            .eq('nombre', saborObj.nombre);
+
+        } else if (tipoMovimiento === 'cierre') {
+          // CIERRE: Registra vendidas y ajusta stock al conteo físico
+          nuevoStock = cantidadIngresada;
+          const vendidasCalculadas = Math.max(0, stockViejo - cantidadIngresada);
+          await supabase
+            .from('inventario_empaques_sedes')
+            .update({
+              stock: nuevoStock,
               vendidas: vendidasCalculadas,
               fecha_actualizacion: new Date().toISOString(),
             })
@@ -489,45 +506,62 @@ export default function VivaPage() {
       // 2. Procesar Caja Mostac
       if (cajasMostrador !== '') {
         const cantMostac = Number(cajasMostrador) || 0;
+        const { data: regAnterior } = await supabase
+          .from('inventario_empaques_sedes')
+          .select('stock')
+          .eq('sede_id', sedeId)
+          .eq('nombre', 'Caja Mostac')
+          .maybeSingle();
+
+        const stockViejo = regAnterior ? Number(regAnterior.stock) : 0;
+        let nuevoStockMostac = stockViejo;
+
         if (tipoMovimiento === 'apertura') {
-          const { data: regAnterior } = await supabase
-            .from('inventario_empaques_sedes')
-            .select('stock')
-            .eq('sede_id', sedeId)
-            .eq('nombre', 'Caja Mostac')
-            .maybeSingle();
-
-          const stockViejo = regAnterior ? Number(regAnterior.stock) : 0;
+          nuevoStockMostac = cantMostac;
           const difCalculada = cantMostac - stockViejo;
-
           diferenciaEmpaquesJson['Caja Mostac'] = difCalculada;
           sumaTotalDiferencia += Math.abs(difCalculada);
 
           await supabase
             .from('inventario_empaques_sedes')
             .update({
-              stock: cantMostac,
+              stock: nuevoStockMostac,
               diferencia: difCalculada,
               fecha_actualizacion: new Date().toISOString(),
             })
             .eq('sede_id', sedeId)
             .eq('nombre', 'Caja Mostac');
 
-        } else if (tipoMovimiento === 'cierre') {
-          const { data: regAnterior } = await supabase
+        } else if (tipoMovimiento === 'nuevas' || tipoMovimiento === 'compras') {
+          nuevoStockMostac = stockViejo + cantMostac;
+          await supabase
             .from('inventario_empaques_sedes')
-            .select('stock')
+            .update({
+              stock: nuevoStockMostac,
+              fecha_actualizacion: new Date().toISOString(),
+            })
             .eq('sede_id', sedeId)
-            .eq('nombre', 'Caja Mostac')
-            .maybeSingle();
+            .eq('nombre', 'Caja Mostac');
 
-          const stockViejo = regAnterior ? Number(regAnterior.stock) : 0;
+        } else if (tipoMovimiento === 'debaja') {
+          nuevoStockMostac = Math.max(0, stockViejo - cantMostac);
+          await supabase
+            .from('inventario_empaques_sedes')
+            .update({
+              stock: nuevoStockMostac,
+              fecha_actualizacion: new Date().toISOString(),
+            })
+            .eq('sede_id', sedeId)
+            .eq('nombre', 'Caja Mostac');
+
+        } else if (tipoMovimiento === 'cierre') {
+          nuevoStockMostac = cantMostac;
           const vendidasCalculadas = Math.max(0, stockViejo - cantMostac);
 
           await supabase
             .from('inventario_empaques_sedes')
             .update({
-              stock: cantMostac,
+              stock: nuevoStockMostac,
               vendidas: vendidasCalculadas,
               fecha_actualizacion: new Date().toISOString(),
             })
@@ -536,7 +570,7 @@ export default function VivaPage() {
         }
       }
 
-      // 3. Si es APERTURA, guardamos el histórico en diferencia_inventario
+      // 3. Registro en diferencia_inventario solo si es Apertura
       if (tipoMovimiento === 'apertura') {
         const { error: errorDif } = await supabase.from('diferencia_inventario').insert([
           {
@@ -549,12 +583,10 @@ export default function VivaPage() {
           },
         ]);
 
-        if (errorDif) {
-          console.error('Error guardando en diferencia_inventario:', errorDif);
-        }
+        if (errorDif) console.error('Error guardando en diferencia_inventario:', errorDif);
       }
 
-      // 4. Registro tradicional en inventario_diario para auditoría
+      // 4. Registro auditoría en inventario_diario
       const detallePaletasObj: { [saborNombre: string]: number } = {};
       itemsPaletas.forEach(([saborId, cant]) => {
         const num = Number(cant) || 0;
@@ -593,7 +625,7 @@ export default function VivaPage() {
       }
 
       setGuardando(false);
-      alert(`✅ ¡Inventario guardado y sincronizado con el histórico de diferencias con éxito!`);
+      alert(`✅ ¡Inventario (${tipoMovimiento.toUpperCase()}) guardado y stock actualizado en la base de datos!`);
 
       limpiarCantidadesSabores();
       limpiarCajasMostrador();
@@ -721,7 +753,6 @@ export default function VivaPage() {
 
     if (ok) {
       if (esTurnoCierre) {
-        // --- CERRAR CAJA EN BASE DE DATOS ---
         const hoyInicio = new Date();
         hoyInicio.setHours(0, 0, 0, 0);
 
@@ -1152,7 +1183,6 @@ export default function VivaPage() {
                   </div>
                 )}
 
-                {/* LISTADO DE PEDIDO DE HOY POR CATEGORÍAS CON BOTÓN X */}
                 <div className="bg-[#051829] border border-amber-400/40 p-3 rounded-xl space-y-2">
                   <span className="text-[10px] font-black text-amber-300 uppercase block border-b border-[#0066b3]/40 pb-1">
                     📋 Listado de Pedido Actual (Por Categorías)
