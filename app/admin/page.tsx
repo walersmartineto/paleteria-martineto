@@ -4,6 +4,18 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { useSede } from '@/context/SedeContext';
 
+// Helper para obtener la fecha YYYY-MM-DD en hora local sin desfase UTC
+const obtenerFechaLocalStr = (fechaRaw: any): string => {
+  if (!fechaRaw) return '';
+  const d = new Date(fechaRaw);
+  if (isNaN(d.getTime())) return String(fechaRaw).split('T')[0];
+  
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 export default function AdminPage() {
   const router = useRouter();
   const { sedeData } = useSede();
@@ -79,31 +91,32 @@ export default function AdminPage() {
         setUsuariosBD(mapaU);
       }
 
-      // 1. Pedidos (Filtrados por rango de fechas)
+      // 1. Pedidos (Módulo 1)
       const { data: pedidosDataRaw } = await supabase.from('pedidos_insumos').select('*');
       const pedidosData = (pedidosDataRaw || []).filter(row => {
         if (!row.fecha) return false;
-        const fRow = String(row.fecha).split('T')[0];
+        const fRow = obtenerFechaLocalStr(row.fecha);
         return fRow >= fechaInicio && fRow <= fechaFin;
       });
 
       // 2. Productos
       const { data: prodData } = await supabase.from('producto').select('id, nombre, donde_comprar');
 
-      // 3. Cierres de caja (Filtrados por rango de fechas)
+      // 3. Cierres de caja (Tabla 'caja' por rango de fecha local)
       const { data: cajaDataRaw } = await supabase.from('caja').select('*');
       const cajaData = (cajaDataRaw || []).filter(row => {
         if (!row.fecha) return false;
-        const fRow = String(row.fecha).split('T')[0];
+        const fRow = obtenerFechaLocalStr(row.fecha);
         return fRow >= fechaInicio && fRow <= fechaFin;
       });
 
-      // 4. Cargar datos de Nómina por rango
+      // 4. Pagos de Nómina (Tabla 'nomina' usando fecha_pago por rango)
       const { data: nominaDataRaw } = await supabase.from('nomina').select('*');
       const nominaData = (nominaDataRaw || []).filter(row => {
-        const fPago = row.fecha_pago ? String(row.fecha_pago).split('T')[0] : '';
-        const fGen = row.fecha ? String(row.fecha).split('T')[0] : '';
-        return (fPago >= fechaInicio && fPago <= fechaFin) || (fGen >= fechaInicio && fGen <= fechaFin);
+        const fRow = row.fecha_pago 
+          ? String(row.fecha_pago).split('T')[0] 
+          : (row.fecha ? obtenerFechaLocalStr(row.fecha) : '');
+        return fRow >= fechaInicio && fRow <= fechaFin;
       });
 
       // Acumulado de nómina para los operarios basado en el rango
@@ -140,19 +153,19 @@ export default function AdminPage() {
 
       setResumenNominaOperarios(Object.values(acumulado));
 
-      // 5. Cargar Diferencias de Inventario por rango
+      // 5. Cargar Diferencias de Inventario por rango (Hora Local)
       const { data: diffDataRaw } = await supabase.from('diferencia_inventario').select('*');
       const diffDataFiltrado = (diffDataRaw || []).filter(row => {
         if (!row.fecha_registro) return false;
-        const fRow = String(row.fecha_registro).split('T')[0];
+        const fRow = obtenerFechaLocalStr(row.fecha_registro);
         return fRow >= fechaInicio && fRow <= fechaFin;
       });
 
-      // 6. Cargar Inventario Diario completo por rango
+      // 6. Cargar Inventario Diario completo por rango (Hora Local)
       const { data: invDiarioRaw } = await supabase.from('inventario_diario').select('*');
       const invMovsFiltrado = (invDiarioRaw || []).filter(row => {
         if (!row.fecha_registro) return false;
-        const fRow = String(row.fecha_registro).split('T')[0];
+        const fRow = obtenerFechaLocalStr(row.fecha_registro);
         return fRow >= fechaInicio && fRow <= fechaFin;
       });
 
@@ -173,7 +186,7 @@ export default function AdminPage() {
   const getNombreSede = (id: number) => mapaSedes[id] || `Sede ${id}`;
   const getNombreUsuario = (id: number) => usuariosBD[id] || `Empleado #${id}`;
 
-  // --- LOGISTICA ---
+  // --- LOGÍSTICA ---
   const pedidosPendientesCompra = pedidos.filter(p => p.estado === 'pendiente');
   const pedidosListosParaEntrega = pedidos.filter(p => p.estado === 'comprado');
 
@@ -264,7 +277,7 @@ export default function AdminPage() {
   const tieneProductosPorComprar = Object.keys(consolidadoCompras).length > 0;
   const tieneProductosPorEntregar = Object.keys(despachosPorSede).length > 0;
 
-  // --- CIERRES DE CAJA Y NÓMINAS ---
+  // --- AGRUPACIÓN PUNTO 2: CIERRES DE CAJA Y NÓMINAS ---
   const CierreGlobal = (() => {
     const totalCaja = registrosCaja.reduce((acc, row) => {
       const efec = Number(row.efectivo_cierre) || 0;
@@ -292,7 +305,12 @@ export default function AdminPage() {
   const cierresPorSede = (() => {
     const mapa: { [sede: string]: any } = {};
     
-    registrosCaja.forEach(row => {
+    // Ordenar registros por ID ascendente para evaluar el último estado correctamente
+    const registrosOrdenados = [...registrosCaja].sort((a, b) => {
+      return (a.id || 0) - (b.id || 0);
+    });
+
+    registrosOrdenados.forEach(row => {
       const nombreSede = getNombreSede(row.sede_id);
       if (sedeSeleccionada !== 'todos' && String(row.sede_id) !== sedeSeleccionada) return;
 
@@ -311,7 +329,7 @@ export default function AdminPage() {
           totalVenta: 0,
           motivosGastos: [],
           notasNomina: [],
-          estado: row.estado || 'abierta'
+          estadoCaja: 'cerrada'
         };
       }
 
@@ -321,8 +339,13 @@ export default function AdminPage() {
       mapa[nombreSede].gastos += gas;
       mapa[nombreSede].totalVenta += (efec + neq + dav);
       if (row.motivo_gasto) mapa[nombreSede].motivosGastos.push(row.motivo_gasto);
+      
+      if (row.estado) {
+        mapa[nombreSede].estadoCaja = row.estado;
+      }
     });
 
+    // Agrupar 'nomina' por sede
     registrosNomina.forEach(n => {
       const nombreSede = getNombreSede(n.sede_id);
       if (sedeSeleccionada !== 'todos' && String(n.sede_id) !== sedeSeleccionada) return;
@@ -338,7 +361,7 @@ export default function AdminPage() {
           totalVenta: 0,
           motivosGastos: [],
           notasNomina: [],
-          estado: 'abierta'
+          estadoCaja: 'cerrada'
         };
       }
 
@@ -535,7 +558,7 @@ export default function AdminPage() {
               onChange={(e) => {
                 const nuevaFecha = e.target.value;
                 setFechaInicio(nuevaFecha);
-                setFechaFin(nuevaFecha); // Sincronización automática de fecha final
+                setFechaFin(nuevaFecha);
               }} 
               className="w-full bg-[#031d35] border border-[#0066b3] text-white p-2 rounded-xl text-xs outline-none" 
             />
@@ -601,8 +624,6 @@ export default function AdminPage() {
 
                 {subPestanaLogistica === 'compras' && (
                   <div className="space-y-4 pt-1">
-
-                    {/* CONSOLIDADO POR LUGAR DE COMPRA (CON OJITO PRINCIPAL Y PROVEEDORES) */}
                     <div className="border border-[#0066b3] bg-[#0b2b48] rounded-xl overflow-hidden shadow-sm">
                       <button 
                         onClick={() => setAcordeonesConsolidadoCompras(prev => ({ ...prev, global: !prev.global }))} 
@@ -690,7 +711,6 @@ export default function AdminPage() {
                       )}
                     </div>
 
-                    {/* RESUMEN DE COMPRAS POR SEDES (CON OJITO PRINCIPAL Y OJITO POR CADA SEDE) */}
                     <div className="bg-[#0b2b48] border border-sky-500/50 rounded-xl overflow-hidden">
                       <button 
                         onClick={() => setAcordeonesResumenSedes(prev => ({ ...prev, global: !prev.global }))} 
@@ -742,7 +762,6 @@ export default function AdminPage() {
                         </div>
                       )}
                     </div>
-
                   </div>
                 )}
 
@@ -780,7 +799,6 @@ export default function AdminPage() {
                     )}
                   </div>
                 )}
-
               </div>
             )}
           </div>
@@ -843,6 +861,9 @@ export default function AdminPage() {
                                 <button onClick={() => setAcordeonesCierres(prev => ({ ...prev, [nombreSede]: !abierto }))} className="w-full p-3 flex justify-between items-center text-xs font-bold text-white uppercase cursor-pointer">
                                   <span className="flex items-center gap-2">
                                     <span>{abierto ? '👁️‍🗨️' : '👁️'}</span> {nombreSede}
+                                    <span className={`text-[9px] px-2 py-0.5 rounded-full font-extrabold ${dataSede.estadoCaja === 'abierta' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' : 'bg-rose-500/20 text-rose-400 border border-rose-500/40'}`}>
+                                      {dataSede.estadoCaja === 'abierta' ? '🟢 Abierta' : '🔒 Cerrada'}
+                                    </span>
                                   </span>
                                   <span className="text-emerald-300 font-bold">${dataSede.totalVenta.toLocaleString()}</span>
                                 </button>

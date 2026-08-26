@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { useAutoSave } from '@/hooks/useAutoSave';
 import {
   obtenerTarifasViva,
-  registrarBaseCajaViva,
   crearPedidoInsumosViva,
   obtenerUsuariosOperarios,
   registrarNominaYCambioTurno,
@@ -44,6 +43,7 @@ export default function VivaPage() {
   // AUTO-SAVE: Base de Caja
   const [baseCaja, setBaseCaja, limpiarBaseCaja] = useAutoSave<number | ''>('viva_baseCaja', '');
   const [baseGuardada, setBaseGuardada] = useState(false);
+  const [cajaIdActual, setCajaIdActual] = useState<number | null>(null);
   const [aperturaRealizada, setAperturaRealizada] = useState(false);
   const [cierreRealizado, setCierreRealizado] = useState(false);
   
@@ -56,6 +56,10 @@ export default function VivaPage() {
   const [cantidadesSabores, setCantidadesSabores, limpiarCantidadesSabores] = useAutoSave<{ [saborId: number]: number | '' }>('viva_cantidadesSabores', {});
   const [cajasMostrador, setCajasMostrador, limpiarCajasMostrador] = useAutoSave<number | ''>('viva_cajasMostrador', '');
   const [observaciones, setObservaciones, limpiarObsInv] = useAutoSave<string>('viva_observacionesInv', '');
+
+  // AUDITORÍA / HISTORIAL DE MOVIMIENTOS Y VENTAS EN VIVA
+  const [, setMovimientosDiaBD] = useState<any[]>([]);
+  const [ventasDiaBD, setVentasDiaBD] = useState<any[]>([]);
 
   // AUTO-SAVE: Requisición de Pedidos
   const [mostrarModuloPedidos, setMostrarModuloPedidos] = useState(false);
@@ -78,7 +82,7 @@ export default function VivaPage() {
   const [esProductoGlobal, setEsProductoGlobal] = useState(true);
   const [guardandoProducto, setGuardandoProducto] = useState(false);
 
-  // AUTO-SAVE: Nómina y Arqueo de Caja
+  // NÓMINA Y ARQUEO DE CAJA EN VIVA
   const [tipoDia, setTipoDia] = useState<'entre_semana' | 'domingo_festivo'>('entre_semana');
   const [horasDia, setHorasDia, limpiarHorasDia] = useAutoSave<number | ''>('viva_horasDia', '');
   const [horasNoche, setHorasNoche, limpiarHorasNoche] = useAutoSave<number | ''>('viva_horasNoche', '');
@@ -87,6 +91,12 @@ export default function VivaPage() {
   const [daviplata, setDaviplata, limpiarDaviplata] = useAutoSave<number | ''>('viva_daviplata', '');
   const [gastos, setGastos, limpiarGastos] = useAutoSave<number | ''>('viva_gastos', '');
   const [motivoGasto, setMotivoGasto, limpiarMotivoGasto] = useAutoSave<string>('viva_motivoGasto', '');
+
+  // MODAL RESUMEN Y AUDITORÍA DE CIERRE TOTAL
+  const [mostrarModalResumen, setMostrarModalResumen] = useState(false);
+  const [efectivoContadoCierre, setEfectivoContadoCierre] = useState<number | ''>('');
+  const [guardandoCierre, setGuardandoCierre] = useState(false);
+  const [nominaPagadaEnTurno, setNominaPagadaEnTurno] = useState(false);
 
   // MODAL CAMBIO DE TURNO
   const [mostrarModalCambioTurno, setMostrarModalCambioTurno] = useState(false);
@@ -105,9 +115,7 @@ export default function VivaPage() {
   const hNoche = Number(horasNoche) || 0;
   const valorHoraDia = tipoDia === 'domingo_festivo' ? tarifas.horaDiaFestivo : tarifas.horaDiaEntreSemana;
   const valorHoraNoche = tipoDia === 'domingo_festivo' ? tarifas.horaNocheFestivo : tarifas.horaNocheEntreSemana;
-  const totalNomina = tarifas.subsidio + tarifas.transporte + hDia * valorHoraDia + hNoche * valorHoraNoche;
-
-  const totalVentasCalculado = (Number(efectivoCaja) || 0) + (Number(nequi) || 0) + (Number(daviplata) || 0);
+  const totalNomina = (hDia > 0 || hNoche > 0 ? tarifas.subsidio + tarifas.transporte : 0) + hDia * valorHoraDia + hNoche * valorHoraNoche;
 
   const SEDE_ID_VIVA = 1;
 
@@ -180,6 +188,7 @@ export default function VivaPage() {
       const hoyInicio = new Date();
       hoyInicio.setHours(0, 0, 0, 0);
 
+      // 1. Cargar Caja de Hoy
       const { data: cajaHoyBD } = await supabase
         .from('caja')
         .select('*')
@@ -193,8 +202,10 @@ export default function VivaPage() {
       if (cajaHoyBD) {
         setBaseCaja(Number(cajaHoyBD.monto_apertura) || 0);
         setBaseGuardada(true);
+        setCajaIdActual(cajaHoyBD.id);
       }
 
+      // 2. Cargar Apertura de Hoy
       const { data: invHoyBD } = await supabase
         .from('inventario_diario')
         .select('*')
@@ -210,6 +221,36 @@ export default function VivaPage() {
         setTipoMovimiento('nuevas');
       }
 
+      // 3. Cargar Movimientos del Día para Auditoría
+      const { data: movsBD } = await supabase
+        .from('inventario_diario')
+        .select('*')
+        .eq('sede_id', SEDE_ID_VIVA)
+        .gte('fecha_registro', hoyInicio.toISOString());
+
+      if (movsBD) {
+        setMovimientosDiaBD(
+          movsBD.map((m: any) => ({
+            tipo: m.tipo_movimiento,
+            totalPaletas: m.total_paletas,
+            detallePaletas: m.detalle_paletas || {},
+            detalleEmpaques: m.detalle_empaques || {},
+          }))
+        );
+      }
+
+      // 4. Cargar Ventas Realizadas Hoy
+      const { data: vtsBD } = await supabase
+        .from('venta')
+        .select('*')
+        .eq('sede_id', SEDE_ID_VIVA)
+        .gte('fecha', hoyInicio.toISOString());
+
+      if (vtsBD) {
+        setVentasDiaBD(vtsBD);
+      }
+
+      // 5. Cargar Tarifas de Nómina
       const { data: configBD } = await supabase
         .from('configuracion_tarifa')
         .select('*')
@@ -373,7 +414,7 @@ export default function VivaPage() {
 
   async function handleGuardarBase() {
     const monto = baseCaja === '' ? 0 : Number(baseCaja);
-    if (monto < 0) {
+    if (monto <= 0) {
       alert('Ingresa un valor válido para la base inicial.');
       return;
     }
@@ -390,9 +431,21 @@ export default function VivaPage() {
 
     setGuardando(true);
     try {
-      const exito = await registrarBaseCajaViva(sedeId, usuarioId, monto, turnoId);
-      if (exito) {
+      const { data, error } = await supabase.from('caja').insert([
+        {
+          sede_id: sedeId,
+          usuario_id: usuarioId ? Number(usuarioId) : null,
+          turno_id: turnoId,
+          monto_apertura: monto,
+          diferencia: 0,
+          estado: 'abierta',
+          fecha: new Date().toISOString(),
+        },
+      ]).select();
+
+      if (!error && data && data.length > 0) {
         setBaseGuardada(true);
+        setCajaIdActual(data[0].id);
         alert('¡Base inicial guardada con éxito en la tabla CAJA!');
       } else {
         alert('⚠️ Hubo un error al guardar la base en la base de datos.');
@@ -405,7 +458,7 @@ export default function VivaPage() {
     }
   }
 
-  // --- LÓGICA DE ACTUALIZACIÓN DINÁMICA DE STOCK SEGÚN EL TIPO DE MOVIMIENTO ---
+  // ACTUALIZACIÓN Y GUARDADO DE INVENTARIO
   async function handleGuardarInventario() {
     if (!sesion) {
       alert('⚠️ No hay sesión activa.');
@@ -435,7 +488,6 @@ export default function VivaPage() {
         const saborObj = saboresViva.find((s) => s.id === Number(saborIdStr));
         if (!saborObj) continue;
 
-        // Consultar registro actual en inventario_empaques_sedes
         const { data: regAnterior } = await supabase
           .from('inventario_empaques_sedes')
           .select('stock')
@@ -447,7 +499,6 @@ export default function VivaPage() {
         let nuevoStock = stockViejo;
 
         if (tipoMovimiento === 'apertura') {
-          // APERTURA: Reemplaza stock y guarda la diferencia
           nuevoStock = cantidadIngresada;
           const difCalculada = cantidadIngresada - stockViejo;
           diferenciaPaletasJson[saborObj.nombre] = difCalculada;
@@ -464,7 +515,6 @@ export default function VivaPage() {
             .eq('nombre', saborObj.nombre);
 
         } else if (tipoMovimiento === 'nuevas' || tipoMovimiento === 'compras') {
-          // NUEVAS Y COMPRAS: Suma al stock actual
           nuevoStock = stockViejo + cantidadIngresada;
           await supabase
             .from('inventario_empaques_sedes')
@@ -476,7 +526,6 @@ export default function VivaPage() {
             .eq('nombre', saborObj.nombre);
 
         } else if (tipoMovimiento === 'debaja') {
-          // DE BAJA: Resta del stock actual
           nuevoStock = Math.max(0, stockViejo - cantidadIngresada);
           await supabase
             .from('inventario_empaques_sedes')
@@ -488,7 +537,6 @@ export default function VivaPage() {
             .eq('nombre', saborObj.nombre);
 
         } else if (tipoMovimiento === 'cierre') {
-          // CIERRE: Registra vendidas y ajusta stock al conteo físico
           nuevoStock = cantidadIngresada;
           const vendidasCalculadas = Math.max(0, stockViejo - cantidadIngresada);
           await supabase
@@ -617,6 +665,16 @@ export default function VivaPage() {
 
       await supabase.from('inventario_diario').insert([payloadInventario]);
 
+      setMovimientosDiaBD((prev) => [
+        ...prev,
+        {
+          tipo: tipoMovimiento,
+          totalPaletas: totalPaletasSuma,
+          detallePaletas: detallePaletasObj,
+          detalleEmpaques: detalleEmpaquesObj,
+        },
+      ]);
+
       if (tipoMovimiento === 'apertura') {
         setAperturaRealizada(true);
         setTipoMovimiento('nuevas');
@@ -712,18 +770,62 @@ export default function VivaPage() {
     }
   }
 
-  async function handleGuardarNominaTurno() {
+  // CÁLCULOS FINANCIEROS AUDITORÍA VIVA
+  const totalEfectivoIngresado = ventasDiaBD.reduce((acc, v) => acc + Number(v.pago_efectivo || 0), 0);
+  const totalNequiIngresado = ventasDiaBD.reduce((acc, v) => acc + Number(v.pago_nequi || 0), 0);
+  const totalDaviplataIngresado = ventasDiaBD.reduce((acc, v) => acc + Number(v.pago_daviplata || 0), 0);
+  const totalDescuentosDia = ventasDiaBD.reduce((acc, v) => acc + Number(v.descuento || 0), 0);
+  const listaMotivosUnicosDescuento = Array.from(
+    new Set(
+      ventasDiaBD
+        .map((v) => v.motivo_descuento)
+        .filter((m): m is string => Boolean(m && m.trim() !== ''))
+    )
+  );
+
+  const totalVentasElectronicas = totalNequiIngresado + totalDaviplataIngresado;
+  const totalVentasGlobal = totalEfectivoIngresado + totalVentasElectronicas;
+
+  const gast = Number(gastos) || 0;
+  const cajaDisponibleCalculadaViva = (Number(baseCaja) || 0) + totalEfectivoIngresado - gast;
+
+  // PAGAR NÓMINA VIVA EXCLUSIVAMENTE EN LA TABLA 'nomina'
+  async function pagarNominaBD() {
+    if (totalNomina <= 0) {
+      alert('⚠️ El valor a pagar de nómina debe ser mayor a 0 (ingresa las horas trabajadas).');
+      return;
+    }
+
+    const usuarioId = sesion?.usuario_id || sesion?.id || null;
+
+    const payloadNomina = {
+      sede_id: SEDE_ID_VIVA,
+      usuario_id: usuarioId ? Number(usuarioId) : null,
+      monto_pago: totalNomina,
+      horas_dia: Number(horasDia) || 0,
+      horas_noche: Number(horasNoche) || 0,
+      tipo_dia: tipoDia,
+      fecha: new Date().toISOString(),
+    };
+
+    const { error } = await supabase.from('nomina').insert([payloadNomina]);
+
+    if (error) {
+      alert('❌ Error al guardar en la tabla nomina: ' + error.message);
+      return;
+    }
+
+    setNominaPagadaEnTurno(true);
+    alert(`💸 Pago de Nómina de $ ${totalNomina.toLocaleString('es-CO')} registrado exitosamente en la tabla nomina.`);
+  }
+
+  // FUNCION CAMBIO TURNO NORMALIZADA
+  async function handleEjecutarCambioTurno() {
     if (totalNomina <= 0) {
       alert('Ingresa las horas trabajadas.');
       return;
     }
 
-    if (esTurnoCierre && !cierreRealizado) {
-      alert('⚠️ ATENCIÓN: Debes seleccionar "Conteo de Cierre" en la sección de inventario y guardar el conteo antes de cerrar la jornada.');
-      return;
-    }
-
-    setGuardando(true);
     const efCaja = Number(efectivoCaja) || 0;
     const neq = Number(nequi) || 0;
     const dav = Number(daviplata) || 0;
@@ -732,10 +834,10 @@ export default function VivaPage() {
     const usuarioId = sesion?.usuario_id || sesion?.id || 1;
     const sedeId = SEDE_ID_VIVA;
 
-    const datosPayload: any = {
+    const datosPayload = {
       sedeId,
       usuarioId,
-      tipoDia,
+      tipoDia: tipoDia === 'domingo_festivo' ? 'festivo' : 'entre_semana',
       horasDia: hDia,
       horasNoche: hNoche,
       subsidio: tarifas.subsidio,
@@ -748,50 +850,111 @@ export default function VivaPage() {
       motivoGasto: esTurnoCierre ? motivoGasto : '',
     };
 
+    setGuardando(true);
     const ok = await registrarNominaYCambioTurno(datosPayload);
     setGuardando(false);
 
     if (ok) {
-      if (esTurnoCierre) {
-        const hoyInicio = new Date();
-        hoyInicio.setHours(0, 0, 0, 0);
+      setEfectivoTurnoManana(efCaja);
+      localStorage.setItem('martineto_efectivo_manana', efCaja.toString());
+      alert(`¡Nómina registrada con éxito!\n\nEfectivo dejado en caja para la tarde: $ ${efCaja.toLocaleString('es-CO')}\n\nA continuación, ingresa el operario que recibe el turno.`);
+      setMostrarModalCambioTurno(true);
+    } else {
+      alert('Error al registrar cambio de turno.');
+    }
+  }
 
-        await supabase
-          .from('caja')
-          .update({ estado: 'cerrada', efectivo_cierre: efCaja })
+  // GUARDA EL CIERRE DEFINITIVO TOTAL DE VIVA
+  async function guardarCierreDefinitivoBD() {
+    if (efectivoContadoCierre === '') {
+      alert('⚠️ Ingresa la cantidad exacta de efectivo que estás dejando en caja.');
+      return;
+    }
+
+    const efecContado = Number(efectivoContadoCierre);
+    const difCaja = efecContado - cajaDisponibleCalculadaViva;
+
+    setGuardandoCierre(true);
+    const usuarioId = sesion?.usuario_id || sesion?.id;
+
+    try {
+      const hoyInicio = new Date();
+      hoyInicio.setHours(0, 0, 0, 0);
+
+      // 1. PROCESAR NÓMINA SI AÚN NO HA SIDO PAGADA
+      if (!nominaPagadaEnTurno && totalNomina > 0) {
+        const payloadNomina = {
+          sede_id: SEDE_ID_VIVA,
+          usuario_id: usuarioId ? Number(usuarioId) : null,
+          monto_pago: totalNomina,
+          horas_dia: Number(horasDia) || 0,
+          horas_noche: Number(horasNoche) || 0,
+          tipo_dia: tipoDia,
+          fecha: new Date().toISOString(),
+        };
+
+        const { error: errorNomina } = await supabase.from('nomina').insert([payloadNomina]);
+        if (errorNomina) {
+          throw new Error('Error al registrar pago de nómina: ' + errorNomina.message);
+        }
+        setNominaPagadaEnTurno(true);
+      }
+
+      // 2. ACTUALIZAR REGISTRO DE CAJA CON EL RESUMEN TOTAL
+      let queryCaja = supabase
+        .from('caja')
+        .update({
+          estado: 'cerrada',
+          efectivo_cierre: efecContado,
+          nequi: totalNequiIngresado,
+          daviplata: totalDaviplataIngresado,
+          monto_gasto: gast,
+          motivo_gasto: motivoGasto || null,
+          descuento: totalDescuentosDia,
+          motivo_descuento: listaMotivosUnicosDescuento,
+          diferencia: difCaja,
+        });
+
+      if (cajaIdActual) {
+        queryCaja = queryCaja.eq('id', cajaIdActual);
+      } else {
+        queryCaja = queryCaja
           .eq('sede_id', SEDE_ID_VIVA)
           .gte('fecha', hoyInicio.toISOString())
           .eq('estado', 'abierta');
-
-        alert(`¡Cierre de jornada completado con éxito!\n\nNómina: $ ${totalNomina.toLocaleString('es-CO')}\nTotal Recaudado: $ ${totalVentasCalculado.toLocaleString('es-CO')}\nGastos: $ ${gst.toLocaleString('es-CO')}\n\n¡Hasta mañana!`);
-        localStorage.removeItem('martineto_efectivo_manana');
-        
-        limpiarBaseCaja();
-        limpiarHorasDia();
-        limpiarHorasNoche();
-        limpiarEfCaja();
-        limpiarNequi();
-        limpiarDaviplata();
-        limpiarGastos();
-        limpiarMotivoGasto();
-
-        cerrarSesion();
-      } else {
-        setEfectivoTurnoManana(efCaja);
-        localStorage.setItem('martineto_efectivo_manana', efCaja.toString());
-
-        alert(`¡Nómina registrada con éxito!\n\nEfectivo dejado en caja para la tarde: $ ${efCaja.toLocaleString('es-CO')}\n\nA continuación, ingresa el operario que recibe el turno.`);
-        
-        limpiarHorasDia();
-        limpiarHorasNoche();
-        limpiarEfCaja();
-        limpiarNequi();
-        limpiarDaviplata();
-
-        setMostrarModalCambioTurno(true);
       }
-    } else {
-      alert('Error al registrar.');
+
+      const { error: errorCaja } = await queryCaja;
+      if (errorCaja) {
+        throw new Error('Error actualizando la tabla caja: ' + errorCaja.message);
+      }
+
+      alert('✅ ¡CIERRE TOTAL DEL DÍA GUARDADO CON ÉXITO EN LA BASE DE DATOS PARA VIVA!');
+      setMostrarModalResumen(false);
+
+      limpiarBaseCaja();
+      limpiarCantidadesSabores();
+      limpiarCajasMostrador();
+      limpiarObsInv();
+      limpiarPedPaletas();
+      limpiarPedRichi();
+      limpiarPedInsumos();
+      limpiarPedAseo();
+      limpiarOtroInsumo();
+      limpiarObsPedido();
+      limpiarHorasDia();
+      limpiarHorasNoche();
+      limpiarEfCaja();
+      limpiarNequi();
+      limpiarDaviplata();
+      limpiarGastos();
+      limpiarMotivoGasto();
+
+      cerrarSesion();
+    } catch (err: any) {
+      alert('⚠️ ' + err.message);
+    } finally {
+      setGuardandoCierre(false);
     }
   }
 
@@ -1456,32 +1619,161 @@ export default function VivaPage() {
                   {esTurnoCierre ? 'Total Recaudado (Ventas):' : 'Efectivo en Caja:'}
                 </span>
                 <span className="text-base font-black text-emerald-300 bg-[#051829] px-3 py-1 rounded-lg border border-emerald-500/50">
-                  $ {(esTurnoCierre ? totalVentasCalculado : Number(efectivoCaja) || 0).toLocaleString('es-CO')}
+                  $ {(esTurnoCierre ? totalVentasGlobal : Number(efectivoCaja) || 0).toLocaleString('es-CO')}
                 </span>
               </div>
             </div>
 
-            <button
-              onClick={handleGuardarNominaTurno}
-              disabled={guardando || (esTurnoCierre && !cierreRealizado)}
-              className={`w-full font-black py-3 rounded-xl text-xs md:text-sm transition-all shadow-md cursor-pointer ${
-                esTurnoCierre && !cierreRealizado
-                  ? 'bg-[#051829] text-sky-400/40 cursor-not-allowed border border-[#003d6d]'
-                  : 'bg-[#0078d4] hover:bg-[#0086e6] text-white shadow-[#003d6d]'
-              }`}
-            >
-              {guardando
-                ? 'Guardando...'
-                : esTurnoCierre
-                ? cierreRealizado
-                  ? '🌙 Registrar Cierre Final, Caja y Nómina'
-                  : '⚠️ Haz el Conteo de Cierre Primero'
-                : '💾 Registrar Nómina y Cambio de Turno'}
-            </button>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={pagarNominaBD}
+                className="w-full bg-sky-600 hover:bg-sky-500 text-white font-black py-3 rounded-xl text-xs uppercase cursor-pointer shadow-md"
+              >
+                💸 Pagar Nómina (Tabla 'nomina')
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (esTurnoCierre && !cierreRealizado) {
+                    alert('⚠️ ATENCIÓN: Debes seleccionar "Conteo de Cierre" en la sección de inventario y guardar el conteo antes de cerrar la jornada.');
+                    return;
+                  }
+                  if (esTurnoCierre) {
+                    setMostrarModalResumen(true);
+                  } else {
+                    handleEjecutarCambioTurno();
+                  }
+                }}
+                disabled={guardando || (esTurnoCierre && !cierreRealizado)}
+                className={`w-full font-black py-3 rounded-xl text-xs uppercase transition-all shadow-md cursor-pointer ${
+                  esTurnoCierre && !cierreRealizado
+                    ? 'bg-[#051829] text-sky-400/40 cursor-not-allowed border border-[#003d6d]'
+                    : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                }`}
+              >
+                {esTurnoCierre ? '🌙 Auditoría y Cierre de Día' : '🔄 Cambio de Turno'}
+              </button>
+            </div>
           </div>
 
         </div>
       </div>
+
+      {/* MODAL AUDITORÍA / CIERRE TOTAL VIVA */}
+      {mostrarModalResumen && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 font-sans">
+          <div className="bg-[#0b2b48] border-2 border-emerald-400 rounded-2xl p-6 max-w-3xl w-full space-y-4 shadow-2xl text-white max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center border-b border-[#0066b3] pb-3">
+              <h3 className="text-sm font-black flex items-center gap-2 uppercase text-emerald-300">
+                📊 AUDITORÍA Y BALANCE DE DÍA — WALERS VIVA
+              </h3>
+              <button
+                onClick={() => setMostrarModalResumen(false)}
+                className="text-sky-300 hover:text-white font-black text-sm cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {!nominaPagadaEnTurno && (
+              <div className="bg-amber-950/90 border border-amber-500 p-3 rounded-xl text-xs text-amber-200 font-bold flex items-center gap-2">
+                <span>ℹ️ NOTA NÓMINA:</span> Se registrará automáticamente el pago de la nómina al guardar este cierre.
+              </div>
+            )}
+
+            <div className="space-y-3 text-xs font-bold">
+              <span className="text-sky-300 block uppercase font-black border-b border-[#0066b3]/40 pb-1">
+                1. RESUMEN DE VENTAS Y CAJA:
+              </span>
+
+              <div className="bg-[#051829] border border-[#0066b3] p-3.5 rounded-xl space-y-2">
+                <div className="flex justify-between text-sky-200">
+                  <span>💵 Base Apertura:</span>
+                  <span className="text-emerald-300 font-black">$ {(Number(baseCaja) || 0).toLocaleString('es-CO')}</span>
+                </div>
+
+                <div className="flex justify-between text-amber-300 font-black pt-1 border-t border-[#0066b3]/30">
+                  <span>🛍️ TOTAL VENTAS:</span>
+                  <span>$ {totalVentasGlobal.toLocaleString('es-CO')}</span>
+                </div>
+
+                <div className="bg-[#0e385e]/60 p-2.5 rounded-lg border border-[#0066b3]/60 space-y-1.5 ml-2">
+                  <div className="flex justify-between text-sky-300 font-bold">
+                    <span>💳 Ventas Electrónicas (Total):</span>
+                    <span>$ {totalVentasElectronicas.toLocaleString('es-CO')}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-4 text-[11px] text-sky-200 pl-3">
+                    <span>• NEQUI: $ {totalNequiIngresado.toLocaleString('es-CO')}</span>
+                    <span>• DAVIPLATA: $ {totalDaviplataIngresado.toLocaleString('es-CO')}</span>
+                  </div>
+                </div>
+
+                <div className="flex justify-between text-emerald-300 font-black pt-1">
+                  <span>💵 Ventas en Efectivo:</span>
+                  <span>$ {totalEfectivoIngresado.toLocaleString('es-CO')}</span>
+                </div>
+
+                <div className="flex justify-between text-amber-400">
+                  <span>💸 Gastos Directos Insumos (Efectivo):</span>
+                  <span>- $ {gast.toLocaleString('es-CO')}</span>
+                </div>
+
+                {totalDescuentosDia > 0 && (
+                  <div className="bg-amber-950/60 border border-amber-500/40 p-2.5 rounded-lg space-y-1 text-amber-300">
+                    <div className="flex justify-between font-black">
+                      <span>🏷️ Descuentos Totales del Día:</span>
+                      <span>$ {totalDescuentosDia.toLocaleString('es-CO')}</span>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex justify-between pt-2 border-t-2 border-[#0066b3] text-sm font-black text-emerald-400">
+                  <span>💵 PRODUCIDO / EN CAJA (Calculado):</span>
+                  <span>$ {cajaDisponibleCalculadaViva.toLocaleString('es-CO')}</span>
+                </div>
+              </div>
+
+              <div className="bg-[#051829] border border-emerald-400 p-3 rounded-xl space-y-1">
+                <label className="text-xs text-emerald-300 font-black block uppercase">
+                  💵 EFECTIVO REAL CONTADO EN CAJA *:
+                </label>
+                <input
+                  type="text"
+                  placeholder="Digita el dinero real en mano $"
+                  value={formatearMoneda(efectivoContadoCierre)}
+                  onChange={(e) => setEfectivoContadoCierre(desformatearMoneda(e.target.value))}
+                  className="w-full bg-[#0e385e] border border-emerald-400 text-emerald-300 font-black text-base p-2.5 rounded-xl outline-none"
+                />
+                {efectivoContadoCierre !== '' && (
+                  <p className={`text-xs font-bold mt-1 ${Number(efectivoContadoCierre) - cajaDisponibleCalculadaViva >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {Number(efectivoContadoCierre) - cajaDisponibleCalculadaViva >= 0
+                      ? `✓ Cuadre OK (Diferencia: $ ${(Number(efectivoContadoCierre) - cajaDisponibleCalculadaViva).toLocaleString('es-CO')})`
+                      : `⚠️ Descuadre en Caja (Diferencia: $ ${(Number(efectivoContadoCierre) - cajaDisponibleCalculadaViva).toLocaleString('es-CO')})`}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={() => setMostrarModalResumen(false)}
+                className="w-1/2 bg-[#051829] hover:bg-[#003d6d] text-sky-200 border border-[#0066b3] font-bold py-2 rounded-xl text-xs uppercase cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={guardarCierreDefinitivoBD}
+                disabled={guardandoCierre}
+                className="w-1/2 bg-emerald-600 hover:bg-emerald-500 text-white font-black py-2 rounded-xl text-xs uppercase cursor-pointer shadow-lg disabled:opacity-50"
+              >
+                {guardandoCierre ? 'Guardando en BD...' : '💾 Confirmar y Guardar Cierre en BD'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MODAL CREAR NUEVO PRODUCTO / INSUMO */}
       {mostrarModalNuevoProd && (

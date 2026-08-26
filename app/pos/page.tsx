@@ -57,9 +57,10 @@ export default function MartinetoPOSPage() {
   // AUTO-SAVE: Base de Caja
   const [baseCaja, setBaseCaja, limpiarBaseCaja] = useAutoSave<number | ''>('martineto_baseCaja', '');
   const [baseGuardada, setBaseGuardada] = useState(false);
+  const [cajaIdActual, setCajaIdActual] = useState<number | null>(null);
   const [aperturaRealizada, setAperturaRealizada] = useState(false);
 
-  // NUEVA TABLA: EMPAQUES Y PALETAS DESDE BD
+  // EMPAQUES Y PALETAS DESDE BD
   const [empaquesBD, setEmpaquesBD] = useState<any[]>([]);
 
   // AUTO-SAVE: Inventario y Movimientos
@@ -120,12 +121,12 @@ export default function MartinetoPOSPage() {
 
   const [observacionPedido, setObservacionPedido, limpiarObsPedido] = useAutoSave<string>('martineto_obsPedido', '');
 
-  // AUTO-SAVE: Gastos Directos
+  // GASTOS DIRECTOS (INSUMOS)
   const [listaGastos, setListaGastos] = useState<{ id: string; concepto: string; monto: number; hora: string }[]>([]);
   const [conceptoGasto, setConceptoGasto, limpiarConceptoGasto] = useAutoSave<string>('martineto_conceptoGasto', '');
   const [montoGasto, setMontoGasto, limpiarMontoGasto] = useAutoSave<number | ''>('martineto_montoGasto', '');
 
-  // CIERRE DE DÍA, CUADRE NUMÉRICO DE INVENTARIO Y EFECTIVO CONTADO
+  // CIERRE DE DÍA
   const [mostrarModalResumen, setMostrarModalResumen] = useState(false);
   const [efectivoContadoCierre, setEfectivoContadoCierre] = useState<number | ''>('');
   const [conteoFisicoProductos, setConteoFisicoProductos] = useState<{ [nombreProd: string]: number | '' }>({});
@@ -141,7 +142,7 @@ export default function MartinetoPOSPage() {
   const [esProductoGlobal, setEsProductoGlobal] = useState(true);
   const [guardandoProducto, setGuardandoProducto] = useState(false);
 
-  // NÓMINA CON LECTURA DESDE configuracion_tarifa Y ESTADO DE PAGO
+  // NÓMINA INDEPENDIENTE
   const [tipoDia, setTipoDia] = useState<string>('entre_semana');
   const [horasDia, setHorasDia] = useState<number | ''>('');
   const [horasNoche, setHorasNoche] = useState<number | ''>('');
@@ -221,7 +222,6 @@ export default function MartinetoPOSPage() {
     cargarInicial(ses);
   }, [router]);
 
-  // TIEMPO REAL: ESCUCHAR CAMBIOS EN LAS MESAS Y EN LA TABLA DE EMPAQUES
   useEffect(() => {
     const channelMesas = supabase
       .channel('schema-db-changes-mesas')
@@ -373,7 +373,7 @@ export default function MartinetoPOSPage() {
         .maybeSingle();
 
       const totalPaletasAyer = Number(ultimoCierre?.total_paletas || 0);
-      const jsonCierreEmpaques = ultimoCierre?.detalle_empaques || {};
+      const jsonCierreEmpaques: { [key: string]: number } = ultimoCierre?.detalle_empaques || {};
 
       const difPaletasGlobal = totalPaletasHoy - totalPaletasAyer;
       const difEmpaquesObj: { [nombre: string]: number } = {};
@@ -468,7 +468,7 @@ export default function MartinetoPOSPage() {
         }
       }
 
-      // --- VALIDACIÓN AUTOMÁTICA DE CAJA ABIIERTA PARA HOY ---
+      // --- CAJA ABIERTA DE HOY ---
       const hoyInicio = new Date();
       hoyInicio.setHours(0, 0, 0, 0);
 
@@ -485,9 +485,10 @@ export default function MartinetoPOSPage() {
       if (cajaHoyBD) {
         setBaseCaja(Number(cajaHoyBD.monto_apertura) || 0);
         setBaseGuardada(true);
+        setCajaIdActual(cajaHoyBD.id);
       }
 
-      // --- VALIDACIÓN AUTOMÁTICA DE INVENTARIO DE APERTURA PARA HOY ---
+      // --- INVENTARIO APERTURA HOY ---
       const { data: invHoyBD } = await supabase
         .from('inventario_diario')
         .select('*')
@@ -506,7 +507,8 @@ export default function MartinetoPOSPage() {
       const { data: configTarifas } = await supabase
         .from('configuracion_tarifa')
         .select('*')
-        .single();
+        .limit(1)
+        .maybeSingle();
 
       if (configTarifas) {
         setTarifasNominaBD({
@@ -628,37 +630,36 @@ export default function MartinetoPOSPage() {
     return sub + trans + hDia * vDia + hNoche * vNoche;
   };
 
-  async function pagarYDescontarNominaDeCaja() {
+  async function pagarNominaBD() {
     const totalPago = calcularTotalNomina();
 
     if (totalPago <= 0) {
-      alert('⚠️ El valor a pagar de nómina debe ser mayor a 0 (ingresa horas trabajadas).');
+      alert('⚠️ El valor a pagar de nómina debe ser mayor a 0 (ingresa las horas trabajadas).');
       return;
     }
 
-    const operarioNombre = sesion?.nombre || 'Operador';
-    const conceptoNomen = `Pago Nómina Operador - ${operarioNombre} (${horasDia || 0}h Día / ${horasNoche || 0}h Noche)`;
-    const horaActual = new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
+    const usuarioId = sesion?.usuario_id || sesion?.id || null;
 
-    const gastoNominaObj = {
-      id: Date.now().toString(),
-      concepto: conceptoNomen,
-      monto: totalPago,
-      hora: horaActual,
+    // SE GUARDA EXCLUSIVAMENTE EN LA TABLA 'nomina'
+    const payloadNomina = {
+      sede_id: SEDE_ID_MARTINETO,
+      usuario_id: usuarioId ? Number(usuarioId) : null,
+      monto_pago: totalPago,
+      horas_dia: Number(horasDia) || 0,
+      horas_noche: Number(horasNoche) || 0,
+      tipo_dia: tipoDia,
+      fecha: new Date().toISOString()
     };
 
-    setListaGastos((prev) => [gastoNominaObj, ...prev]);
+    const { error } = await supabase.from('nomina').insert([payloadNomina]);
 
-    await supabase.from('gastos').insert([
-      {
-        sede_id: SEDE_ID_MARTINETO,
-        concepto: conceptoNomen,
-        monto: totalPago,
-      },
-    ]);
+    if (error) {
+      alert('❌ Error al guardar en la tabla nomina: ' + error.message);
+      return;
+    }
 
     setNominaPagadaEnTurno(true);
-    alert(`💸 Pago de Nómina de $ ${totalPago.toLocaleString('es-CO')} registrado y descontado de la Caja.`);
+    alert(`💸 Pago de Nómina de $ ${totalPago.toLocaleString('es-CO')} registrado exitosamente en la tabla nomina.`);
   }
 
   async function crearNuevoProductoBD() {
@@ -804,20 +805,25 @@ export default function MartinetoPOSPage() {
       return;
     }
 
-    const { error } = await supabase.from('caja').insert([
+    const { data, error } = await supabase.from('caja').insert([
       {
         sede_id: SEDE_ID_MARTINETO,
         usuario_id: usuarioId ? Number(usuarioId) : null,
         turno_id: turnoId,
         monto_apertura: monto,
         diferencia: 0,
-        estado: 'abierta'
+        estado: 'abierta',
+        fecha: new Date().toISOString()
       }
-    ]);
+    ]).select();
 
     if (error) {
       alert('❌ Error al guardar la base en la caja: ' + error.message);
       return;
+    }
+
+    if (data && data.length > 0) {
+      setCajaIdActual(data[0].id);
     }
 
     setBaseGuardada(true);
@@ -928,6 +934,7 @@ export default function MartinetoPOSPage() {
     }
   }
 
+  // REGISTRA GASTOS DE INSUMOS SOLAMENTE
   async function registrarNuevoGasto() {
     const textoConcepto = conceptoGasto.trim();
     const valorGasto = Number(montoGasto);
@@ -963,7 +970,7 @@ export default function MartinetoPOSPage() {
 
     limpiarConceptoGasto();
     limpiarMontoGasto();
-    alert(`💸 Gasto de $ ${valorGasto.toLocaleString('es-CO')} registrado y descontado de la Caja.`);
+    alert(`💸 Gasto de $ ${valorGasto.toLocaleString('es-CO')} registrado.`);
   }
 
   async function enviarPedidoBodega() {
@@ -1675,7 +1682,9 @@ export default function MartinetoPOSPage() {
     mesaActiva.total > 0 &&
     !hayProductosPorEntregar;
 
+  // GASTOS OPERATIVOS SOLAMENTE
   const sumaGastosTotal = listaGastos.reduce((acc, g) => acc + Number(g.monto || 0), 0);
+  const cadenaMotivosGastos = listaGastos.map((g) => g.concepto).join(', ');
 
   const totalEfectivoIngresado = ventasDiaBD.reduce((acc, v) => acc + Number(v.pago_efectivo || 0), 0);
   const totalNequiIngresado = ventasDiaBD.reduce((acc, v) => acc + Number(v.pago_nequi || 0), 0);
@@ -1876,12 +1885,8 @@ export default function MartinetoPOSPage() {
     return Array.from(mapaVentas.entries()).map(([nombre, cantidad]) => ({ nombre, cantidad }));
   })();
 
+  // GUARDA EL CIERRE DEFINITIVO ACTUALIZANDO LA ÚNICA FILA DE CAJA Y REGISTRANDO NÓMINA Y PRODUCTOS
   async function guardarCierreDefinitivoBD() {
-    if (!nominaPagadaEnTurno) {
-      alert('⚠️ ATENCIÓN: No puedes realizar el Cierre del Día sin haber procesado primero el PAGO DE NÓMINA.');
-      return;
-    }
-
     const mesasOcupadas = mesas.filter((m) => m.estado !== 'libre');
     const hayRappiPendientes = pedidosRappi.length > 0;
 
@@ -1913,14 +1918,60 @@ export default function MartinetoPOSPage() {
       const hoyInicio = new Date();
       hoyInicio.setHours(0, 0, 0, 0);
 
-      // --- CAMBIAR ESTADO DE LA CAJA A 'cerrada' PARA HOY ---
-      await supabase
-        .from('caja')
-        .update({ estado: 'cerrada', efectivo_cierre: efecContado, diferencia: difCaja })
-        .eq('sede_id', SEDE_ID_MARTINETO)
-        .gte('fecha', hoyInicio.toISOString())
-        .eq('estado', 'abierta');
+      // --- 1. PROCESAR NÓMINA SI AÚN NO HA SIDO PAGADA ---
+      if (!nominaPagadaEnTurno) {
+        const totalNominaCalculado = calcularTotalNomina();
+        if (totalNominaCalculado > 0) {
+          const payloadNomina = {
+            sede_id: SEDE_ID_MARTINETO,
+            usuario_id: usuarioId ? Number(usuarioId) : null,
+            monto_pago: totalNominaCalculado,
+            horas_dia: Number(horasDia) || 0,
+            horas_noche: Number(horasNoche) || 0,
+            tipo_dia: tipoDia,
+            fecha: new Date().toISOString()
+          };
 
+          const { error: errorNomina } = await supabase.from('nomina').insert([payloadNomina]);
+
+          if (errorNomina) {
+            throw new Error('Error al registrar pago de nómina: ' + errorNomina.message);
+          }
+          setNominaPagadaEnTurno(true);
+        }
+      }
+
+      // --- 2. ACTUALIZAR REGISTRO DE CAJA CON EL RESUMEN TOTAL ---
+      let queryCaja = supabase
+        .from('caja')
+        .update({
+          estado: 'cerrada',
+          efectivo_cierre: efecContado,
+          nequi: totalNequiIngresado,
+          daviplata: totalDaviplataIngresado,
+          monto_gasto: sumaGastosTotal,
+          motivo_gasto: cadenaMotivosGastos || null,
+          descuento: totalDescuentosDia,
+          motivo_descuento: listaMotivosUnicosDescuento,
+          diferencia: difCaja,
+        });
+
+      if (cajaIdActual) {
+        queryCaja = queryCaja.eq('id', cajaIdActual);
+      } else {
+        queryCaja = queryCaja
+          .eq('sede_id', SEDE_ID_MARTINETO)
+          .gte('fecha', hoyInicio.toISOString())
+          .eq('estado', 'abierta');
+      }
+
+      const { error: errorCaja } = await queryCaja;
+
+      if (errorCaja) {
+        throw new Error('Error actualizando la tabla caja: ' + errorCaja.message);
+      }
+
+      // --- 3. REGISTRAR INVENTARIO DE CIERRE ---
       const detallePaletasCierre: { [key: string]: number } = {};
       const detalleEmpaquesCierre: { [key: string]: number } = {};
       let totalPaletasCierreNum = 0;
@@ -2479,10 +2530,10 @@ export default function MartinetoPOSPage() {
         <div className={`bg-[#0b2b48] border border-amber-500/60 p-5 rounded-2xl space-y-4 shadow-md max-w-2xl mx-auto ${bloqueadoPorApertura ? 'opacity-50 pointer-events-none' : ''}`}>
           <div className="flex justify-between items-center border-b border-amber-500/40 pb-2">
             <h2 className="text-sm font-black text-amber-300 flex items-center gap-1.5">
-              3. 💸 Registro de Gastos Directos (Descuenta de Caja)
+              3. 💸 Registro de Gastos Directos de Insumos (Descuenta de Caja)
             </h2>
             <span className="text-xs font-black text-amber-400">
-              Total Gastos: $ {sumaGastosTotal.toLocaleString('es-CO')}
+              Total Gastos Insumos: $ {sumaGastosTotal.toLocaleString('es-CO')}
             </span>
           </div>
 
@@ -2512,7 +2563,7 @@ export default function MartinetoPOSPage() {
           <div className="space-y-2 border-t border-[#0066b3]/30 pt-3">
             <span className="text-xs text-sky-300 font-bold block uppercase">Historial de Salidas de Caja Hoy:</span>
             {listaGastos.length === 0 ? (
-              <p className="text-xs text-sky-400 italic py-4 text-center">No hay gastos ni salidas registradas hoy.</p>
+              <p className="text-xs text-sky-400 italic py-4 text-center">No hay gastos de insumos registrados hoy.</p>
             ) : (
               <div className="max-h-60 overflow-y-auto space-y-2 pr-1">
                 {listaGastos.map((g) => (
@@ -2930,10 +2981,10 @@ export default function MartinetoPOSPage() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
             <button
-              onClick={pagarYDescontarNominaDeCaja}
+              onClick={pagarNominaBD}
               className="w-full bg-sky-600 hover:bg-sky-500 text-white font-black py-3 rounded-xl text-xs uppercase cursor-pointer shadow-md transition-all flex items-center justify-center gap-2"
             >
-              💸 Pagar Nómina (Descontar de Caja)
+              💸 Pagar Nómina (Tabla 'nomina')
             </button>
 
             <button
@@ -2973,7 +3024,7 @@ export default function MartinetoPOSPage() {
                   <span>+ $ {totalEfectivoIngresado.toLocaleString('es-CO')}</span>
                 </div>
                 <div className="flex justify-between text-amber-400 font-black">
-                  <span>💸 Gastos y Nómina Descontados:</span>
+                  <span>💸 Gastos Insumos Descontados:</span>
                   <span>- $ {sumaGastosTotal.toLocaleString('es-CO')}</span>
                 </div>
                 <div className="flex justify-between pt-2 border-t border-[#0066b3] text-sm font-black text-emerald-400 bg-[#0e385e] p-2 rounded-lg">
@@ -3039,8 +3090,8 @@ export default function MartinetoPOSPage() {
             </div>
 
             {!nominaPagadaEnTurno && (
-              <div className="bg-rose-950/90 border border-rose-500 p-3 rounded-xl text-xs text-rose-200 font-bold flex items-center gap-2">
-                <span>⚠️ REQUISITO OBLIGATORIO:</span> Debes pagar la nómina del operario en turno antes de confirmar el cierre final.
+              <div className="bg-amber-950/90 border border-amber-500 p-3 rounded-xl text-xs text-amber-200 font-bold flex items-center gap-2">
+                <span>ℹ️ NOTA NÓMINA:</span> Se registrará y procesará automáticamente el pago de la nómina al guardar este cierre.
               </div>
             )}
 
@@ -3078,7 +3129,7 @@ export default function MartinetoPOSPage() {
                 </div>
 
                 <div className="flex justify-between text-amber-400">
-                  <span>💸 Gastos Directos y Nómina (Efectivo):</span>
+                  <span>💸 Gastos Directos Insumos (Efectivo):</span>
                   <span>- $ {sumaGastosTotal.toLocaleString('es-CO')}</span>
                 </div>
 
@@ -3204,7 +3255,7 @@ export default function MartinetoPOSPage() {
               </button>
               <button
                 onClick={guardarCierreDefinitivoBD}
-                disabled={guardandoCierre || !nominaPagadaEnTurno}
+                disabled={guardandoCierre}
                 className="w-1/2 bg-emerald-600 hover:bg-emerald-500 text-white font-black py-2 rounded-xl text-xs uppercase cursor-pointer shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {guardandoCierre ? 'Guardando en BD...' : '💾 Confirmar y Guardar Cierre en BD'}

@@ -50,11 +50,14 @@ export default function CentroPage() {
   // EFECTIVO ENTREGADO EN CAMBIO DE TURNO (VISUAL)
   const [efectivoTurnoManana, setEfectivoTurnoManana] = useState<number | null>(null);
 
-  // AUTO-SAVE: Inventario por Sabores y Caja Mostac
+  // AUTO-SAVE: Inventario Total de Paletas y Empaques de la Sede 2
   const [tipoMovimiento, setTipoMovimiento] = useState<string>('apertura');
   const [saboresCentro, setSaboresCentro] = useState<any[]>([]);
-  const [cantidadesSabores, setCantidadesSabores, limpiarCantidadesSabores] = useAutoSave<{ [saborId: number]: number | '' }>('centro_cantidadesSabores', {});
-  const [cajasMostrador, setCajasMostrador, limpiarCajasMostrador] = useAutoSave<number | ''>('centro_cajasMostrador', '');
+  const [totalPaletasMovimiento, setTotalPaletasMovimiento, limpiarTotalPaletasMovimiento] = useAutoSave<number | ''>('centro_totalPaletasMovimiento', '');
+  
+  // Empaques específicos de la Sede 2 según la tabla y formulario
+  const listaNombresEmpaques = ['Caja Mostac', 'Muñeco Gold', 'Muñeco Lego', 'Vaso Soft', 'Vaso Croyurth', 'Vaso Malteada'];
+  const [cantidadesEmpaques, setCantidadesEmpaques, limpiarCantidadesEmpaques] = useAutoSave<{ [nombre: string]: number | '' }>('centro_cantidadesEmpaques', {});
   const [observaciones, setObservaciones, limpiarObsInv] = useAutoSave<string>('centro_observacionesInv', '');
 
   // AUTO-SAVE: Requisición de Pedidos
@@ -147,10 +150,7 @@ export default function CentroPage() {
     return cat.includes('aseo');
   });
 
-  const totalPaletasSuma = Object.values(cantidadesSabores).reduce(
-    (acc: number, val) => acc + (Number(val) || 0),
-    0
-  );
+  const totalPaletasSuma = Number(totalPaletasMovimiento) || 0;
 
   const esTurnoCierre = (() => {
     if (!sesion) return false;
@@ -182,7 +182,6 @@ export default function CentroPage() {
       const hoyInicio = new Date();
       hoyInicio.setHours(0, 0, 0, 0);
 
-      // --- 1. VALIDACIÓN AUTOMÁTICA DE CAJA ABIERTA PARA HOY ---
       const { data: cajaHoyBD } = await supabase
         .from('caja')
         .select('*')
@@ -198,7 +197,6 @@ export default function CentroPage() {
         setBaseGuardada(true);
       }
 
-      // --- 2. VALIDACIÓN AUTOMÁTICA DE INVENTARIO DE APERTURA PARA HOY ---
       const { data: invHoyBD } = await supabase
         .from('inventario_diario')
         .select('*')
@@ -330,21 +328,9 @@ export default function CentroPage() {
     setGuardandoProducto(false);
   }
 
-  function handleSaborCantidadChange(saborId: number, rawVal: string) {
+  function handleEmpaqueCantidadChange(nombreEmpaque: string, rawVal: string) {
     const val = rawVal === '' ? '' : Math.max(0, Number(rawVal));
-    setCantidadesSabores((prev) => ({ ...prev, [saborId]: val }));
-  }
-
-  function handleKeyDownSabor(e: React.KeyboardEvent<HTMLInputElement>, index: number) {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      if (index < paletasFiltradas.length - 1) {
-        const siguienteSabor = paletasFiltradas[index + 1];
-        inputsRef.current[`sabor_${siguienteSabor.id}`]?.focus();
-      } else {
-        inputsRef.current['caja_mostac']?.focus();
-      }
-    }
+    setCantidadesEmpaques((prev) => ({ ...prev, [nombreEmpaque]: val }));
   }
 
   function handleKeyDownPedido(e: React.KeyboardEvent<HTMLInputElement>, index: number, lista: any[], prefijo: string) {
@@ -409,7 +395,7 @@ export default function CentroPage() {
     }
   }
 
-  // --- LÓGICA DE ACTUALIZACIÓN DINÁMICA DE STOCK SEGÚN EL TIPO DE MOVIMIENTO EN CENTRO ---
+  // --- LÓGICA DE ACTUALIZACIÓN DE STOCK CON TOTAL PALETAS + EMPAQUES DE LA SEDE 2 ---
   async function handleGuardarInventario() {
     if (!sesion) {
       alert('⚠️ No hay sesión activa.');
@@ -418,6 +404,12 @@ export default function CentroPage() {
 
     if (!baseGuardada) {
       alert('⚠️ Primero debes guardar la Base Inicial de Caja.');
+      return;
+    }
+
+    const totalPaletasNum = Number(totalPaletasMovimiento) || 0;
+    if (totalPaletasNum < 0) {
+      alert('⚠️ Ingresa una cantidad válida de paletas.');
       return;
     }
 
@@ -430,151 +422,142 @@ export default function CentroPage() {
       let diferenciaEmpaquesJson: { [key: string]: number } = {};
       let sumaTotalDiferencia = 0;
 
-      // 1. Procesar paletas contadas
-      const itemsPaletas = Object.entries(cantidadesSabores);
-      for (const [saborIdStr, cantidadFisicaRaw] of itemsPaletas) {
-        const cantidadIngresada = Number(cantidadFisicaRaw) || 0;
-        if (cantidadIngresada <= 0 && tipoMovimiento !== 'apertura' && tipoMovimiento !== 'cierre') continue;
+      // 1. Procesar Total Paletas
+      const { data: regAnteriorPaletas } = await supabase
+        .from('inventario_empaques_sedes')
+        .select('stock')
+        .eq('sede_id', sedeId)
+        .eq('nombre', 'Total Paletas')
+        .maybeSingle();
 
-        const saborObj = saboresCentro.find((s) => s.id === Number(saborIdStr));
-        if (!saborObj) continue;
+      const stockViejoPaletas = regAnteriorPaletas ? Number(regAnteriorPaletas.stock) : 0;
+      let nuevoStockPaletas = stockViejoPaletas;
 
-        // Consultar registro actual en inventario_empaques_sedes
-        const { data: regAnterior } = await supabase
+      if (tipoMovimiento === 'apertura') {
+        nuevoStockPaletas = totalPaletasNum;
+        const difCalculada = totalPaletasNum - stockViejoPaletas;
+        diferenciaPaletasJson['Total Paletas'] = difCalculada;
+        sumaTotalDiferencia += Math.abs(difCalculada);
+
+        await supabase
+          .from('inventario_empaques_sedes')
+          .upsert({
+            sede_id: sedeId,
+            nombre: 'Total Paletas',
+            stock: nuevoStockPaletas,
+            diferencia: difCalculada,
+            fecha_actualizacion: new Date().toISOString(),
+          }, { onConflict: 'sede_id,nombre' });
+
+      } else if (tipoMovimiento === 'nuevas' || tipoMovimiento === 'compras') {
+        nuevoStockPaletas = stockViejoPaletas + totalPaletasNum;
+        await supabase
+          .from('inventario_empaques_sedes')
+          .upsert({
+            sede_id: sedeId,
+            nombre: 'Total Paletas',
+            stock: nuevoStockPaletas,
+            fecha_actualizacion: new Date().toISOString(),
+          }, { onConflict: 'sede_id,nombre' });
+
+      } else if (tipoMovimiento === 'debaja') {
+        nuevoStockPaletas = Math.max(0, stockViejoPaletas - totalPaletasNum);
+        await supabase
+          .from('inventario_empaques_sedes')
+          .upsert({
+            sede_id: sedeId,
+            nombre: 'Total Paletas',
+            stock: nuevoStockPaletas,
+            fecha_actualizacion: new Date().toISOString(),
+          }, { onConflict: 'sede_id,nombre' });
+
+      } else if (tipoMovimiento === 'cierre') {
+        nuevoStockPaletas = totalPaletasNum;
+        const vendidasCalculadas = Math.max(0, stockViejoPaletas - totalPaletasNum);
+        await supabase
+          .from('inventario_empaques_sedes')
+          .upsert({
+            sede_id: sedeId,
+            nombre: 'Total Paletas',
+            stock: nuevoStockPaletas,
+            vendidas: vendidasCalculadas,
+            fecha_actualizacion: new Date().toISOString(),
+          }, { onConflict: 'sede_id,nombre' });
+      }
+
+      // 2. Procesar Empaques Especificos (Caja Mostac, Muñeco Gold, etc.)
+      const detalleEmpaquesObj: { [itemNombre: string]: number } = {};
+
+      for (const nombreEmpaque of listaNombresEmpaques) {
+        const cantFisicaRaw = cantidadesEmpaques[nombreEmpaque];
+        if (cantFisicaRaw === '' || cantFisicaRaw === undefined) continue;
+        const cantidadIngresada = Number(cantFisicaRaw) || 0;
+        detalleEmpaquesObj[nombreEmpaque] = cantidadIngresada;
+
+        const { data: regAnteriorEmp } = await supabase
           .from('inventario_empaques_sedes')
           .select('stock')
           .eq('sede_id', sedeId)
-          .eq('nombre', saborObj.nombre)
+          .eq('nombre', nombreEmpaque)
           .maybeSingle();
 
-        const stockViejo = regAnterior ? Number(regAnterior.stock) : 0;
-        let nuevoStock = stockViejo;
+        const stockViejoEmp = regAnteriorEmp ? Number(regAnteriorEmp.stock) : 0;
+        let nuevoStockEmp = stockViejoEmp;
 
         if (tipoMovimiento === 'apertura') {
-          // APERTURA: Reemplaza stock y guarda la diferencia
-          nuevoStock = cantidadIngresada;
-          const difCalculada = cantidadIngresada - stockViejo;
-          diferenciaPaletasJson[saborObj.nombre] = difCalculada;
+          nuevoStockEmp = cantidadIngresada;
+          const difCalculada = cantidadIngresada - stockViejoEmp;
+          diferenciaEmpaquesJson[nombreEmpaque] = difCalculada;
           sumaTotalDiferencia += Math.abs(difCalculada);
 
           await supabase
             .from('inventario_empaques_sedes')
-            .update({
-              stock: nuevoStock,
+            .upsert({
+              sede_id: sedeId,
+              nombre: nombreEmpaque,
+              stock: nuevoStockEmp,
               diferencia: difCalculada,
               fecha_actualizacion: new Date().toISOString(),
-            })
-            .eq('sede_id', sedeId)
-            .eq('nombre', saborObj.nombre);
+            }, { onConflict: 'sede_id,nombre' });
 
         } else if (tipoMovimiento === 'nuevas' || tipoMovimiento === 'compras') {
-          // NUEVAS Y COMPRAS: Suma al stock actual
-          nuevoStock = stockViejo + cantidadIngresada;
+          nuevoStockEmp = stockViejoEmp + cantidadIngresada;
           await supabase
             .from('inventario_empaques_sedes')
-            .update({
-              stock: nuevoStock,
+            .upsert({
+              sede_id: sedeId,
+              nombre: nombreEmpaque,
+              stock: nuevoStockEmp,
               fecha_actualizacion: new Date().toISOString(),
-            })
-            .eq('sede_id', sedeId)
-            .eq('nombre', saborObj.nombre);
+            }, { onConflict: 'sede_id,nombre' });
 
         } else if (tipoMovimiento === 'debaja') {
-          // DE BAJA: Resta del stock actual
-          nuevoStock = Math.max(0, stockViejo - cantidadIngresada);
+          nuevoStockEmp = Math.max(0, stockViejoEmp - cantidadIngresada);
           await supabase
             .from('inventario_empaques_sedes')
-            .update({
-              stock: nuevoStock,
+            .upsert({
+              sede_id: sedeId,
+              nombre: nombreEmpaque,
+              stock: nuevoStockEmp,
               fecha_actualizacion: new Date().toISOString(),
-            })
-            .eq('sede_id', sedeId)
-            .eq('nombre', saborObj.nombre);
+            }, { onConflict: 'sede_id,nombre' });
 
         } else if (tipoMovimiento === 'cierre') {
-          // CIERRE: Registra vendidas y ajusta stock al conteo físico
-          nuevoStock = cantidadIngresada;
-          const vendidasCalculadas = Math.max(0, stockViejo - cantidadIngresada);
+          nuevoStockEmp = cantidadIngresada;
+          const gastadasCalculadas = Math.max(0, stockViejoEmp - cantidadIngresada);
           await supabase
             .from('inventario_empaques_sedes')
-            .update({
-              stock: nuevoStock,
-              vendidas: vendidasCalculadas,
+            .upsert({
+              sede_id: sedeId,
+              nombre: nombreEmpaque,
+              stock: nuevoStockEmp,
+              vendidas: gastadasCalculadas,
               fecha_actualizacion: new Date().toISOString(),
-            })
-            .eq('sede_id', sedeId)
-            .eq('nombre', saborObj.nombre);
+            }, { onConflict: 'sede_id,nombre' });
         }
       }
 
-      // 2. Procesar Caja Mostac
-      if (cajasMostrador !== '') {
-        const cantMostac = Number(cajasMostrador) || 0;
-        const { data: regAnterior } = await supabase
-          .from('inventario_empaques_sedes')
-          .select('stock')
-          .eq('sede_id', sedeId)
-          .eq('nombre', 'Caja Mostac')
-          .maybeSingle();
-
-        const stockViejo = regAnterior ? Number(regAnterior.stock) : 0;
-        let nuevoStockMostac = stockViejo;
-
-        if (tipoMovimiento === 'apertura') {
-          nuevoStockMostac = cantMostac;
-          const difCalculada = cantMostac - stockViejo;
-          diferenciaEmpaquesJson['Caja Mostac'] = difCalculada;
-          sumaTotalDiferencia += Math.abs(difCalculada);
-
-          await supabase
-            .from('inventario_empaques_sedes')
-            .update({
-              stock: nuevoStockMostac,
-              diferencia: difCalculada,
-              fecha_actualizacion: new Date().toISOString(),
-            })
-            .eq('sede_id', sedeId)
-            .eq('nombre', 'Caja Mostac');
-
-        } else if (tipoMovimiento === 'nuevas' || tipoMovimiento === 'compras') {
-          nuevoStockMostac = stockViejo + cantMostac;
-          await supabase
-            .from('inventario_empaques_sedes')
-            .update({
-              stock: nuevoStockMostac,
-              fecha_actualizacion: new Date().toISOString(),
-            })
-            .eq('sede_id', sedeId)
-            .eq('nombre', 'Caja Mostac');
-
-        } else if (tipoMovimiento === 'debaja') {
-          nuevoStockMostac = Math.max(0, stockViejo - cantMostac);
-          await supabase
-            .from('inventario_empaques_sedes')
-            .update({
-              stock: nuevoStockMostac,
-              fecha_actualizacion: new Date().toISOString(),
-            })
-            .eq('sede_id', sedeId)
-            .eq('nombre', 'Caja Mostac');
-
-        } else if (tipoMovimiento === 'cierre') {
-          nuevoStockMostac = cantMostac;
-          const vendidasCalculadas = Math.max(0, stockViejo - cantMostac);
-
-          await supabase
-            .from('inventario_empaques_sedes')
-            .update({
-              stock: nuevoStockMostac,
-              vendidas: vendidasCalculadas,
-              fecha_actualizacion: new Date().toISOString(),
-            })
-            .eq('sede_id', sedeId)
-            .eq('nombre', 'Caja Mostac');
-        }
-      }
-
-      // 3. Registro en diferencia_inventario solo si es Apertura
+      // 3. Registro en diferencia_inventario si es Apertura
       if (tipoMovimiento === 'apertura') {
         const { error: errorDif } = await supabase.from('diferencia_inventario').insert([
           {
@@ -591,25 +574,13 @@ export default function CentroPage() {
       }
 
       // 4. Registro auditoría en inventario_diario
-      const detallePaletasObj: { [saborNombre: string]: number } = {};
-      itemsPaletas.forEach(([saborId, cant]) => {
-        const num = Number(cant) || 0;
-        if (num > 0) {
-          const saborObj = saboresCentro.find((s) => s.id === Number(saborId));
-          if (saborObj) detallePaletasObj[saborObj.nombre] = num;
-        }
-      });
-
-      const detalleEmpaquesObj: { [itemNombre: string]: number } = {};
-      if (Number(cajasMostrador) > 0) {
-        detalleEmpaquesObj['Caja Mostac'] = Number(cajasMostrador);
-      }
+      const detallePaletasObj = { 'Total Paletas': totalPaletasNum };
 
       const payloadInventario: any = {
         sede_id: sedeId,
         usuario_id: usuarioId,
         tipo_movimiento: tipoMovimiento,
-        total_paletas: totalPaletasSuma,
+        total_paletas: totalPaletasNum,
         detalle_paletas: detallePaletasObj,
         detalle_empaques: detalleEmpaquesObj,
         observacion: observaciones || null,
@@ -631,8 +602,8 @@ export default function CentroPage() {
       setGuardando(false);
       alert(`✅ ¡Inventario (${tipoMovimiento.toUpperCase()}) guardado y stock actualizado en la base de datos!`);
 
-      limpiarCantidadesSabores();
-      limpiarCajasMostrador();
+      limpiarTotalPaletasMovimiento();
+      limpiarCantidadesEmpaques();
       limpiarObsInv();
 
     } catch (err: any) {
@@ -948,10 +919,10 @@ export default function CentroPage() {
       {/* GRID DOS COLUMNAS */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
         
-        {/* COLUMNA IZQUIERDA: INVENTARIO POR SABORES */}
+        {/* COLUMNA IZQUIERDA: INVENTARIO GLOBAL DE PALETAS Y EMPAQUES SEDE 2 */}
         <div className="bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-4 shadow-md">
           <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
-            <h2 className="text-xs md:text-sm font-black text-white">🍦 Conteo de Paletas por Sabor</h2>
+            <h2 className="text-xs md:text-sm font-black text-white">🍦 Inventario y Empaques (Sede Centro)</h2>
             <span className="text-[11px] text-sky-200 font-bold uppercase bg-[#003d6d] px-2 py-0.5 rounded-md border border-[#0066b3]">{tipoMovimiento}</span>
           </div>
 
@@ -966,7 +937,7 @@ export default function CentroPage() {
               {!aperturaRealizada && <option value="apertura">🌅 1. Conteo de Apertura (Obligatorio)</option>}
               {aperturaRealizada && (
                 <>
-                  <option value="nuevas">📦 Paletas Nuevas (Ingreso)</option>
+                  <option value="nuevas">📦 Paletas y Empaques Nuevos (Ingreso)</option>
                   <option value="compras">🛒 Compras Directas</option>
                   <option value="debaja">⚠️ De Baja / Mermas</option>
                   <option value="cierre">🌙 Conteo de Cierre</option>
@@ -975,59 +946,35 @@ export default function CentroPage() {
             </select>
           </div>
 
-          <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1 border border-[#0066b3]/50 p-2.5 rounded-xl bg-[#051829]">
-            <span className="text-[10px] text-sky-300 font-bold uppercase block mb-1">Ingresar Cantidad por Sabor:</span>
-            {paletasFiltradas.length === 0 ? (
-              <p className="text-xs text-amber-200 text-center py-4 font-semibold">
-                ⚠️ No se encontraron paletas registradas.
-              </p>
-            ) : (
-              paletasFiltradas.map((s, idx) => (
-                <div key={s.id} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2 shadow-sm">
-                  <div className="truncate">
-                    <p className="font-bold text-xs text-white truncate">{s.nombre}</p>
-                    <span className="text-[10px] font-semibold text-sky-300 block -mt-0.5 capitalize">
-                      {s.grupo || s.categoria || 'Paleta'}
-                    </span>
-                  </div>
-                  <input
-                    ref={(el) => { inputsRef.current[`sabor_${s.id}`] = el; }}
-                    type="number"
-                    placeholder="0"
-                    value={cantidadesSabores[s.id] ?? ''}
-                    onChange={(e) => handleSaborCantidadChange(s.id, e.target.value)}
-                    onKeyDown={(e) => handleKeyDownSabor(e, idx)}
-                    onFocus={(e) => e.target.select()}
-                    className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                  />
-                </div>
-              ))
-            )}
+          <div className="bg-[#051829] border border-[#0066b3] p-3 rounded-xl space-y-2">
+            <span className="text-xs font-black text-sky-300 uppercase block">
+              📦 Total de Paletas ({tipoMovimiento.toUpperCase()}):
+            </span>
+            <input
+              type="number"
+              placeholder="Ej. 180"
+              value={totalPaletasMovimiento}
+              onChange={(e) => setTotalPaletasMovimiento(e.target.value === '' ? '' : Number(e.target.value))}
+              onFocus={(e) => e.target.select()}
+              className="w-full bg-[#0e385e] border border-[#00a4ef] text-white font-black text-center text-lg rounded-xl p-2.5 outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            />
           </div>
 
-          <div className="bg-[#0e385e] p-3 rounded-2xl border border-[#0066b3] flex justify-between items-center shadow-inner">
-            <span className="text-xs font-black text-sky-200 uppercase">
-              Total Paletas ({tipoMovimiento.toUpperCase()}):
-            </span>
-            <span className="text-xl font-black text-white bg-[#051829] px-4 py-1.5 rounded-xl border border-[#0066b3] shadow">
-              {totalPaletasSuma}
-            </span>
-          </div>
-
-          <div className="bg-[#0e385e] p-3 rounded-xl border border-[#0066b3]/60 space-y-2">
-            <span className="text-[10px] text-sky-300 font-extrabold uppercase block">Conteo de Empaques:</span>
-            <div className="flex justify-between items-center bg-[#051829] p-2.5 rounded-lg border border-[#0066b3]">
-              <span className="text-xs text-white font-bold">📦 Caja Mostac:</span>
-              <input 
-                ref={(el) => { inputsRef.current['caja_mostac'] = el; }}
-                type="number" 
-                placeholder="0" 
-                value={cajasMostrador} 
-                onChange={(e) => setCajasMostrador(e.target.value === '' ? '' : Number(e.target.value))} 
-                onFocus={(e) => e.target.select()} 
-                className="w-24 bg-[#0e385e] text-sky-200 font-black text-center text-sm rounded-lg p-2 outline-none focus:border-[#00a4ef] border border-[#0066b3] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
-              />
-            </div>
+          <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1 border border-[#0066b3]/50 p-2.5 rounded-xl bg-[#051829]">
+            <span className="text-[10px] text-sky-300 font-extrabold uppercase block mb-1">Conteo de Empaques Específicos:</span>
+            {listaNombresEmpaques.map((nombreEmp) => (
+              <div key={nombreEmp} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2 shadow-sm">
+                <span className="font-bold text-xs text-white truncate">📦 {nombreEmp}</span>
+                <input
+                  type="number"
+                  placeholder="0"
+                  value={cantidadesEmpaques[nombreEmp] ?? ''}
+                  onChange={(e) => handleEmpaqueCantidadChange(nombreEmp, e.target.value)}
+                  onFocus={(e) => e.target.select()}
+                  className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                />
+              </div>
+            ))}
           </div>
 
           <textarea
