@@ -109,6 +109,10 @@ export default function MartinetoPOSPage() {
   const [motivoDescuentoVenta, setMotivoDescuentoVenta] = useState<string>('');
   const [procesandoPago, setProcesandoPago] = useState(false);
 
+  // ESTADOS PARA ADICIÓN MANUAL RÁPIDA
+  const [nombreAdicionManual, setNombreAdicionManual] = useState('');
+  const [valorAdicionManual, setValorAdicionManual] = useState<number | ''>('');
+
   // AUTO-SAVE: Requisiciones / Pedidos a Bodega
   const [productosInsumosBD, setProductosInsumosBD] = useState<any[]>([]);
   const [historialPedidosBD, setHistorialPedidosBD] = useState<any[]>([]);
@@ -487,7 +491,6 @@ export default function MartinetoPOSPage() {
         }
       }
 
-      // OBTENER OPERARIOS PARA EL CAMBIO DE TURNO
       const { data: operariosBD } = await supabase
         .from('usuario')
         .select('*');
@@ -496,7 +499,6 @@ export default function MartinetoPOSPage() {
         setListaOperarios(operariosBD);
       }
 
-      // --- CAJA ABIERTA DE HOY ---
       const hoyInicio = new Date();
       hoyInicio.setHours(0, 0, 0, 0);
 
@@ -516,7 +518,6 @@ export default function MartinetoPOSPage() {
         setCajaIdActual(cajaHoyBD.id);
       }
 
-      // --- INVENTARIO APERTURA HOY ---
       const { data: invHoyBD } = await supabase
         .from('inventario_diario')
         .select('*')
@@ -692,7 +693,6 @@ export default function MartinetoPOSPage() {
 
     alert(`💸 Pago de Nómina de $ ${totalPago.toLocaleString('es-CO')} registrado.\n\nEfectivo dejado en caja para el siguiente turno: $ ${efCaja.toLocaleString('es-CO')}\n\nA continuación, ingresa el operario que recibe el turno.`);
 
-    // Limpiar horas y efectivo turno para el relevo
     setHorasDia('');
     setHorasNoche('');
     setEfectivoCajaTurno('');
@@ -1017,7 +1017,6 @@ export default function MartinetoPOSPage() {
     }
   }
 
-  // REGISTRA GASTOS DE INSUMOS SOLAMENTE
   async function registrarNuevoGasto() {
     const textoConcepto = conceptoGasto.trim();
     const valorGasto = Number(montoGasto);
@@ -1406,6 +1405,65 @@ export default function MartinetoPOSPage() {
     }
   }
 
+  function agregarAdicionManualAMesa() {
+    if (!mesaActivaId) {
+      alert('⚠️ Selecciona una mesa o pedido primero.');
+      return;
+    }
+
+    const nombreLimpio = nombreAdicionManual.trim() || 'Adición / Extra';
+    const valorNum = Number(valorAdicionManual);
+
+    if (!valorNum || valorNum <= 0) {
+      alert('⚠️ Ingresa un valor válido para la adición.');
+      return;
+    }
+
+    const itemAdicion = {
+      idUnico: Date.now() + Math.random(),
+      nombre: `Adición: ${nombreLimpio}`,
+      precio: valorNum,
+      cantidad: 1,
+      estadoItem: 'pedido',
+    };
+
+    if (esRappiActivo) {
+      setPedidosRappi((prev) =>
+        prev.map((r) => {
+          if (r.id !== mesaActivaId) return r;
+          const nuevosItems = [itemAdicion, ...r.items];
+          const nuevoTotal = nuevosItems.reduce(
+            (acc: number, i: any) => acc + Number(i.precio || 0) * Number(i.cantidad || 0),
+            0
+          );
+          return { ...r, items: nuevosItems, total: nuevoTotal };
+        })
+      );
+    } else {
+      actualizarEstadoMesaBD(Number(mesaActivaId), 'ocupada');
+
+      setMesas((prevMesas) =>
+        prevMesas.map((m) => {
+          if (m.id !== mesaActivaId) return m;
+          const nuevosItems = [itemAdicion, ...m.items];
+          const nuevoTotal = nuevosItems.reduce(
+            (acc: number, i: any) => acc + Number(i.precio || 0) * Number(i.cantidad || 0),
+            0
+          );
+          return {
+            ...m,
+            items: nuevosItems,
+            total: nuevoTotal,
+            estado: 'ocupada',
+          };
+        })
+      );
+    }
+
+    setNombreAdicionManual('');
+    setValorAdicionManual('');
+  }
+
   function marcarItemEntregado(nombreTarget: string, estadoTarget: string) {
     if (!mesaActivaId || esRappiActivo) return;
 
@@ -1765,7 +1823,6 @@ export default function MartinetoPOSPage() {
     mesaActiva.total > 0 &&
     !hayProductosPorEntregar;
 
-  // GASTOS OPERATIVOS SOLAMENTE
   const sumaGastosTotal = listaGastos.reduce((acc, g) => acc + Number(g.monto || 0), 0);
   const cadenaMotivosGastos = listaGastos.map((g) => g.concepto).join(', ');
 
@@ -1968,7 +2025,6 @@ export default function MartinetoPOSPage() {
     return Array.from(mapaVentas.entries()).map(([nombre, cantidad]) => ({ nombre, cantidad }));
   })();
 
-  // GUARDA EL CIERRE DEFINITIVO ACTUALIZANDO LA ÚNICA FILA DE CAJA Y REGISTRANDO NÓMINA Y PRODUCTOS
   async function guardarCierreDefinitivoBD() {
     const mesasOcupadas = mesas.filter((m) => m.estado !== 'libre');
     const hayRappiPendientes = pedidosRappi.length > 0;
@@ -2001,7 +2057,6 @@ export default function MartinetoPOSPage() {
       const hoyInicio = new Date();
       hoyInicio.setHours(0, 0, 0, 0);
 
-      // --- 1. PROCESAR NÓMINA SI AÚN NO HA SIDO PAGADA ---
       if (!nominaPagadaEnTurno) {
         const totalNominaCalculado = calcularTotalNomina();
         if (totalNominaCalculado > 0) {
@@ -2024,7 +2079,6 @@ export default function MartinetoPOSPage() {
         }
       }
 
-      // --- 2. ACTUALIZAR REGISTRO DE CAJA CON EL RESUMEN TOTAL ---
       let queryCaja = supabase
         .from('caja')
         .update({
@@ -2054,7 +2108,6 @@ export default function MartinetoPOSPage() {
         throw new Error('Error actualizando la tabla caja: ' + errorCaja.message);
       }
 
-      // --- 3. REGISTRAR HISTORIAL DE VENTAS EN LA NUEVA TABLA ---
       const jsonVentasDelDia: { [nombreProd: string]: number } = {};
       productosVendidosConsolidados.forEach((pv) => {
         jsonVentasDelDia[pv.nombre] = pv.cantidad;
@@ -2072,7 +2125,6 @@ export default function MartinetoPOSPage() {
         throw new Error('Error guardando en historico_ventas: ' + errorHistoricoVentas.message);
       }
 
-      // --- 4. REGISTRAR INVENTARIO DE CIERRE ---
       const detallePaletasCierre: { [key: string]: number } = {};
       const detalleEmpaquesCierre: { [key: string]: number } = {};
       let totalPaletasCierreNum = 0;
@@ -2164,7 +2216,6 @@ export default function MartinetoPOSPage() {
 
   return (
     <main className="min-h-screen bg-[#004e8c] text-[#f1f5f9] p-4 font-sans max-w-[1600px] mx-auto space-y-4 relative">
-      {/* HEADER LIMPIO */}
       <header className="bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl flex justify-between items-center shadow-lg">
         <div>
           <h1 className="text-base md:text-lg font-black text-white flex items-center gap-2">
@@ -2177,7 +2228,6 @@ export default function MartinetoPOSPage() {
         </div>
       </header>
 
-      {/* BARRA DE NAVEGACIÓN INDEPENDIENTE CON BLOQUEO */}
       <nav className="sticky top-2 z-40 flex items-center gap-2 bg-[#0b2b48]/95 backdrop-blur-md p-2 rounded-2xl border border-[#0066b3] shadow-xl overflow-x-auto no-scrollbar">
         <button
           type="button"
@@ -2256,7 +2306,6 @@ export default function MartinetoPOSPage() {
         </div>
       )}
 
-      {/* MÓDULO 1: APERTURA Y MOVIMIENTOS E INVENTARIO */}
       {moduloActivo === 'movimientos' && (
         <div className="bg-[#0b2b48] border border-[#0066b3] p-5 rounded-2xl space-y-4 shadow-md max-w-2xl mx-auto">
           <div className="bg-[#051829] border-2 border-emerald-400/70 p-4 rounded-xl space-y-3 shadow-inner">
@@ -2369,7 +2418,6 @@ export default function MartinetoPOSPage() {
         </div>
       )}
 
-      {/* MÓDULO 2: PEDIDOS A BODEGA */}
       {moduloActivo === 'pedidos' && (
         <div className={`grid grid-cols-1 lg:grid-cols-12 gap-4 items-start ${bloqueadoPorApertura ? 'opacity-50 pointer-events-none' : ''}`}>
           <div className="lg:col-span-7 bg-[#0b2b48] border border-[#0066b3] p-5 rounded-2xl space-y-4 shadow-md">
@@ -2626,7 +2674,6 @@ export default function MartinetoPOSPage() {
         </div>
       )}
 
-      {/* MÓDULO 3: GASTOS DIRECTOS */}
       {moduloActivo === 'gastos' && (
         <div className={`bg-[#0b2b48] border border-amber-500/60 p-5 rounded-2xl space-y-4 shadow-md max-w-2xl mx-auto ${bloqueadoPorApertura ? 'opacity-50 pointer-events-none' : ''}`}>
           <div className="flex justify-between items-center border-b border-amber-500/40 pb-2">
@@ -2679,7 +2726,6 @@ export default function MartinetoPOSPage() {
         </div>
       )}
 
-      {/* MÓDULO 4: VENTAS */}
       {moduloActivo === 'ventas' && (
         <div className={`grid grid-cols-1 lg:grid-cols-12 gap-4 items-start ${bloqueadoPorApertura ? 'opacity-50 pointer-events-none' : ''}`}>
           <div className={`${!mesaActivaId ? 'lg:col-span-12' : itemActivoActual && itemActivoActual.items.length > 0 ? 'lg:col-span-3' : 'lg:col-span-4'} bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md transition-all duration-300`}>
@@ -2773,10 +2819,12 @@ export default function MartinetoPOSPage() {
             <div className={`${itemActivoActual && itemActivoActual.items.length > 0 ? 'lg:col-span-5' : 'lg:col-span-8'} bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md transition-all duration-300`}>
               <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
                 <h2 className="text-xs md:text-sm font-black text-white">📂 Categorías y Productos</h2>
-                <span className="text-xs text-sky-200 font-bold">Activo: <b className="text-emerald-300">{itemActivoActual ? itemActivoActual.nombre : 'Ninguno'}</b></span>
+                <span className="text-xs text-sky-200 font-bold truncate max-w-[150px]">
+                  Activo: <b className="text-emerald-300">{itemActivoActual ? itemActivoActual.nombre : 'Ninguno'}</b>
+                </span>
               </div>
 
-              <div className="relative">
+              <div className="relative pt-1">
                 <input
                   type="text"
                   placeholder="🔍 Buscar producto por nombre..."
@@ -2787,17 +2835,21 @@ export default function MartinetoPOSPage() {
                 {busquedaProducto && (
                   <button
                     onClick={() => setBusquedaProducto('')}
-                    className="absolute right-3 top-2.5 text-sky-300 hover:text-white font-black text-xs cursor-pointer"
+                    className="absolute right-3 top-3.5 text-sky-300 hover:text-white font-black text-xs cursor-pointer"
                   >
                     ✕
                   </button>
                 )}
               </div>
 
-              <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-1">
+              <div className="flex flex-wrap gap-1.5 pt-1 max-h-24 overflow-y-auto pr-1">
                 <button
                   onClick={() => setCategoriaVentaSel('TODAS')}
-                  className={`px-3 py-2 rounded-xl text-[11px] font-black uppercase cursor-pointer transition-all ${categoriaVentaSel === 'TODAS' ? 'bg-[#00a4ef] text-white border border-white' : 'bg-[#0e385e] text-sky-200 border border-[#0066b3]'}`}
+                  className={`px-3 py-2 rounded-xl text-[11px] font-black uppercase cursor-pointer transition-all ${
+                    categoriaVentaSel === 'TODAS'
+                      ? 'bg-[#00a4ef] text-white border border-white shadow'
+                      : 'bg-[#0e385e] text-sky-200 border border-[#0066b3]'
+                  }`}
                 >
                   🌟 TODAS
                 </button>
@@ -2805,28 +2857,39 @@ export default function MartinetoPOSPage() {
                   <button
                     key={cat}
                     onClick={() => setCategoriaVentaSel(cat)}
-                    className={`px-3 py-2 rounded-xl text-[11px] font-black uppercase cursor-pointer transition-all ${categoriaVentaSel.toLowerCase() === cat.toLowerCase() ? 'bg-[#00a4ef] text-white border border-white' : 'bg-[#0e385e] text-sky-200 border border-[#0066b3]'}`}
+                    className={`px-3 py-2 rounded-xl text-[11px] font-black uppercase cursor-pointer transition-all ${
+                      categoriaVentaSel.toLowerCase() === cat.toLowerCase()
+                        ? 'bg-[#00a4ef] text-white border border-white shadow'
+                        : 'bg-[#0e385e] text-sky-200 border border-[#0066b3]'
+                    }`}
                   >
                     🏷️ {cat}
                   </button>
                 ))}
               </div>
 
-              <div className="max-h-[380px] overflow-y-auto grid grid-cols-2 sm:grid-cols-3 gap-2 pr-1">
+              <div className="max-h-[350px] overflow-y-auto grid grid-cols-2 sm:grid-cols-3 gap-2 pr-1 pt-1">
                 {productosFiltradosVenta.length === 0 ? (
-                  <p className="text-xs text-sky-400 italic col-span-full py-6 text-center">No hay productos que coincidan con la búsqueda.</p>
+                  <p className="text-xs text-sky-400 italic col-span-full py-6 text-center">
+                    No hay productos que coincidan con la búsqueda.
+                  </p>
                 ) : (
                   productosFiltradosVenta.map((prod) => {
-                    const esCorralito = (prod.nombre || '').toLowerCase().includes('corralito') || (prod.nombre || '').toLowerCase().includes('waffle');
+                    const esCorralito =
+                      (prod.nombre || '').toLowerCase().includes('corralito') ||
+                      (prod.nombre || '').toLowerCase().includes('waffle');
 
                     return (
-                      <div key={prod.id || prod.nombre} className="bg-[#0e385e] border border-[#0066b3] p-2.5 rounded-xl flex flex-col justify-between shadow-sm">
+                      <div
+                        key={prod.id || prod.nombre}
+                        className="bg-[#0e385e] border border-[#0066b3] p-2.5 rounded-xl flex flex-col justify-between shadow-sm"
+                      >
                         <div>
-                          <div className="flex justify-between items-start gap-1">
-                            <p className="font-bold text-white text-xs truncate">{prod.nombre}</p>
-                          </div>
+                          <p className="font-bold text-white text-xs truncate">{prod.nombre}</p>
                           <p className="text-[10px] text-sky-300 uppercase mt-0.5">{prod.categoriaMostrar}</p>
-                          <p className="text-xs text-emerald-300 font-black mt-1">$ {Number(prod.precio || 0).toLocaleString('es-CO')}</p>
+                          <p className="text-xs text-emerald-300 font-black mt-1">
+                            $ {Number(prod.precio || 0).toLocaleString('es-CO')}
+                          </p>
                         </div>
 
                         {esCorralito ? (
@@ -2871,7 +2934,7 @@ export default function MartinetoPOSPage() {
               </div>
 
               <div className="space-y-3">
-                <div className="max-h-[260px] overflow-y-auto space-y-2 pr-1">
+                <div className="max-h-[220px] overflow-y-auto space-y-2 pr-1">
                   {itemsVisualesAgrupados.map((i: any, idx: number) => {
                     const estado = i.estadoItem || 'pedido';
 
@@ -2918,6 +2981,38 @@ export default function MartinetoPOSPage() {
                     );
                   })}
                 </div>
+
+                {/* CAMPO DE ADICIÓN MANUAL PERSONALIZADA */}
+                {mesaActivaId && (
+                  <div className="bg-[#051829] border border-amber-500/50 p-2.5 rounded-xl space-y-2">
+                    <span className="text-[10px] font-black text-amber-300 uppercase block">
+                      ➕ Adición Manual (Ej. 2000):
+                    </span>
+                    <div className="grid grid-cols-12 gap-1.5">
+                      <input
+                        type="text"
+                        placeholder="Concepto (opcional)"
+                        value={nombreAdicionManual}
+                        onChange={(e) => setNombreAdicionManual(e.target.value)}
+                        className="col-span-6 bg-[#0e385e] border border-[#0066b3] text-white text-[11px] p-2 rounded-lg outline-none font-bold"
+                      />
+                      <input
+                        type="text"
+                        placeholder="$ Valor"
+                        value={formatearMoneda(valorAdicionManual)}
+                        onChange={(e) => setValorAdicionManual(desformatearMoneda(e.target.value))}
+                        className="col-span-4 bg-[#0e385e] border border-[#0066b3] text-amber-300 text-[11px] p-2 rounded-lg outline-none font-black text-center"
+                      />
+                      <button
+                        onClick={agregarAdicionManualAMesa}
+                        className="col-span-2 bg-amber-600 hover:bg-amber-500 text-white font-black text-xs py-2 rounded-lg flex items-center justify-center cursor-pointer shadow"
+                        title="Sumar a la factura"
+                      >
+                        ✓
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {!esRappiActivo && mesaActiva && (
                   <div className="bg-[#051829] p-2.5 rounded-xl border border-[#0066b3] space-y-1">
@@ -3020,7 +3115,6 @@ export default function MartinetoPOSPage() {
         </div>
       )}
 
-      {/* MÓDULO 5: CAMBIO DE TURNO, NÓMINA Y CIERRE */}
       {moduloActivo === 'cierre' && (
         <div className={`bg-[#0b2b48] border border-[#0066b3] p-5 rounded-2xl space-y-4 shadow-md max-w-2xl mx-auto ${bloqueadoPorApertura ? 'opacity-50 pointer-events-none' : ''}`}>
           <h2 className="text-sm font-black text-white border-b border-[#0066b3]/50 pb-2 flex justify-between items-center">
@@ -3119,7 +3213,6 @@ export default function MartinetoPOSPage() {
         </div>
       )}
 
-      {/* MODAL CONSULTA FLOTANTE DE CAJA Y VENTAS */}
       {mostrarModalConsultaCaja && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 font-sans">
           <div className="bg-[#0b2b48] border-2 border-emerald-400 rounded-2xl p-5 max-w-md w-full space-y-4 shadow-2xl text-white">
@@ -3195,7 +3288,6 @@ export default function MartinetoPOSPage() {
         </div>
       )}
 
-      {/* MODAL CAMBIO DE TURNO */}
       {mostrarModalCambioTurno && (
         <div className="fixed inset-0 bg-[#051829]/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-[#0b2b48] border border-[#0066b3] p-6 rounded-3xl max-w-sm w-full space-y-5 shadow-2xl text-center">
@@ -3282,7 +3374,6 @@ export default function MartinetoPOSPage() {
         </div>
       )}
 
-      {/* MODAL AUDITORÍA / CIERRE FINAL COMPLETO */}
       {mostrarModalResumen && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 font-sans">
           <div className="bg-[#0b2b48] border-2 border-emerald-400 rounded-2xl p-6 max-w-3xl w-full space-y-4 shadow-2xl text-white max-h-[90vh] overflow-y-auto">
@@ -3474,7 +3565,6 @@ export default function MartinetoPOSPage() {
         </div>
       )}
 
-      {/* MODAL CREAR NUEVO PRODUCTO */}
       {mostrarModalNuevoProd && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
           <div className="bg-[#0b2b48] border-2 border-emerald-400 rounded-2xl p-5 max-w-md w-full space-y-4 shadow-2xl">
@@ -3583,7 +3673,6 @@ export default function MartinetoPOSPage() {
         </div>
       )}
 
-      {/* MODAL COBRO CON DESCUENTO Y MOTIVO */}
       {mostrarModalCobro && mesaActiva && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
           <div className="bg-[#0b2b48] border-2 border-[#00a4ef] rounded-2xl p-5 max-w-md w-full space-y-4 shadow-2xl">
