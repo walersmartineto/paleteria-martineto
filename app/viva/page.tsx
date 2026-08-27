@@ -7,7 +7,6 @@ import {
   obtenerTarifasViva,
   crearPedidoInsumosViva,
   obtenerUsuariosOperarios,
-  registrarNominaYCambioTurno,
   obtenerSaboresViva,
   TarifasViva,
 } from '@/lib/vivaQueries';
@@ -29,6 +28,9 @@ const desformatearMoneda = (val: string): number | '' => {
 export default function VivaPage() {
   const router = useRouter();
   const [sesion, setSesion] = useState<any>(null);
+
+  // IDENTIFICADOR DE LA SEDE VIVA
+  const SEDE_ID_VIVA = 1;
 
   // ESTADO DE TARIFAS
   const [tarifas, setTarifas] = useState<TarifasViva>({
@@ -80,8 +82,11 @@ export default function VivaPage() {
   const [nuevoProdGrupo, setNuevoProdGrupo] = useState('');
   const [nuevoProdDondeComprar, setNuevoProdDondeComprar] = useState('');
   const [dondeComprarPersonalizado, setDondeComprarPersonalizado] = useState('');
-  const [esProductoGlobal, setEsProductoGlobal] = useState(true);
   const [guardandoProducto, setGuardandoProducto] = useState(false);
+
+  // NUEVOS ESTADOS PARA SEDES DESDE LA TABLA 'sede'
+  const [listaSedesBD, setListaSedesBD] = useState<any[]>([]);
+  const [sedesSeleccionadasProd, setSedesSeleccionadasProd] = useState<(number | string)[]>([]);
 
   // NÓMINA Y ARQUEO DE CAJA EN VIVA
   const [tipoDia, setTipoDia] = useState<'entre_semana' | 'domingo_festivo'>('entre_semana');
@@ -95,8 +100,8 @@ export default function VivaPage() {
 
   // MODAL RESUMEN Y AUDITORÍA DE CIERRE TOTAL
   const [mostrarModalResumen, setMostrarModalResumen] = useState(false);
-  const [efectivoContadoCierre, setEfectivoContadoCierre] = useState<number | ''>('');
   const [guardandoCierre, setGuardandoCierre] = useState(false);
+  const [guardandoNomina, setGuardandoNomina] = useState(false);
 
   // MODAL CAMBIO DE TURNO
   const [mostrarModalCambioTurno, setMostrarModalCambioTurno] = useState(false);
@@ -117,7 +122,10 @@ export default function VivaPage() {
   const valorHoraNoche = tipoDia === 'domingo_festivo' ? tarifas.horaNocheFestivo : tarifas.horaNocheEntreSemana;
   const totalNomina = (hDia > 0 || hNoche > 0 ? tarifas.subsidio + tarifas.transporte : 0) + hDia * valorHoraDia + hNoche * valorHoraNoche;
 
-  const SEDE_ID_VIVA = 1;
+  const usuarioIdActual = sesion?.usuario_id || sesion?.id || null;
+  const nominaYaPagadaHoy = registrosNominaDia.some(
+    (n) => String(n.usuario_id) === String(usuarioIdActual)
+  );
 
   const listaLugaresCompraUnica = Array.from(
     new Set(
@@ -188,7 +196,6 @@ export default function VivaPage() {
       const hoyInicio = new Date();
       hoyInicio.setHours(0, 0, 0, 0);
 
-      // 1. Cargar Caja Abierta de Hoy (La caja NUNCA se cierra en el cambio de turno)
       const { data: cajaHoyBD } = await supabase
         .from('caja')
         .select('*')
@@ -205,7 +212,6 @@ export default function VivaPage() {
         setCajaIdActual(cajaHoyBD.id);
       }
 
-      // 2. Cargar Apertura de Hoy
       const { data: invHoyBD } = await supabase
         .from('inventario_diario')
         .select('*')
@@ -219,9 +225,11 @@ export default function VivaPage() {
       if (invHoyBD) {
         setAperturaRealizada(true);
         setTipoMovimiento('nuevas');
+      } else {
+        setAperturaRealizada(false);
+        setTipoMovimiento('apertura');
       }
 
-      // 3. Cargar Movimientos del Día
       const { data: movsBD } = await supabase
         .from('inventario_diario')
         .select('*')
@@ -239,7 +247,6 @@ export default function VivaPage() {
         );
       }
 
-      // 4. Cargar Ventas Realizadas Hoy
       const { data: vtsBD } = await supabase
         .from('venta')
         .select('*')
@@ -250,7 +257,6 @@ export default function VivaPage() {
         setVentasDiaBD(vtsBD);
       }
 
-      // 5. Cargar Nóminas Registradas Hoy (para el resumen de la noche)
       const { data: nomBD } = await supabase
         .from('nomina')
         .select('*')
@@ -261,7 +267,24 @@ export default function VivaPage() {
         setRegistrosNominaDia(nomBD);
       }
 
-      // 6. Cargar Tarifas de Nómina
+      // CARGA DE SEDES DESDE LA TABLA 'sede'
+      const { data: sedesBD } = await supabase
+        .from('sede')
+        .select('*')
+        .order('id', { ascending: true });
+
+      if (sedesBD && sedesBD.length > 0) {
+        setListaSedesBD(sedesBD);
+        setSedesSeleccionadasProd([SEDE_ID_VIVA]);
+      } else {
+        setListaSedesBD([
+          { id: SEDE_ID_VIVA, nombre: 'Viva' },
+          { id: 2, nombre: 'Centro' },
+          { id: 4, nombre: 'Martineto' }
+        ]);
+        setSedesSeleccionadasProd([SEDE_ID_VIVA]);
+      }
+
       const { data: configBD } = await supabase
         .from('configuracion_tarifa')
         .select('*')
@@ -326,6 +349,14 @@ export default function VivaPage() {
     }
   }
 
+  const handleToggleSedeProd = (sedeId: number | string) => {
+    setSedesSeleccionadasProd((prev) =>
+      prev.includes(sedeId)
+        ? prev.filter((id) => id !== sedeId)
+        : [...prev, sedeId]
+    );
+  };
+
   async function crearNuevoProductoBD() {
     const nombreLimpio = nuevoProdNombre.trim();
     const dondeComprarFinal =
@@ -338,17 +369,28 @@ export default function VivaPage() {
       return;
     }
 
+    if (sedesSeleccionadasProd.length === 0) {
+      alert('⚠️ Debes seleccionar al menos una sede.');
+      return;
+    }
+
     setGuardandoProducto(true);
-    const payload = {
+
+    const grupoAInsertar =
+      nuevoProdCategoria === 'Paleta'
+        ? nuevoProdGrupo.trim() || 'Paleta'
+        : nuevoProdCategoria;
+
+    const arregloNuevosProductos = sedesSeleccionadasProd.map((sId) => ({
       nombre: nombreLimpio,
       categoria: nuevoProdCategoria,
-      grupo: nuevoProdCategoria === 'Paleta' ? nuevoProdGrupo.trim() || 'Paleta' : nuevoProdCategoria,
+      grupo: grupoAInsertar,
       donde_comprar: dondeComprarFinal,
-      sede_id: esProductoGlobal ? 0 : SEDE_ID_VIVA,
+      sede_id: Number(sId),
       activo: true,
-    };
+    }));
 
-    const { data, error } = await supabase.from('producto').insert([payload]).select();
+    const { data, error } = await supabase.from('producto').insert(arregloNuevosProductos).select();
 
     if (error) {
       alert('Error guardando en la base de datos: ' + error.message);
@@ -356,24 +398,26 @@ export default function VivaPage() {
       return;
     }
 
-    alert(`✅ ¡Insumo "${nombreLimpio}" creado con éxito!`);
+    alert(`✅ ¡Insumo "${nombreLimpio}" creado con éxito para ${sedesSeleccionadasProd.length} sede(s)!`);
     if (data && data.length > 0) {
-      const nuevoObj = {
-        ...data[0],
-        nombre: data[0].nombre,
-        categoriaLimpia: String(data[0].categoria || '').trim().toLowerCase(),
-        grupoLimpio: String(data[0].grupo || '').trim().toLowerCase(),
-        donde_comprar: data[0].donde_comprar || '',
-      };
-      setProductosInsumosBD((prev) => [...prev, nuevoObj]);
+      const nuevosFormateados = data.map((d: any) => ({
+        ...d,
+        nombre: d.nombre,
+        categoriaLimpia: String(d.categoria || '').trim().toLowerCase(),
+        grupoLimpio: String(d.grupo || '').trim().toLowerCase(),
+        donde_comprar: d.donde_comprar || '',
+      }));
+
+      setProductosInsumosBD((prev) => [...prev, ...nuevosFormateados]);
       if (nuevoProdCategoria === 'Paleta') {
-        setSaboresViva((prev) => [...prev, nuevoObj]);
+        setSaboresViva((prev) => [...prev, ...nuevosFormateados]);
       }
     }
 
     setNuevoProdNombre('');
     setNuevoProdGrupo('');
     setDondeComprarPersonalizado('');
+    setSedesSeleccionadasProd([SEDE_ID_VIVA]);
     setMostrarModalNuevoProd(false);
     setGuardandoProducto(false);
   }
@@ -598,61 +642,6 @@ export default function VivaPage() {
         }
       }
 
-      // --- REGISTRO AUTOMÁTICO EN HISTORICO_VENTAS DESPUÉS DEL CIERRE ---
-      if (tipoMovimiento === 'cierre') {
-        const jsonVentasCierre: { [nombreProd: string]: number } = {};
-
-        for (const [saborIdStr, cantidadFisicaRaw] of itemsPaletas) {
-          const cantidadIngresada = Number(cantidadFisicaRaw) || 0;
-          const saborObj = saboresViva.find((s) => s.id === Number(saborIdStr));
-          if (!saborObj) continue;
-
-          const { data: regAnterior } = await supabase
-            .from('inventario_empaques_sedes')
-            .select('stock')
-            .eq('sede_id', sedeId)
-            .eq('nombre', saborObj.nombre)
-            .maybeSingle();
-
-          const stockPrevio = regAnterior ? Number(regAnterior.stock) : 0;
-          const diferenciaVenta = Math.max(0, stockPrevio - cantidadIngresada);
-
-          if (diferenciaVenta > 0) {
-            jsonVentasCierre[saborObj.nombre] = diferenciaVenta;
-          }
-        }
-
-        if (cajasMostrador !== '') {
-          const cantMostac = Number(cajasMostrador) || 0;
-          const { data: regAnteriorMostac } = await supabase
-            .from('inventario_empaques_sedes')
-            .select('stock')
-            .eq('sede_id', sedeId)
-            .eq('nombre', 'Caja Mostac')
-            .maybeSingle();
-
-          const stockPrevioMostac = regAnteriorMostac ? Number(regAnteriorMostac.stock) : 0;
-          const difMostac = Math.max(0, stockPrevioMostac - cantMostac);
-          if (difMostac > 0) {
-            jsonVentasCierre['Caja Mostac'] = difMostac;
-          }
-        }
-
-        if (Object.keys(jsonVentasCierre).length > 0) {
-          const { error: errorHistorico } = await supabase.from('historico_ventas').insert([
-            {
-              sede_id: sedeId,
-              fecha: new Date().toISOString(),
-              productos: jsonVentasCierre,
-            },
-          ]);
-
-          if (errorHistorico) {
-            console.error('Error al guardar en historico_ventas:', errorHistorico.message);
-          }
-        }
-      }
-
       if (tipoMovimiento === 'apertura') {
         await supabase.from('diferencia_inventario').insert([
           {
@@ -694,13 +683,38 @@ export default function VivaPage() {
         payloadInventario.turno_id = Number(sesion.turno_id);
       }
 
-      await supabase.from('inventario_diario').insert([payloadInventario]);
+      if (tipoMovimiento === 'cierre') {
+        const hoyInicioInv = new Date();
+        hoyInicioInv.setHours(0, 0, 0, 0);
 
-      if (tipoMovimiento === 'apertura') {
-        setAperturaRealizada(true);
-        setTipoMovimiento('nuevas');
-      } else if (tipoMovimiento === 'cierre') {
+        const { data: regExistenteCierre } = await supabase
+          .from('inventario_diario')
+          .select('id')
+          .eq('sede_id', sedeId)
+          .gte('fecha_registro', hoyInicioInv.toISOString())
+          .ilike('tipo_movimiento', 'cierre')
+          .maybeSingle();
+
+        if (regExistenteCierre) {
+          await supabase
+            .from('inventario_diario')
+            .update({
+              total_paletas: totalPaletasSuma,
+              detalle_paletas: detallePaletasObj,
+              detalle_empaques: detalleEmpaquesObj,
+              observacion: observaciones || null,
+            })
+            .eq('id', regExistenteCierre.id);
+        } else {
+          await supabase.from('inventario_diario').insert([payloadInventario]);
+        }
         setCierreRealizado(true);
+      } else {
+        await supabase.from('inventario_diario').insert([payloadInventario]);
+        if (tipoMovimiento === 'apertura') {
+          setAperturaRealizada(true);
+          setTipoMovimiento('nuevas');
+        }
       }
 
       setGuardando(false);
@@ -790,35 +804,42 @@ export default function VivaPage() {
   }
 
   // CÁLCULOS FINANCIEROS Y DE NÓMINA ACUMULADA
-  const totalEfectivoIngresado = ventasDiaBD.reduce((acc, v) => acc + Number(v.pago_efectivo || 0), 0);
-  const totalNequiIngresado = ventasDiaBD.reduce((acc, v) => acc + Number(v.pago_nequi || 0), 0);
-  const totalDaviplataIngresado = ventasDiaBD.reduce((acc, v) => acc + Number(v.pago_daviplata || 0), 0);
   const totalDescuentosDia = ventasDiaBD.reduce((acc, v) => acc + Number(v.descuento || 0), 0);
   
   const listaMotivosUnicosDescuento = Array.from(
     new Set(ventasDiaBD.map((v) => v.motivo_descuento).filter((m): m is string => Boolean(m && m.trim() !== '')))
   );
 
-  const totalVentasElectronicas = totalNequiIngresado + totalDaviplataIngresado;
-  const totalVentasGlobal = totalEfectivoIngresado + totalVentasElectronicas;
+  const efecInput = Number(efectivoCaja) || 0;
+  const nequiInput = Number(nequi) || 0;
+  const daviplataInput = Number(daviplata) || 0;
+
+  const totalVentasElectronicas = nequiInput + daviplataInput;
+  const totalVentasGlobal = efecInput + totalVentasElectronicas;
 
   const gast = Number(gastos) || 0;
-  const cajaDisponibleCalculadaViva = (Number(baseCaja) || 0) + totalEfectivoIngresado - gast;
+  const cajaDisponibleCalculadaViva = (Number(baseCaja) || 0) + efecInput - gast;
 
-  const sumaNominaTotalDia = registrosNominaDia.reduce((acc, n) => acc + Number(n.monto_pago || n.monto || 0), 0);
+  const sumaNominaTotalDia = registrosNominaDia.reduce((acc, n) => acc + Number(n.monto || 0), 0);
 
   async function pagarNominaBD() {
+    if (nominaYaPagadaHoy) {
+      alert('⚠️ Ya se ha registrado el pago de nómina para este usuario en el día de hoy.');
+      return;
+    }
+
     if (totalNomina <= 0) {
       alert('⚠️ El valor a pagar de nómina debe ser mayor a 0 (ingresa las horas trabajadas).');
       return;
     }
 
+    setGuardandoNomina(true);
     const usuarioId = sesion?.usuario_id || sesion?.id || null;
 
     const payloadNomina = {
       sede_id: SEDE_ID_VIVA,
       usuario_id: usuarioId ? Number(usuarioId) : null,
-      monto_pago: totalNomina,
+      monto: totalNomina,
       horas_dia: Number(horasDia) || 0,
       horas_noche: Number(horasNoche) || 0,
       tipo_dia: tipoDia,
@@ -826,6 +847,8 @@ export default function VivaPage() {
     };
 
     const { data, error } = await supabase.from('nomina').insert([payloadNomina]).select();
+
+    setGuardandoNomina(false);
 
     if (error) {
       alert('❌ Error al guardar en la tabla nomina: ' + error.message);
@@ -846,7 +869,7 @@ export default function VivaPage() {
       return;
     }
 
-    if (totalNomina > 0) {
+    if (totalNomina > 0 && !nominaYaPagadaHoy) {
       await pagarNominaBD();
     }
 
@@ -858,12 +881,7 @@ export default function VivaPage() {
   }
 
   async function guardarCierreDefinitivoBD() {
-    if (efectivoContadoCierre === '') {
-      alert('⚠️ Ingresa la cantidad exacta de efectivo que estás dejando en caja.');
-      return;
-    }
-
-    const efecContado = Number(efectivoContadoCierre);
+    const efecContado = Number(efectivoCaja) || 0;
     const difCaja = efecContado - cajaDisponibleCalculadaViva;
 
     setGuardandoCierre(true);
@@ -871,13 +889,77 @@ export default function VivaPage() {
     hoyInicio.setHours(0, 0, 0, 0);
 
     try {
+      const { data: empaquesSedeBD, error: errEmpaques } = await supabase
+        .from('inventario_empaques_sedes')
+        .select('*')
+        .eq('sede_id', SEDE_ID_VIVA);
+
+      if (errEmpaques) {
+        console.error('Error al consultar inventario_empaques_sedes:', errEmpaques.message);
+      }
+
+      const jsonVentasCierre: { [nombreProd: string]: number } = {};
+      if (empaquesSedeBD) {
+        empaquesSedeBD.forEach((item: any) => {
+          const vendidas = Number(item.vendidas || item.stock || 0);
+          if (vendidas > 0) {
+            jsonVentasCierre[item.nombre] = vendidas;
+          }
+        });
+      }
+
+      const { error: errorHistorico } = await supabase.from('historico_ventas').insert([
+        {
+          sede_id: SEDE_ID_VIVA,
+          fecha: new Date().toISOString(),
+          productos: jsonVentasCierre,
+        },
+      ]);
+
+      if (errorHistorico) {
+        console.error('Error al guardar en historico_ventas:', errorHistorico.message);
+      }
+
+      const { data: invAperturaHoy, error: errBuscaInv } = await supabase
+        .from('inventario_diario')
+        .select('id')
+        .eq('sede_id', SEDE_ID_VIVA)
+        .gte('fecha_registro', hoyInicio.toISOString())
+        .ilike('tipo_movimiento', 'apertura')
+        .order('id', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (!errBuscaInv && invAperturaHoy) {
+        await supabase
+          .from('inventario_diario')
+          .update({ tipo_movimiento: 'cierre' })
+          .eq('id', invAperturaHoy.id);
+      } else {
+        const { data: invUltimoHoy } = await supabase
+          .from('inventario_diario')
+          .select('id')
+          .eq('sede_id', SEDE_ID_VIVA)
+          .gte('fecha_registro', hoyInicio.toISOString())
+          .order('id', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (invUltimoHoy) {
+          await supabase
+            .from('inventario_diario')
+            .update({ tipo_movimiento: 'cierre' })
+            .eq('id', invUltimoHoy.id);
+        }
+      }
+
       let queryCaja = supabase
         .from('caja')
         .update({
           estado: 'cerrada',
           efectivo_cierre: efecContado,
-          nequi: totalNequiIngresado,
-          daviplata: totalDaviplataIngresado,
+          nequi: nequiInput,
+          daviplata: daviplataInput,
           monto_gasto: gast,
           motivo_gasto: motivoGasto || null,
           descuento: totalDescuentosDia,
@@ -899,7 +981,7 @@ export default function VivaPage() {
         throw new Error('Error actualizando la tabla caja: ' + errorCaja.message);
       }
 
-      alert('✅ ¡CIERRE TOTAL DEL DÍA GUARDADO CON ÉXITO EN LA BASE DE DATOS PARA VIVA!');
+      alert('✅ ¡CIERRE TOTAL DEL DÍA Y HISTÓRICO DE VENTAS GUARDADOS CON ÉXITO PARA LA SEDE VIVA!');
       setMostrarModalResumen(false);
 
       limpiarBaseCaja();
@@ -1585,9 +1667,18 @@ export default function VivaPage() {
               <button
                 type="button"
                 onClick={pagarNominaBD}
-                className="w-full bg-sky-600 hover:bg-sky-500 text-white font-black py-3 rounded-xl text-xs uppercase cursor-pointer shadow-md"
+                disabled={guardandoNomina || nominaYaPagadaHoy}
+                className={`w-full font-black py-3 rounded-xl text-xs uppercase shadow-md transition-all ${
+                  guardandoNomina || nominaYaPagadaHoy
+                    ? 'bg-emerald-950 text-emerald-300/60 cursor-not-allowed border border-emerald-700'
+                    : 'bg-sky-600 hover:bg-sky-500 text-white cursor-pointer'
+                }`}
               >
-                💸 Pagar Nómina (Tabla 'nomina')
+                {guardandoNomina 
+                  ? 'Registrando Nómina...' 
+                  : nominaYaPagadaHoy 
+                  ? '✓ Nómina Pagada Hoy' 
+                  : "💸 Pagar Nómina (Tabla 'nomina')"}
               </button>
 
               <button
@@ -1655,14 +1746,14 @@ export default function VivaPage() {
                     <span>$ {totalVentasElectronicas.toLocaleString('es-CO')}</span>
                   </div>
                   <div className="grid grid-cols-2 gap-x-4 text-[11px] text-sky-200 pl-3">
-                    <span>• NEQUI: $ {totalNequiIngresado.toLocaleString('es-CO')}</span>
-                    <span>• DAVIPLATA: $ {totalDaviplataIngresado.toLocaleString('es-CO')}</span>
+                    <span>• NEQUI: $ {nequiInput.toLocaleString('es-CO')}</span>
+                    <span>• DAVIPLATA: $ {daviplataInput.toLocaleString('es-CO')}</span>
                   </div>
                 </div>
 
                 <div className="flex justify-between text-emerald-300 font-black pt-1">
                   <span>💵 Ventas en Efectivo:</span>
-                  <span>$ {totalEfectivoIngresado.toLocaleString('es-CO')}</span>
+                  <span>$ {efecInput.toLocaleString('es-CO')}</span>
                 </div>
 
                 <div className="flex justify-between text-amber-400">
@@ -1683,11 +1774,6 @@ export default function VivaPage() {
                     </div>
                   </div>
                 )}
-
-                <div className="flex justify-between pt-2 border-t-2 border-[#0066b3] text-sm font-black text-emerald-400">
-                  <span>💵 PRODUCIDO / EN CAJA (Calculado):</span>
-                  <span>$ {cajaDisponibleCalculadaViva.toLocaleString('es-CO')}</span>
-                </div>
               </div>
 
               <div className="bg-[#051829] border border-fuchsia-500/40 p-3 rounded-xl space-y-1.5">
@@ -1697,32 +1783,16 @@ export default function VivaPage() {
                 {registrosNominaDia.length === 0 ? (
                   <p className="text-[11px] text-sky-400 italic">No hay pagos de nómina registrados hoy.</p>
                 ) : (
-                  registrosNominaDia.map((n, i) => (
-                    <div key={i} className="flex justify-between text-[11px] text-white border-b border-[#0066b3]/30 py-1">
-                      <span>Turno / Operario #{n.usuario_id || 'N/A'}</span>
-                      <span className="font-bold text-fuchsia-300">$ {Number(n.monto_pago || n.monto || 0).toLocaleString('es-CO')}</span>
-                    </div>
-                  ))
-                )}
-              </div>
-
-              <div className="bg-[#051829] border border-emerald-400 p-3 rounded-xl space-y-1">
-                <label className="text-xs text-emerald-300 font-black block uppercase">
-                  💵 EFECTIVO REAL CONTADO EN CAJA *:
-                </label>
-                <input
-                  type="text"
-                  placeholder="Digita el dinero real en mano $"
-                  value={formatearMoneda(efectivoContadoCierre)}
-                  onChange={(e) => setEfectivoContadoCierre(desformatearMoneda(e.target.value))}
-                  className="w-full bg-[#0e385e] border border-emerald-400 text-emerald-300 font-black text-base p-2.5 rounded-xl outline-none"
-                />
-                {efectivoContadoCierre !== '' && (
-                  <p className={`text-xs font-bold mt-1 ${Number(efectivoContadoCierre) - cajaDisponibleCalculadaViva >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                    {Number(efectivoContadoCierre) - cajaDisponibleCalculadaViva >= 0
-                      ? `✓ Cuadre OK (Diferencia: $ ${(Number(efectivoContadoCierre) - cajaDisponibleCalculadaViva).toLocaleString('es-CO')})`
-                      : `⚠️ Descuadre en Caja (Diferencia: $ ${(Number(efectivoContadoCierre) - cajaDisponibleCalculadaViva).toLocaleString('es-CO')})`}
-                  </p>
+                  registrosNominaDia.map((n, i) => {
+                    const opEncontrado = listaOperarios.find((op) => String(op.id) === String(n.usuario_id));
+                    const nombreOperario = opEncontrado ? opEncontrado.nombre : `Operario #${n.usuario_id || 'N/A'}`;
+                    return (
+                      <div key={i} className="flex justify-between text-[11px] text-white border-b border-[#0066b3]/30 py-1">
+                        <span>{nombreOperario}</span>
+                        <span className="font-bold text-fuchsia-300">$ {Number(n.monto || 0).toLocaleString('es-CO')}</span>
+                      </div>
+                    );
+                  })
                 )}
               </div>
             </div>
@@ -1748,7 +1818,7 @@ export default function VivaPage() {
 
       {mostrarModalNuevoProd && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
-          <div className="bg-[#0b2b48] border-2 border-emerald-400 rounded-2xl p-5 max-w-md w-full space-y-4 shadow-2xl">
+          <div className="bg-[#0b2b48] border-2 border-emerald-400 rounded-2xl p-5 max-w-lg w-full space-y-4 shadow-2xl">
             <div className="flex justify-between items-center border-b border-[#0066b3] pb-2">
               <h3 className="text-sm font-black text-white uppercase">➕ Crear Nuevo Insumo / Producto</h3>
               <button
@@ -1759,7 +1829,7 @@ export default function VivaPage() {
               </button>
             </div>
 
-            <div className="space-y-3">
+            <div className="space-y-3 text-xs max-h-[400px] overflow-y-auto pr-1">
               <div>
                 <label className="text-xs text-sky-200 font-bold block mb-1">Nombre del Insumo *:</label>
                 <input
@@ -1827,16 +1897,72 @@ export default function VivaPage() {
                 )}
               </div>
 
-              <div>
-                <label className="text-xs text-sky-200 font-bold block mb-1">Visibilidad / Sede *:</label>
-                <select
-                  value={esProductoGlobal ? '0' : 'local'}
-                  onChange={(e) => setEsProductoGlobal(e.target.value === '0')}
-                  className="w-full bg-[#051829] border border-[#0066b3] text-emerald-300 font-black text-xs p-2.5 rounded-xl outline-none cursor-pointer"
-                >
-                  <option value="0">🌍 Para TODAS las Sedes</option>
-                  <option value="local">🏢 Exclusivo de Sede Viva</option>
-                </select>
+              {/* SELECCIÓN DE SEDES DINÁMICAS (FILTRANDO GLOBAL, ADMINISTRACIÓN Y PRODUCCIÓN) */}
+              <div className="bg-[#051829] border border-[#0066b3] p-3 rounded-xl space-y-2">
+                <div className="flex justify-between items-center">
+                  <label className="text-sky-300 font-bold block">Asignar a Sedes:</label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const sedesFiltradasIds = listaSedesBD
+                        .filter((s) => {
+                          const nombreSede = (s.nombre || '').toLowerCase();
+                          return (
+                            !nombreSede.includes('global') &&
+                            !nombreSede.includes('administración') &&
+                            !nombreSede.includes('administracion') &&
+                            !nombreSede.includes('producción') &&
+                            !nombreSede.includes('produccion')
+                          );
+                        })
+                        .map((s) => s.id);
+
+                      if (sedesSeleccionadasProd.length === sedesFiltradasIds.length) {
+                        setSedesSeleccionadasProd([]);
+                      } else {
+                        setSedesSeleccionadasProd(sedesFiltradasIds);
+                      }
+                    }}
+                    className="text-[10px] text-emerald-400 font-bold hover:underline cursor-pointer"
+                  >
+                    Seleccionar todas
+                  </button>
+                </div>
+
+                <div className="flex gap-2 flex-wrap">
+                  {listaSedesBD
+                    .filter((s) => {
+                      const nombreSede = (s.nombre || '').toLowerCase();
+                      return (
+                        !nombreSede.includes('global') &&
+                        !nombreSede.includes('administración') &&
+                        !nombreSede.includes('administracion') &&
+                        !nombreSede.includes('producción') &&
+                        !nombreSede.includes('produccion')
+                      );
+                    })
+                    .map((s) => {
+                      const estaSeleccionada = sedesSeleccionadasProd.includes(s.id);
+                      return (
+                        <label
+                          key={s.id}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-bold cursor-pointer transition-all ${
+                            estaSeleccionada
+                              ? 'bg-emerald-950/80 border-emerald-400 text-emerald-200'
+                              : 'bg-[#0e385e] border-[#0066b3] text-sky-200'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={estaSeleccionada}
+                            onChange={() => handleToggleSedeProd(s.id)}
+                            className="w-3.5 h-3.5 accent-emerald-500 cursor-pointer"
+                          />
+                          {s.nombre || `Sede ${s.id}`}
+                        </label>
+                      );
+                    })}
+                </div>
               </div>
             </div>
 
