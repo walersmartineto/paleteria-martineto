@@ -27,12 +27,15 @@ export default function AdminPage() {
   const [moduloAbierto, setModuloAbierto] = useState<string | null>(null);
   const [subPestanaLogistica, setSubPestanaLogistica] = useState<'compras' | 'despachos'>('compras');
   const [subPestanaCierres, setSubPestanaCierres] = useState<'caja' | 'descuadres'>('caja');
+  const [acordeonBISedeAbierto, setAcordeonBISedeAbierto] = useState<{ [nombreSede: string]: boolean }>({});
 
   const [resumenNominaOperarios, setResumenNominaOperarios] = useState<any[]>([]);
   const [sedesBD, setSedesBD] = useState<any[]>([]);
   const [mapaSedes, setMapaSedes] = useState<{ [id: number]: string }>({});
   const [usuariosBD, setUsuariosBD] = useState<{ [id: number]: string }>({});
   const [pedidos, setPedidos] = useState<any[]>([]);
+  const [pedidos30Dias, setPedidos30Dias] = useState<any[]>([]);
+  const [pedidosPendientesGlobal, setPedidosPendientesGlobal] = useState<any[]>([]);
   const [productosBD, setProductosBD] = useState<any[]>([]);
   const [registrosCaja, setRegistrosCaja] = useState<any[]>([]);
   const [registrosNomina, setRegistrosNomina] = useState<any[]>([]);
@@ -40,6 +43,7 @@ export default function AdminPage() {
   const [inventarioMovsDia, setInventarioMovsDia] = useState<any[]>([]);
   const [inventarioEmpaquesSedesBD, setInventarioEmpaquesSedesBD] = useState<any[]>([]);
   const [historicoVentasBD, setHistoricoVentasBD] = useState<any[]>([]);
+  const [historicoVentas30DiasBD, setHistoricoVentas30DiasBD] = useState<any[]>([]);
   const [cargando, setCargando] = useState<boolean>(true);
   const [editandoProveedor, setEditandoProveedor] = useState<{ [nombre: string]: string }>({});
 
@@ -53,6 +57,10 @@ export default function AdminPage() {
   const [acordeonesResumenSedes, setAcordeonesResumenSedes] = useState<{ [key: string]: boolean }>({ global: true });
   const [acordeonesConsolidadoCompras, setAcordeonesConsolidadoCompras] = useState<{ [key: string]: boolean }>({ global: true });
   const [acordeonesVentasAbanico, setAcordeonesVentasAbanico] = useState<{ [key: string]: boolean }>({});
+  const [acordeonesRappi, setAcordeonesRappi] = useState<{ [key: string]: boolean }>({ global: true });
+  
+  const [acordeonProyeccionMain, setAcordeonProyeccionMain] = useState<boolean>(true);
+  const [acordeonesProyeccionSedes, setAcordeonesProyeccionSedes] = useState<{ [key: string]: boolean }>({});
 
   useEffect(() => {
     cargarDatosAdmin();
@@ -85,14 +93,29 @@ export default function AdminPage() {
         setUsuariosBD(mapaU);
       }
 
+      const fechaHoyObj = new Date();
+      const hace30DiasObj = new Date();
+      hace30DiasObj.setDate(fechaHoyObj.getDate() - 30);
+      const fechaHace30DiasStr = hace30DiasObj.toISOString().split('T')[0];
+
       const { data: pedidosDataRaw } = await supabase.from('pedidos_insumos').select('*');
+      
       const pedidosData = (pedidosDataRaw || []).filter(row => {
         if (!row.fecha) return false;
         const fRow = obtenerFechaLocalStr(row.fecha);
         return fRow >= fechaInicio && fRow <= fechaFin;
       });
 
-      const { data: prodData } = await supabase.from('producto').select('id, nombre, donde_comprar');
+      const pedidos30DiasFiltrado = (pedidosDataRaw || []).filter(row => {
+        if (!row.fecha) return false;
+        const fRow = obtenerFechaLocalStr(row.fecha);
+        return fRow >= fechaHace30DiasStr;
+      });
+
+      const pendientesGlobales = (pedidosDataRaw || []).filter(row => row.estado === 'pendiente' || row.estado === 'comprado');
+      setPedidosPendientesGlobal(pendientesGlobales);
+
+      const { data: prodData } = await supabase.from('producto').select('id, nombre, donde_comprar, categoria');
 
       const { data: cajaDataRaw } = await supabase.from('caja').select('*');
       const cajaData = (cajaDataRaw || []).filter(row => {
@@ -114,6 +137,12 @@ export default function AdminPage() {
         if (!row.fecha) return false;
         const fRow = obtenerFechaLocalStr(row.fecha);
         return fRow >= fechaInicio && fRow <= fechaFin;
+      });
+
+      const historicoVentas30DiasFiltrado = (historicoVentasRaw || []).filter(row => {
+        if (!row.fecha) return false;
+        const fRow = obtenerFechaLocalStr(row.fecha);
+        return fRow >= fechaHace30DiasStr;
       });
 
       const acumulado: { [usuarioId: number]: { 
@@ -157,22 +186,26 @@ export default function AdminPage() {
       });
 
       const { data: invDiarioRaw } = await supabase.from('inventario_diario').select('*');
+      
       const invMovsFiltrado = (invDiarioRaw || []).filter(row => {
         if (!row.fecha_registro) return false;
         const fRow = obtenerFechaLocalStr(row.fecha_registro);
         return fRow >= fechaInicio && fRow <= fechaFin;
       });
 
+      setInventarioMovsDia(invDiarioRaw || []);
+
       const { data: empaquesSedesData } = await supabase.from('inventario_empaques_sedes').select('*');
 
       setPedidos(pedidosData);
+      setPedidos30Dias(pedidos30DiasFiltrado);
       setProductosBD(prodData || []);
       setRegistrosCaja(cajaData);
       setRegistrosNomina(nominaData);
       setInventarioMovimientos(diffDataFiltrado);
-      setInventarioMovsDia(invMovsFiltrado);
       setInventarioEmpaquesSedesBD(empaquesSedesData || []);
       setHistoricoVentasBD(historicoVentasFiltrado);
+      setHistoricoVentas30DiasBD(historicoVentas30DiasFiltrado);
       setItemsChequeados({});
     } catch (err) {
       console.error('Error cargando datos:', err);
@@ -305,9 +338,58 @@ export default function AdminPage() {
     };
   })();
 
+  const comparativoMetodosPago = (() => {
+    let efectivoTotal = 0;
+    let nequiTotal = 0;
+    let daviplataTotal = 0;
+    let totalGeneralPagos = 0;
+
+    const porSede: { [nombreSede: string]: { efectivo: number; nequi: number; daviplata: number; total: number } } = {};
+
+    registrosCaja.forEach(row => {
+      if (!mapaSedes[row.sede_id]) return;
+      const nombreSede = getNombreSede(row.sede_id);
+      if (sedeSeleccionada !== 'todos' && String(row.sede_id) !== sedeSeleccionada) return;
+
+      const efec = Number(row.efectivo_cierre) || 0;
+      const neq = Number(row.nequi) || 0;
+      const dav = Number(row.daviplata) || 0;
+      const sumaFila = efec + neq + dav;
+
+      efectivoTotal += efec;
+      nequiTotal += neq;
+      daviplataTotal += dav;
+      totalGeneralPagos += sumaFila;
+
+      if (!porSede[nombreSede]) {
+        porSede[nombreSede] = { efectivo: 0, nequi: 0, daviplata: 0, total: 0 };
+      }
+      porSede[nombreSede].efectivo += efec;
+      porSede[nombreSede].nequi += neq;
+      porSede[nombreSede].daviplata += dav;
+      porSede[nombreSede].total += sumaFila;
+    });
+
+    const maxPago = totalGeneralPagos > 0 ? totalGeneralPagos : 1;
+    const porcEfectivo = Math.round((efectivoTotal / maxPago) * 100);
+    const porcNequi = Math.round((nequiTotal / maxPago) * 100);
+    const porcDaviplata = Math.round((daviplataTotal / maxPago) * 100);
+
+    return {
+      efectivoTotal,
+      nequiTotal,
+      daviplataTotal,
+      totalGeneralPagos,
+      porcEfectivo,
+      porcNequi,
+      porcDaviplata,
+      porSede
+    };
+  })();
+
   const cierresPorSede = (() => {
     const mapa: { [sede: string]: any } = {};
-    
+
     const registrosOrdenados = [...registrosCaja].sort((a, b) => {
       return (a.id || 0) - (b.id || 0);
     });
@@ -374,6 +456,83 @@ export default function AdminPage() {
     });
 
     return mapa;
+  })();
+
+  const rappiYDescuentosData = (() => {
+    let totalRappiGlobal = 0;
+    let totalDescuentosGlobal = 0;
+    const porSede: { 
+      [nombreSede: string]: { 
+        totalRappi: number; 
+        totalDescuentos: number; 
+        registros: any[] 
+      } 
+    } = {};
+
+    registrosCaja.forEach(row => {
+      if (!mapaSedes[row.sede_id]) return;
+      const nombreSede = getNombreSede(row.sede_id);
+      if (sedeSeleccionada !== 'todos' && String(row.sede_id) !== sedeSeleccionada) return;
+
+      const valRappi = Number(row.rappi) || 0;
+      const valDescuento = Number(row.descuento) || 0;
+
+      if (valRappi > 0 || valDescuento > 0) {
+        totalRappiGlobal += valRappi;
+        totalDescuentosGlobal += valDescuento;
+
+        if (!porSede[nombreSede]) {
+          porSede[nombreSede] = { totalRappi: 0, totalDescuentos: 0, registros: [] };
+        }
+        porSede[nombreSede].totalRappi += valRappi;
+        porSede[nombreSede].totalDescuentos += valDescuento;
+        porSede[nombreSede].registros.push(row);
+      }
+    });
+
+    return { totalRappiGlobal, totalDescuentosGlobal, porSede };
+  })();
+
+  const historicoMermasCriticas = (() => {
+    const mapaMermas: { 
+      [nombreSede: string]: { 
+        totalDiferenciaAcumulada: number; 
+        registros: any[];
+        frecuenciaItems: { [producto: string]: number };
+      } 
+    } = {};
+
+    inventarioMovimientos.forEach(row => {
+      const idSede = row.sede_id;
+      if (!mapaSedes[idSede]) return;
+      const nombreSede = getNombreSede(idSede);
+      if (sedeSeleccionada !== 'todos' && String(idSede) !== sedeSeleccionada) return;
+
+      const totalDif = Number(row.total_diferencia) || 0;
+      const jsonPaletas = row.diferencia_paletas || {};
+      const jsonEmpaques = row.diferencia_empaques || {};
+      const combinados = { ...jsonPaletas, ...jsonEmpaques };
+
+      if (!mapaMermas[nombreSede]) {
+        mapaMermas[nombreSede] = {
+          totalDiferenciaAcumulada: 0,
+          registros: [],
+          frecuenciaItems: {}
+        };
+      }
+
+      mapaMermas[nombreSede].totalDiferenciaAcumulada += totalDif;
+      mapaMermas[nombreSede].registros.push(row);
+
+      Object.entries(combinados).forEach(([prod, cant]) => {
+        const cNum = Number(cant) || 0;
+        if (cNum !== 0) {
+          mapaMermas[nombreSede].frecuenciaItems[prod] = (mapaMermas[nombreSede].frecuenciaItems[prod] || 0) + Math.abs(cNum);
+        }
+      });
+    });
+
+    return mapaMermas;
   })();
 
   const auditoriaDescuadres = (() => {
@@ -459,11 +618,11 @@ export default function AdminPage() {
         movimientosSede.forEach(reg => {
           const tipo = String(reg.tipo_movimiento || '').toLowerCase().trim();
           let factor = 0;
-          if (tipo === 'apertura' || tipo === 'nuevas' || tipo === 'compradas' || tipo === 'compra') factor = 1;
-          else if (tipo === 'de_baja' || tipo === 'baja') factor = -1;
+          if (tipo === 'apertura' || tipo === 'nuevo' || tipo === 'nuevas' || tipo === 'compradas' || tipo === 'compra') factor = 1;
+          else if (tipo === 'de_baja' || tipo === 'baja' || tipo === 'debaja') factor = -1;
 
           if (factor !== 0) {
-            const dEmpaques = reg.detalle_empaques || {};
+            const dEmpaques = reg.detalle_empaques || reg.detalle_paletas || {};
             Object.entries(dEmpaques).forEach(([k, v]) => {
               detalleEmpaques[k] = (detalleEmpaques[k] || 0) + (Number(v) || 0) * factor;
             });
@@ -508,7 +667,156 @@ export default function AdminPage() {
     return mapa;
   })();
 
-  // CÁLCULOS LIMPIOS PARA INTELIGENCIA DE NEGOCIO (BI) FUERA DEL JSX
+  const mixSaboresSedeViva = (() => {
+    const sedeVivaObj = sedesBD.find(s => String(s.nombre || '').toLowerCase().includes('viva'));
+    const vivaId = sedeVivaObj ? sedeVivaObj.id : null;
+
+    const categoriasMap: { [categoria: string]: { [producto: string]: number } } = {};
+    let totalUnidadesViva = 0;
+
+    historicoVentasBD.forEach(row => {
+      if (vivaId !== null && Number(row.sede_id) !== Number(vivaId)) return;
+
+      const prods = row.productos || {};
+      Object.entries(prods).forEach(([prodName, cant]) => {
+        const cNum = Number(cant) || 0;
+        if (cNum > 0) {
+          totalUnidadesViva += cNum;
+          const prodEnBD = productosBD.find(p => String(p.nombre).trim().toLowerCase() === String(prodName).trim().toLowerCase());
+          const categoria = prodEnBD?.categoria && prodEnBD.categoria.trim() !== '' ? prodEnBD.categoria : 'General / Sin Categoría';
+
+          if (!categoriasMap[categoria]) {
+            categoriasMap[categoria] = {};
+          }
+          categoriasMap[categoria][prodName] = (categoriasMap[categoria][prodName] || 0) + cNum;
+        }
+      });
+    });
+
+    return { categoriasMap, totalUnidadesViva, vivaEncontrado: vivaId !== null };
+  })();
+
+  // 📦 PROYECCIÓN Y SUGERIDO NETO UNIFICADO (TODAS LAS SEDES CUBREN PALETAS, RICHI, PRODUCCIÓN, INSUMOS/DESECHABLES Y ASEO)
+  const proyeccionDemandaTodasSedes = (() => {
+    const resultadoPorSede: { 
+      [nombreSede: string]: { 
+        sugeridos: { [prod: string]: { sugerido: number; teorico: number; stock: number; enCamino: number } };
+        numDias: number;
+        origenDatos: string;
+      } 
+    } = {};
+
+    sedesBD.forEach(s => {
+      const idSede = s.id;
+      const nombreSede = getNombreSede(idSede);
+      if (sedeSeleccionada !== 'todos' && String(idSede) !== sedeSeleccionada) return;
+
+      const acumuladoProds: { [prod: string]: number } = {};
+      const diasConDatos = new Set<string>();
+
+      // 1. Acumulado por Ventas en Histórico (Últimos 30 días)
+      historicoVentas30DiasBD.forEach(row => {
+        if (Number(row.sede_id) === idSede) {
+          const fStr = obtenerFechaLocalStr(row.fecha);
+          if (fStr) diasConDatos.add(fStr);
+          const prods = row.productos || {};
+          Object.entries(prods).forEach(([p, c]) => {
+            const cant = Number(c) || 0;
+            if (cant > 0) acumuladoProds[p] = (acumuladoProds[p] || 0) + cant;
+          });
+        }
+      });
+
+      // 2. Acumulado por Pedidos de Insumos (Paletas, Richi, Producción, Insumos/Desechables, Aseo)
+      pedidos30Dias.forEach(p => {
+        if (Number(p.sede_id) === idSede) {
+          const fStr = obtenerFechaLocalStr(p.fecha);
+          if (fStr) diasConDatos.add(fStr);
+          const jsonItems = { 
+            ...(p.pedidos_paletas || {}), 
+            ...(p.pedidos_richi || {}), 
+            ...(p.pedidos_produccion || {}), 
+            ...(p.pedidos_insumos || {}), 
+            ...(p.pedidos_aseo || {}) 
+          };
+          Object.entries(jsonItems).forEach(([item, c]) => {
+            const cant = Number(c) || 0;
+            if (cant > 0) acumuladoProds[item] = (acumuladoProds[item] || 0) + cant;
+          });
+        }
+      });
+
+      // 3. Stock Físico Actual en la Sede (Apertura + Nuevos - Bajas / Cierre)
+      const stockActualSede: { [prod: string]: number } = {};
+      const movsSede = inventarioMovsDia
+        .filter(m => Number(m.sede_id) === idSede)
+        .sort((a, b) => new Date(a.fecha_registro).getTime() - new Date(b.fecha_registro).getTime());
+
+      movsSede.forEach(reg => {
+        const tipo = String(reg.tipo_movimiento || '').toLowerCase().trim();
+        let factor = 0;
+        if (tipo === 'apertura' || tipo === 'nuevo' || tipo === 'nuevas' || tipo === 'compradas' || tipo === 'compra') factor = 1;
+        else if (tipo === 'de_baja' || tipo === 'baja' || tipo === 'debaja') factor = -1;
+
+        if (factor !== 0) {
+          const combinados = { ...(reg.detalle_empaques || {}), ...(reg.detalle_paletas || {}) };
+          Object.entries(combinados).forEach(([k, v]) => {
+            stockActualSede[k] = (stockActualSede[k] || 0) + (Number(v) || 0) * factor;
+          });
+        }
+      });
+
+      inventarioEmpaquesSedesBD.filter(e => Number(e.sede_id) === idSede).forEach(e => {
+        const pNombre = String(e.nombre || '').trim();
+        if (pNombre.toLowerCase() !== 'total paletas') {
+          stockActualSede[pNombre] = Number(e.stock || 0);
+        }
+      });
+
+      // 4. Pedidos en camino (Pendiente o Comprado)
+      const pedidosEnCaminoSede: { [prod: string]: number } = {};
+      pedidosPendientesGlobal.filter(p => Number(p.sede_id) === idSede).forEach(p => {
+        const jsonItems = { 
+          ...(p.pedidos_paletas || {}), 
+          ...(p.pedidos_richi || {}), 
+          ...(p.pedidos_produccion || {}), 
+          ...(p.pedidos_insumos || {}), 
+          ...(p.pedidos_aseo || {}) 
+        };
+        Object.entries(jsonItems).forEach(([item, c]) => {
+          pedidosEnCaminoSede[item] = (pedidosEnCaminoSede[item] || 0) + (Number(c) || 0);
+        });
+      });
+
+      const numDias = Math.max(diasConDatos.size, 1);
+      const sugeridos: { [prod: string]: { sugerido: number; teorico: number; stock: number; enCamino: number } } = {};
+
+      Object.entries(acumuladoProds).forEach(([prod, totalCant]) => {
+        const promedioDiario = totalCant / numDias;
+        const demandaTeorica = Math.ceil(promedioDiario * 7 * 1.2);
+        const stockActual = Math.max(stockActualSede[prod] || 0, 0);
+        const enCamino = pedidosEnCaminoSede[prod] || 0;
+
+        const netoRequerido = Math.max(demandaTeorica - stockActual - enCamino, 0);
+
+        sugeridos[prod] = {
+          sugerido: netoRequerido,
+          teorico: demandaTeorica,
+          stock: stockActual,
+          enCamino
+        };
+      });
+
+      resultadoPorSede[nombreSede] = {
+        sugeridos,
+        numDias,
+        origenDatos: 'Ventas e historial completo de pedidos (30 días)'
+      };
+    });
+
+    return resultadoPorSede;
+  })();
+
   const datosBI = (() => {
     const totalProductos: { [prod: string]: number } = {};
     const ventasPorFecha: { [fecha: string]: number } = {};
@@ -540,6 +848,64 @@ export default function AdminPage() {
     const maxUnidadesProd = (masVendido[1] as number) > 0 ? (masVendido[1] as number) : 1;
 
     return { masVendido, menosVendido, mejorDia, productosArray, maxUnidadesProd };
+  })();
+
+  const biPorSede = (() => {
+    const mapaSedesBI: { 
+      [nombreSede: string]: { 
+        masVendido: [string, number]; 
+        menosVendido: [string, number]; 
+        mejorDia: [string, number]; 
+        productosArray: [string, number][]; 
+        maxUnidadesProd: number; 
+      } 
+    } = {};
+
+    sedesBD.forEach(s => {
+      const idSede = s.id;
+      const nombreSede = getNombreSede(idSede);
+
+      const totalProductos: { [prod: string]: number } = {};
+      const ventasPorFecha: { [fecha: string]: number } = {};
+
+      historicoVentasBD.forEach(row => {
+        if (Number(row.sede_id) !== Number(idSede)) return;
+
+        const fStr = obtenerFechaLocalStr(row.fecha);
+        const prods = row.productos || {};
+        
+        let totalFila = 0;
+        Object.entries(prods).forEach(([prod, cant]) => {
+          const c = Number(cant) || 0;
+          if (c > 0) {
+            totalProductos[prod] = (totalProductos[prod] || 0) + c;
+            totalFila += c;
+          }
+        });
+
+        if (fStr) {
+          ventasPorFecha[fStr] = (ventasPorFecha[fStr] || 0) + totalFila;
+        }
+      });
+
+      const productosArray = Object.entries(totalProductos).sort((a, b) => b[1] - a[1]);
+      const masVendido = productosArray.length > 0 ? productosArray[0] : ['N/A', 0] as [string, number];
+      const menosVendido = productosArray.length > 0 ? productosArray[productosArray.length - 1] : ['N/A', 0] as [string, number];
+
+      const fechasArray = Object.entries(ventasPorFecha).sort((a, b) => b[1] - a[1]);
+      const mejorDia = fechasArray.length > 0 ? fechasArray[0] : ['N/A', 0] as [string, number];
+      const maxUnidadesProd = (masVendido[1] as number) > 0 ? (masVendido[1] as number) : 1;
+
+      mapaSedesBI[nombreSede] = {
+        masVendido,
+        menosVendido,
+        mejorDia,
+        productosArray,
+        maxUnidadesProd
+      };
+    });
+
+    return mapaSedesBI;
   })();
 
   async function guardarProveedorInteligente(nombreProducto: string, idProd?: number) {
@@ -633,7 +999,7 @@ export default function AdminPage() {
       {cargando ? <div className="text-center py-10 text-xs font-bold text-sky-200">Cargando datos...</div> : (
         <div className="space-y-3">
 
-          {/* MÓDULO 1 */}
+          {/* MÓDULO 1: GESTIÓN LOGÍSTICA E INSUMOS */}
           <div className="border border-[#0066b3] bg-[#0b2b48] rounded-2xl overflow-hidden shadow-lg">
             <button 
               onClick={() => toggleModulo('logistica')}
@@ -817,6 +1183,83 @@ export default function AdminPage() {
                         </div>
                       )}
                     </div>
+
+                    {/* PROYECCIÓN DE DEMANDA E INSUMOS INTELIGENTE (NETA) */}
+                    <div className="bg-[#0b2b48] border border-teal-500/50 rounded-xl overflow-hidden shadow-sm">
+                      <button 
+                        onClick={() => setAcordeonProyeccionMain(prev => !prev)}
+                        className="w-full p-3 bg-teal-950/40 border-b border-teal-500/30 flex justify-between items-center text-left cursor-pointer"
+                      >
+                        <div>
+                          <span className="text-[11px] font-black text-teal-300 uppercase block">
+                            {acordeonProyeccionMain ? '👁️‍🗨️' : '👁️'} 📦 Proyección de Demanda e Insumos
+                          </span>
+                          <span className="text-[9px] text-teal-200 italic">Sugerido Neto = Demanda (30d) - Stock Actual - Pedidos en Camino</span>
+                        </div>
+                        <span className="text-[10px] bg-[#031d35] px-2 py-0.5 rounded text-teal-300 border border-teal-500/40 font-bold">
+                          {Object.keys(proyeccionDemandaTodasSedes).length} Sedes
+                        </span>
+                      </button>
+
+                      {acordeonProyeccionMain && (
+                        <div className="p-3 space-y-2 bg-[#031d35]/60 text-xs border-t border-teal-500/20">
+                          {Object.keys(proyeccionDemandaTodasSedes).length === 0 ? (
+                            <p className="text-center text-[11px] text-sky-300 py-2">No hay suficientes datos registrados en los últimos 30 días para proyectar.</p>
+                          ) : (
+                            Object.entries(proyeccionDemandaTodasSedes).map(([nombreSede, infoSede], idx) => {
+                              const abiertoProySede = !!acordeonesProyeccionSedes[nombreSede];
+                              const cantProds = Object.keys(infoSede.sugeridos).length;
+
+                              return (
+                                <div key={idx} className="bg-[#0b2b48] border border-[#0066b3] rounded-xl overflow-hidden">
+                                  <button 
+                                    onClick={() => setAcordeonesProyeccionSedes(prev => ({ ...prev, [nombreSede]: !abiertoProySede }))}
+                                    className="w-full p-2.5 flex justify-between items-center text-xs font-bold text-white uppercase cursor-pointer"
+                                  >
+                                    <span className="flex items-center gap-2">
+                                      <span>{abiertoProySede ? '👁️‍🗨️' : '👁️'}</span> 📍 {nombreSede}
+                                    </span>
+                                    <span className="text-[9px] bg-[#031d35] text-teal-300 px-2 py-0.5 rounded border border-teal-500/40">
+                                      {cantProds} Analizados ({infoSede.numDias}d base)
+                                    </span>
+                                  </button>
+
+                                  {abiertoProySede && (
+                                    <div className="p-2.5 pt-0 space-y-1.5 bg-[#031d35] border-t border-[#0066b3]/30">
+                                      <p className="text-[9px] text-sky-300 italic pt-1 border-b border-[#0066b3]/20 pb-1">
+                                        Origen: {infoSede.origenDatos}
+                                      </p>
+                                      {cantProds === 0 ? (
+                                        <p className="text-[10px] text-sky-400 italic py-1">Sin historial suficiente en los últimos 30 días.</p>
+                                      ) : (
+                                        <div className="space-y-2 max-h-56 overflow-y-auto pr-1 pt-1">
+                                          {Object.entries(infoSede.sugeridos).map(([prod, detalle], i) => (
+                                            <div key={i} className="bg-[#0b2b48] p-2 rounded-lg border border-[#0066b3]/40 space-y-1">
+                                              <div className="flex justify-between items-center text-white">
+                                                <span className="truncate font-bold text-[11px]">{prod}</span>
+                                                <span className={`font-black px-2 py-0.5 rounded text-[10px] border ${detalle.sugerido > 0 ? 'bg-emerald-950 text-emerald-300 border-emerald-500/50' : 'bg-[#031d35] text-sky-400 border-[#0066b3]'}`}>
+                                                  Pedir: x{detalle.sugerido}
+                                                </span>
+                                              </div>
+                                              <div className="grid grid-cols-3 gap-1 text-[9px] text-sky-200 bg-[#031d35] p-1.5 rounded">
+                                                <div><span className="text-sky-400 font-bold block">Meta (7d):</span> x{detalle.teorico}</div>
+                                                <div><span className="text-amber-300 font-bold block">Stock Cava:</span> x{detalle.stock}</div>
+                                                <div><span className="text-fuchsia-300 font-bold block">En Camino:</span> x{detalle.enCamino}</div>
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
+                      )}
+                    </div>
+
                   </div>
                 )}
 
@@ -829,8 +1272,10 @@ export default function AdminPage() {
                         const abierto = !!acordeonesDespachos[nombreSede];
                         return (
                           <div key={nombreSede} className="border border-[#0066b3] bg-[#0b2b48] rounded-xl overflow-hidden">
-                            <button onClick={() => setAcordeonesDespachos(prev => ({ ...prev, [nombreSede]: !abierto }))} className="w-full p-3 flex justify-between items-center text-xs font-bold text-white uppercase">
-                              <span>{abierto ? '▼' : '▶'} {nombreSede}</span>
+                            <button onClick={() => setAcordeonesDespachos(prev => ({ ...prev, [nombreSede]: !abierto }))} className="w-full p-3 flex justify-between items-center text-xs font-bold text-white uppercase cursor-pointer">
+                              <span className="flex items-center gap-2">
+                                <span>{abierto ? '👁️‍🗨️' : '👁️'}</span> 📍 {nombreSede}
+                              </span>
                               <span className="text-[10px] bg-[#031d35] px-2 py-0.5 rounded">{Object.keys(dataSede.productos).length} productos</span>
                             </button>
                             {abierto && (
@@ -843,7 +1288,7 @@ export default function AdminPage() {
                                     </div>
                                   ))}
                                 </div>
-                                <button onClick={() => marcarPedidosComoEntregados(dataSede.idsPedidos)} className="w-full mt-2 bg-emerald-600 text-white font-black py-2 rounded-lg text-xs uppercase cursor-pointer">
+                                <button onClick={() => marcarPedidosComoEntregados(dataSede.idsPedidos)} className="w-full mt-2 bg-emerald-600 hover:bg-emerald-500 text-white font-black py-2 rounded-lg text-xs uppercase cursor-pointer">
                                   🚚 Marcar Entregado
                                 </button>
                               </div>
@@ -858,7 +1303,7 @@ export default function AdminPage() {
             )}
           </div>
 
-          {/* MÓDULO 2 */}
+          {/* MÓDULO 2: CIERRES DE CAJA Y DESCUADRES */}
           <div className="border border-[#0066b3] bg-[#0b2b48] rounded-2xl overflow-hidden shadow-lg">
             <button 
               onClick={() => toggleModulo('cierres')}
@@ -998,13 +1443,43 @@ export default function AdminPage() {
                 )}
 
                 {subPestanaCierres === 'descuadres' && (
-                  <div className="space-y-2">
-                    <p className="text-[11px] text-sky-200 italic px-1">
-                      Registro de diferencias de inventario para el rango seleccionado.
-                    </p>
+                  <div className="space-y-3">
+                    <div className="bg-[#0b2b48] border border-amber-500/50 rounded-xl overflow-hidden shadow-sm">
+                      <div className="p-3 bg-amber-950/40 border-b border-amber-500/30">
+                        <span className="text-[11px] font-black text-amber-300 uppercase block">⚠️ Histórico de Mermas y Diferencias Críticas</span>
+                        <span className="text-[10px] text-sky-200 italic">Acumulado de descuadres por sede en el rango</span>
+                      </div>
+                      <div className="p-3 space-y-3 bg-[#031d35]/60 text-xs">
+                        {Object.keys(historicoMermasCriticas).length === 0 ? (
+                          <p className="text-center text-[11px] text-sky-300 py-3">No hay mermas o diferencias registradas en este rango.</p>
+                        ) : (
+                          Object.entries(historicoMermasCriticas).map(([nombreSede, dataMerma], idx) => (
+                            <div key={idx} className="bg-[#0b2b48] border border-[#0066b3] p-2.5 rounded-xl space-y-1.5">
+                              <div className="flex justify-between items-center border-b border-[#0066b3]/40 pb-1">
+                                <span className="font-bold text-white uppercase">📍 {nombreSede}</span>
+                                <span className={`font-black px-2 py-0.5 rounded text-[10px] ${dataMerma.totalDiferenciaAcumulada === 0 ? 'bg-emerald-950 text-emerald-300' : 'bg-rose-950 text-rose-300 border border-rose-500/40'}`}>
+                                  Total Dif: {dataMerma.totalDiferenciaAcumulada}
+                                </span>
+                              </div>
+                              {Object.keys(dataMerma.frecuenciaItems).length > 0 && (
+                                <div className="space-y-1 pt-1">
+                                  <span className="text-[10px] text-amber-300 font-bold block">Ítems con más desviación:</span>
+                                  {Object.entries(dataMerma.frecuenciaItems).map(([prod, cant], i) => (
+                                    <div key={i} className="flex justify-between text-[11px] text-sky-200 border-b border-[#0066b3]/20 py-0.5">
+                                      <span>• {prod}</span>
+                                      <span className="font-bold text-rose-300">Desviación: {cant}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
 
                     {Object.keys(auditoriaDescuadres).length === 0 ? (
-                      <p className="text-center text-xs text-sky-300 py-6 font-semibold">No hay diferencias registradas para este rango.</p>
+                      <p className="text-center text-xs text-sky-300 py-4 font-semibold">No hay diferencias detalladas para este rango.</p>
                     ) : (
                       Object.entries(auditoriaDescuadres).map(([nombreSede, infoSede]) => {
                         const abierto = !!acordeonesDescuadres[nombreSede];
@@ -1054,7 +1529,7 @@ export default function AdminPage() {
             )}
           </div>
 
-          {/* MÓDULO 3 */}
+          {/* MÓDULO 3: INVENTARIOS Y STOCK GENERAL */}
           <div className="border border-[#0066b3] bg-[#0b2b48] rounded-2xl overflow-hidden shadow-lg">
             <button 
               onClick={() => toggleModulo('inventarios')}
@@ -1089,7 +1564,6 @@ export default function AdminPage() {
 
                         {abierto && (
                           <div className="p-3 pt-0 bg-[#031d35] text-xs space-y-3 border-t border-[#0066b3]/30">
-                            
                             <div className="pt-2">
                               <span className="text-[10px] font-black text-amber-300 uppercase block border-b border-[#0066b3]/40 pb-1 mb-1">
                                 🧊 Stock Paletas
@@ -1115,19 +1589,17 @@ export default function AdminPage() {
                                 ))
                               )}
                             </div>
-
                           </div>
                         )}
                       </div>
                     );
                   })
                 )}
-
               </div>
             )}
           </div>
 
-          {/* MÓDULO 4 */}
+          {/* MÓDULO 4: NÓMINA Y REGISTRO DE TURNOS */}
           <div className="border border-[#0066b3] bg-[#0b2b48] rounded-2xl overflow-hidden shadow-lg">
             <button 
               onClick={() => toggleModulo('modulo_nomina')}
@@ -1177,19 +1649,18 @@ export default function AdminPage() {
                     ))
                   )}
                 </div>
-
               </div>
             )}
           </div>
 
-          {/* MÓDULO 5: VENTAS */}
+          {/* MÓDULO 5: VENTAS Y MIX DE SABORES */}
           <div className="border border-[#0066b3] bg-[#0b2b48] rounded-2xl overflow-hidden shadow-lg">
             <button 
               onClick={() => toggleModulo('ventas_abanico')}
               className="w-full p-4 flex justify-between items-center text-xs font-black uppercase text-cyan-300 bg-[#0b2b48] cursor-pointer"
             >
               <span className="flex items-center gap-2">
-                <span>{moduloAbierto === 'ventas_abanico' ? '▼' : '▶'}</span> 📊 5. VENTAS
+                <span>{moduloAbierto === 'ventas_abanico' ? '▼' : '▶'}</span> 📊 5. VENTAS Y MIX DE SABORES
               </span>
               <span className="bg-[#031d35] text-cyan-300 font-bold text-[10px] px-2 py-0.5 rounded border border-[#0066b3]">
                 {Object.keys(ventasAbanicoPorSede).length} Sedes
@@ -1198,6 +1669,36 @@ export default function AdminPage() {
 
             {moduloAbierto === 'ventas_abanico' && (
               <div className="p-3 space-y-3 border-t border-[#0066b3]/30 bg-[#031d35]/60">
+                <div className="bg-[#0b2b48] border border-cyan-500/50 rounded-xl overflow-hidden shadow-sm">
+                  <div className="p-3 bg-cyan-950/40 border-b border-cyan-500/30 flex justify-between items-center">
+                    <span className="text-[11px] font-black text-cyan-300 uppercase">🧊 Mix de Sabores y Categorías (Sede Viva)</span>
+                    <span className="text-[10px] bg-[#031d35] text-cyan-200 px-2 py-0.5 rounded border border-cyan-500/40">Total: {mixSaboresSedeViva.totalUnidadesViva} unids</span>
+                  </div>
+                  <div className="p-3 space-y-2.5 bg-[#031d35]/60 text-xs">
+                    {!mixSaboresSedeViva.vivaEncontrado ? (
+                      <p className="text-center text-[11px] text-sky-300 py-2">No se encontró la sede Viva configurada.</p>
+                    ) : Object.keys(mixSaboresSedeViva.categoriasMap).length === 0 ? (
+                      <p className="text-center text-[11px] text-sky-300 py-2">No hay ventas registradas en la sede Viva para este rango.</p>
+                    ) : (
+                      Object.entries(mixSaboresSedeViva.categoriasMap).map(([catNombre, productosCat], idx) => (
+                        <div key={idx} className="bg-[#0b2b48] border border-[#0066b3] p-2.5 rounded-xl space-y-1">
+                          <span className="text-[10px] font-black text-amber-300 uppercase block border-b border-[#0066b3]/40 pb-1">
+                            📂 {catNombre}
+                          </span>
+                          <div className="space-y-1 pt-1">
+                            {Object.entries(productosCat).map(([prodName, cant]: [string, any], i) => (
+                              <div key={i} className="flex justify-between text-[11px] text-white border-b border-[#0066b3]/20 py-0.5">
+                                <span className="truncate pr-2">{prodName}</span>
+                                <span className="font-bold text-emerald-300">x{cant}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
                 {Object.keys(ventasAbanicoPorSede).length === 0 ? (
                   <p className="text-center text-xs text-sky-300 py-6 font-semibold">No hay registros en el histórico de ventas para este rango.</p>
                 ) : (
@@ -1266,58 +1767,331 @@ export default function AdminPage() {
                 {historicoVentasBD.length === 0 ? (
                   <p className="text-center text-xs text-sky-300 py-6 font-semibold">No hay suficientes datos de ventas en este rango para analizar.</p>
                 ) : (
-                  <div className="space-y-3">
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="bg-[#0b2b48] border border-emerald-500/50 p-2.5 rounded-xl space-y-1">
-                        <span className="text-[9px] text-emerald-300 font-black uppercase block">🔥 Más Vendido</span>
-                        <p className="text-xs font-black text-white truncate">{String(datosBI.masVendido[0])}</p>
-                        <span className="text-[10px] bg-emerald-950 text-emerald-300 px-1.5 py-0.5 rounded font-bold">x{String(datosBI.masVendido[1])} unids</span>
+                  <div className="space-y-4">
+                    <div className="bg-[#031d35] border border-amber-500/40 p-3 rounded-xl space-y-3">
+                      <span className="text-[11px] font-black text-amber-300 uppercase block border-b border-amber-500/30 pb-1">
+                        🌐 CONSOLIDADO GLOBAL DE TODAS LAS SEDES
+                      </span>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="bg-[#0b2b48] border border-emerald-500/50 p-2.5 rounded-xl space-y-1">
+                          <span className="text-[9px] text-emerald-300 font-black uppercase block">🔥 Más Vendido</span>
+                          <p className="text-xs font-black text-white truncate">{String(datosBI.masVendido[0])}</p>
+                          <span className="text-[10px] bg-emerald-950 text-emerald-300 px-1.5 py-0.5 rounded font-bold">x{String(datosBI.masVendido[1])} unids</span>
+                        </div>
+
+                        <div className="bg-[#0b2b48] border border-rose-500/50 p-2.5 rounded-xl space-y-1">
+                          <span className="text-[9px] text-rose-300 font-black uppercase block">❄️ Menos Vendido</span>
+                          <p className="text-xs font-black text-white truncate">{String(datosBI.menosVendido[0])}</p>
+                          <span className="text-[10px] bg-rose-950 text-rose-300 px-1.5 py-0.5 rounded font-bold">x{String(datosBI.menosVendido[1])} unids</span>
+                        </div>
                       </div>
 
-                      <div className="bg-[#0b2b48] border border-rose-500/50 p-2.5 rounded-xl space-y-1">
-                        <span className="text-[9px] text-rose-300 font-black uppercase block">❄️ Menos Vendido</span>
-                        <p className="text-xs font-black text-white truncate">{String(datosBI.menosVendido[0])}</p>
-                        <span className="text-[10px] bg-rose-950 text-rose-300 px-1.5 py-0.5 rounded font-bold">x{String(datosBI.menosVendido[1])} unids</span>
+                      <div className="bg-[#0b2b48] border border-amber-500/50 p-3 rounded-xl flex justify-between items-center">
+                        <div>
+                          <span className="text-[9px] text-amber-300 font-black uppercase block">⭐ El Mejor Día de Ventas</span>
+                          <p className="text-xs font-black text-white">{String(datosBI.mejorDia[0])}</p>
+                        </div>
+                        <span className="text-xs bg-amber-950 text-amber-300 px-2.5 py-1 rounded-lg font-black border border-amber-500/40">
+                          {String(datosBI.mejorDia[1])} Unidades
+                        </span>
+                      </div>
+
+                      <div className="bg-[#0b2b48] border border-[#0066b3] p-3 rounded-xl space-y-2">
+                        <span className="text-[10px] font-black text-sky-300 uppercase block border-b border-[#0066b3]/40 pb-1">
+                          📊 Gráfico de Rendimiento por Producto (Global)
+                        </span>
+                        
+                        <div className="space-y-2 pt-1 max-h-48 overflow-y-auto pr-1">
+                          {datosBI.productosArray.map(([prod, cant], idx) => {
+                            const porcentaje = Math.round((Number(cant) / datosBI.maxUnidadesProd) * 100);
+                            return (
+                              <div key={idx} className="space-y-1">
+                                <div className="flex justify-between text-[11px] text-white">
+                                  <span className="truncate pr-2 font-semibold">{prod}</span>
+                                  <span className="font-bold text-cyan-300">x{String(cant)}</span>
+                                </div>
+                                <div className="w-full bg-[#031d35] h-2 rounded-full overflow-hidden border border-[#0066b3]/30">
+                                  <div 
+                                    className="bg-gradient-to-r from-cyan-500 to-emerald-400 h-full rounded-full transition-all duration-500" 
+                                    style={{ width: `${porcentaje}%` }}
+                                  ></div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
                     </div>
 
-                    <div className="bg-[#0b2b48] border border-amber-500/50 p-3 rounded-xl flex justify-between items-center">
-                      <div>
-                        <span className="text-[9px] text-amber-300 font-black uppercase block">⭐ El Mejor Día de Ventas</span>
-                        <p className="text-xs font-black text-white">{String(datosBI.mejorDia[0])}</p>
-                      </div>
-                      <span className="text-xs bg-amber-950 text-amber-300 px-2.5 py-1 rounded-lg font-black border border-amber-500/40">
-                        {String(datosBI.mejorDia[1])} Unidades
-                      </span>
-                    </div>
+                    <span className="text-[11px] font-black text-sky-300 uppercase block pt-1">
+                      📍 DESGLOSE DE BI POR CADA SEDE:
+                    </span>
 
-                    <div className="bg-[#0b2b48] border border-[#0066b3] p-3 rounded-xl space-y-2">
-                      <span className="text-[10px] font-black text-sky-300 uppercase block border-b border-[#0066b3]/40 pb-1">
-                        📊 Gráfico de Rendimiento por Producto
-                      </span>
-                      
-                      <div className="space-y-2 pt-1 max-h-52 overflow-y-auto pr-1">
-                        {datosBI.productosArray.map(([prod, cant], idx) => {
-                          const porcentaje = Math.round((Number(cant) / datosBI.maxUnidadesProd) * 100);
-                          return (
-                            <div key={idx} className="space-y-1">
-                              <div className="flex justify-between text-[11px] text-white">
-                                <span className="truncate pr-2 font-semibold">{prod}</span>
-                                <span className="font-bold text-cyan-300">x{String(cant)}</span>
-                              </div>
-                              <div className="w-full bg-[#031d35] h-2 rounded-full overflow-hidden border border-[#0066b3]/30">
-                                <div 
-                                  className="bg-gradient-to-r from-cyan-500 to-emerald-400 h-full rounded-full transition-all duration-500" 
-                                  style={{ width: `${porcentaje}%` }}
-                                ></div>
-                              </div>
+                    {Object.entries(biPorSede).map(([nombreSede, infoSede]) => {
+                      const abierto = !!acordeonBISedeAbierto[nombreSede];
+                      const tieneVentas = infoSede.productosArray.length > 0;
+
+                      return (
+                        <div key={nombreSede} className="border border-[#0066b3] bg-[#0b2b48] rounded-xl overflow-hidden shadow-sm">
+                          <button 
+                            onClick={() => setAcordeonBISedeAbierto(prev => ({ ...prev, [nombreSede]: !abierto }))} 
+                            className="w-full p-3 flex justify-between items-center text-xs font-bold text-white uppercase cursor-pointer"
+                          >
+                            <span className="flex items-center gap-2">
+                              <span>{abierto ? '👁️‍🗨️' : '👁️'}</span> 📍 BI - {nombreSede}
+                            </span>
+                            <span className="text-[10px] bg-amber-950 text-amber-300 px-2.5 py-0.5 rounded-full border border-amber-500/50">
+                              {infoSede.productosArray.length} Ítems analizados
+                            </span>
+                          </button>
+
+                          {abierto && (
+                            <div className="p-3 pt-0 bg-[#031d35] text-xs space-y-3 border-t border-[#0066b3]/30">
+                              {!tieneVentas ? (
+                                <p className="text-center text-xs text-sky-300 py-4 font-semibold">No hay ventas registradas para esta sede en este rango.</p>
+                              ) : (
+                                <>
+                                  <div className="grid grid-cols-2 gap-2 pt-2">
+                                    <div className="bg-[#0b2b48] border border-emerald-500/50 p-2.5 rounded-xl space-y-1">
+                                      <span className="text-[9px] text-emerald-300 font-black uppercase block">🔥 Más Vendido</span>
+                                      <p className="text-xs font-black text-white truncate">{String(infoSede.masVendido[0])}</p>
+                                      <span className="text-[10px] bg-emerald-950 text-emerald-300 px-1.5 py-0.5 rounded font-bold">x{String(infoSede.masVendido[1])} unids</span>
+                                    </div>
+
+                                    <div className="bg-[#0b2b48] border border-rose-500/50 p-2.5 rounded-xl space-y-1">
+                                      <span className="text-[9px] text-rose-300 font-black uppercase block">❄️ Menos Vendido</span>
+                                      <p className="text-xs font-black text-white truncate">{String(infoSede.menosVendido[0])}</p>
+                                      <span className="text-[10px] bg-rose-950 text-rose-300 px-1.5 py-0.5 rounded font-bold">x{String(infoSede.menosVendido[1])} unids</span>
+                                    </div>
+                                  </div>
+
+                                  <div className="bg-[#0b2b48] border border-amber-500/50 p-2.5 rounded-xl flex justify-between items-center">
+                                    <div>
+                                      <span className="text-[9px] text-amber-300 font-black uppercase block">⭐ Mejor Día de Ventas</span>
+                                      <p className="text-xs font-black text-white">{String(infoSede.mejorDia[0])}</p>
+                                    </div>
+                                    <span className="text-xs bg-amber-950 text-amber-300 px-2 py-0.5 rounded font-black border border-amber-500/40">
+                                      {String(infoSede.mejorDia[1])} Unids
+                                    </span>
+                                  </div>
+
+                                  <div className="bg-[#0b2b48] border border-[#0066b3] p-2.5 rounded-xl space-y-2">
+                                    <span className="text-[10px] font-black text-sky-300 uppercase block border-b border-[#0066b3]/40 pb-1">
+                                      📊 Rendimiento - {nombreSede}
+                                    </span>
+                                    <div className="space-y-2 pt-1 max-h-40 overflow-y-auto pr-1">
+                                      {infoSede.productosArray.map(([prod, cant], idx) => {
+                                        const porcentaje = Math.round((Number(cant) / infoSede.maxUnidadesProd) * 100);
+                                        return (
+                                          <div key={idx} className="space-y-1">
+                                            <div className="flex justify-between text-[11px] text-white">
+                                              <span className="truncate pr-2 font-semibold">{prod}</span>
+                                              <span className="font-bold text-cyan-300">x{String(cant)}</span>
+                                            </div>
+                                            <div className="w-full bg-[#031d35] h-2 rounded-full overflow-hidden border border-[#0066b3]/30">
+                                              <div 
+                                                className="bg-gradient-to-r from-amber-400 to-emerald-400 h-full rounded-full transition-all duration-500" 
+                                                style={{ width: `${porcentaje}%` }}
+                                              ></div>
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                </>
+                              )}
                             </div>
-                          );
-                        })}
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* MÓDULO 7: RAPPI Y DESCUENTOS */}
+          <div className="border border-[#0066b3] bg-[#0b2b48] rounded-2xl overflow-hidden shadow-lg">
+            <button 
+              onClick={() => toggleModulo('rappi')}
+              className="w-full p-4 flex justify-between items-center text-xs font-black uppercase text-orange-300 bg-[#0b2b48] cursor-pointer"
+            >
+              <span className="flex items-center gap-2">
+                <span>{moduloAbierto === 'rappi' ? '▼' : '▶'}</span> 🛵 7. RAPPI Y DESCUENTOS
+              </span>
+              <span className="bg-[#031d35] text-orange-300 font-bold text-[10px] px-2 py-0.5 rounded border border-[#0066b3]">
+                Rappi: ${rappiYDescuentosData.totalRappiGlobal.toLocaleString()}
+              </span>
+            </button>
+
+            {moduloAbierto === 'rappi' && (
+              <div className="p-3 space-y-3 border-t border-[#0066b3]/30 bg-[#031d35]/60">
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="bg-[#0b2b48] border border-orange-500/50 p-2.5 rounded-xl space-y-1">
+                    <span className="text-[9px] text-orange-300 font-black uppercase block">🛵 Total Rappi</span>
+                    <p className="text-xs font-black text-white">${rappiYDescuentosData.totalRappiGlobal.toLocaleString()}</p>
+                  </div>
+                  <div className="bg-[#0b2b48] border border-sky-500/50 p-2.5 rounded-xl space-y-1">
+                    <span className="text-[9px] text-sky-300 font-black uppercase block">🏷️ Total Descuentos</span>
+                    <p className="text-xs font-black text-white">${rappiYDescuentosData.totalDescuentosGlobal.toLocaleString()}</p>
+                  </div>
+                </div>
+
+                {Object.keys(rappiYDescuentosData.porSede).length === 0 ? (
+                  <p className="text-center text-xs text-sky-300 py-6 font-semibold">No hay registros de Rappi o Descuentos en este rango de fechas.</p>
+                ) : (
+                  Object.entries(rappiYDescuentosData.porSede).map(([nombreSede, dataSede]) => {
+                    const abierto = !!acordeonesRappi[nombreSede];
+                    return (
+                      <div key={nombreSede} className="border border-[#0066b3] bg-[#0b2b48] rounded-xl overflow-hidden shadow-sm">
+                        <button 
+                          onClick={() => setAcordeonesRappi(prev => ({ ...prev, [nombreSede]: !abierto }))} 
+                          className="w-full p-3 flex justify-between items-center text-xs font-bold text-white uppercase cursor-pointer"
+                        >
+                          <span className="flex items-center gap-2">
+                            <span>{abierto ? '👁️‍🗨️' : '👁️'}</span> 📍 {nombreSede}
+                          </span>
+                          <span className="text-orange-300 font-bold">Rappi: ${dataSede.totalRappi.toLocaleString()}</span>
+                        </button>
+
+                        {abierto && (
+                          <div className="p-3 pt-0 bg-[#031d35] text-xs space-y-2 border-t border-[#0066b3]/30">
+                            <div className="flex justify-between border-b border-[#0066b3]/20 py-1 text-white">
+                              <span>🛵 Subtotal Rappi Sede:</span>
+                              <span className="font-bold text-orange-300">${dataSede.totalRappi.toLocaleString()}</span>
+                            </div>
+                            <div className="flex justify-between border-b border-[#0066b3]/20 py-1 text-white">
+                              <span>🏷️ Subtotal Descuentos Sede:</span>
+                              <span className="font-bold text-sky-300">${dataSede.totalDescuentos.toLocaleString()}</span>
+                            </div>
+                            <div className="space-y-1 pt-2">
+                              <span className="text-[10px] font-black text-sky-300 uppercase block">Detalle de registros:</span>
+                              {dataSede.registros.map((reg, idx) => (
+                                <div key={idx} className="bg-[#0b2b48] p-2 rounded border border-[#0066b3]/40 space-y-1 text-[11px]">
+                                  <div className="flex justify-between text-sky-200">
+                                    <span>Fecha: {obtenerFechaLocalStr(reg.fecha)}</span>
+                                    <span className="font-bold text-orange-300">Rappi: ${Number(reg.rappi || 0).toLocaleString()}</span>
+                                  </div>
+                                  <div className="flex justify-between text-sky-200">
+                                    <span>Dto: ${Number(reg.descuento || 0).toLocaleString()}</span>
+                                  </div>
+                                  {reg.motivo_descuento && Array.isArray(reg.motivo_descuento) && reg.motivo_descuento.length > 0 && (
+                                    <p className="text-[10px] text-amber-200 italic">
+                                      Motivo: {reg.motivo_descuento.join(', ')}
+                                    </p>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* MÓDULO 8: COMPARATIVO DE MÉTODOS DE PAGO */}
+          <div className="border border-[#0066b3] bg-[#0b2b48] rounded-2xl overflow-hidden shadow-lg">
+            <button 
+              onClick={() => toggleModulo('pagos')}
+              className="w-full p-4 flex justify-between items-center text-xs font-black uppercase text-emerald-300 bg-[#0b2b48] cursor-pointer"
+            >
+              <span className="flex items-center gap-2">
+                <span>{moduloAbierto === 'pagos' ? '▼' : '▶'}</span> 💳 8. COMPARATIVO DE MÉTODOS DE PAGO
+              </span>
+              <span className="bg-[#031d35] text-emerald-300 font-bold text-[10px] px-2 py-0.5 rounded border border-[#0066b3]">
+                Total: ${comparativoMetodosPago.totalGeneralPagos.toLocaleString()}
+              </span>
+            </button>
+
+            {moduloAbierto === 'pagos' && (
+              <div className="p-3 space-y-3 border-t border-[#0066b3]/30 bg-[#031d35]/60 text-xs">
+                <div className="bg-[#0b2b48] border border-emerald-500/50 p-3 rounded-xl space-y-3">
+                  <span className="text-[11px] font-black text-emerald-300 uppercase block border-b border-emerald-500/30 pb-1">
+                    🌐 Participación Global de Pagos
+                  </span>
+
+                  <div className="grid grid-cols-3 gap-1.5 text-center">
+                    <div className="bg-[#031d35] p-2 rounded-xl border border-emerald-500/30">
+                      <span className="block text-[9px] text-emerald-400 font-bold uppercase">💵 Efectivo</span>
+                      <span className="text-xs font-black text-white">${comparativoMetodosPago.efectivoTotal.toLocaleString()}</span>
+                      <span className="block text-[10px] text-emerald-300 font-bold">{comparativoMetodosPago.porcEfectivo}%</span>
+                    </div>
+
+                    <div className="bg-[#031d35] p-2 rounded-xl border border-sky-500/30">
+                      <span className="block text-[9px] text-sky-300 font-bold uppercase">📲 Nequi</span>
+                      <span className="text-xs font-black text-white">${comparativoMetodosPago.nequiTotal.toLocaleString()}</span>
+                      <span className="block text-[10px] text-sky-200 font-bold">{comparativoMetodosPago.porcNequi}%</span>
+                    </div>
+
+                    <div className="bg-[#031d35] p-2 rounded-xl border border-rose-500/30">
+                      <span className="block text-[9px] text-rose-300 font-bold uppercase">💳 Daviplata</span>
+                      <span className="text-xs font-black text-white">${comparativoMetodosPago.daviplataTotal.toLocaleString()}</span>
+                      <span className="block text-[10px] text-rose-200 font-bold">{comparativoMetodosPago.porcDaviplata}%</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 pt-1">
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-[10px]">
+                        <span className="text-emerald-300 font-bold">Efectivo</span>
+                        <span className="text-white">{comparativoMetodosPago.porcEfectivo}%</span>
+                      </div>
+                      <div className="w-full bg-[#031d35] h-2 rounded-full overflow-hidden border border-[#0066b3]/30">
+                        <div className="bg-emerald-500 h-full rounded-full transition-all" style={{ width: `${comparativoMetodosPago.porcEfectivo}%` }}></div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-[10px]">
+                        <span className="text-sky-300 font-bold">Nequi</span>
+                        <span className="text-white">{comparativoMetodosPago.porcNequi}%</span>
+                      </div>
+                      <div className="w-full bg-[#031d35] h-2 rounded-full overflow-hidden border border-[#0066b3]/30">
+                        <div className="bg-sky-500 h-full rounded-full transition-all" style={{ width: `${comparativoMetodosPago.porcNequi}%` }}></div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-[10px]">
+                        <span className="text-rose-300 font-bold">Daviplata</span>
+                        <span className="text-white">{comparativoMetodosPago.porcDaviplata}%</span>
+                      </div>
+                      <div className="w-full bg-[#031d35] h-2 rounded-full overflow-hidden border border-[#0066b3]/30">
+                        <div className="bg-rose-500 h-full rounded-full transition-all" style={{ width: `${comparativoMetodosPago.porcDaviplata}%` }}></div>
                       </div>
                     </div>
                   </div>
+                </div>
+
+                <span className="text-[11px] font-black text-sky-300 uppercase block pt-1">
+                  📍 Desglosado por Sede:
+                </span>
+
+                {Object.keys(comparativoMetodosPago.porSede).length === 0 ? (
+                  <p className="text-center text-[11px] text-sky-300 py-3">No hay registros de pagos por sede en este rango.</p>
+                ) : (
+                  Object.entries(comparativoMetodosPago.porSede).map(([nombreSede, datosSede], idx) => (
+                    <div key={idx} className="bg-[#0b2b48] border border-[#0066b3] p-2.5 rounded-xl space-y-1.5">
+                      <div className="flex justify-between items-center border-b border-[#0066b3]/40 pb-1">
+                        <span className="font-bold text-white uppercase">📍 {nombreSede}</span>
+                        <span className="font-black text-emerald-300 text-xs">Total: ${datosSede.total.toLocaleString()}</span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-1 pt-1 text-[11px]">
+                        <div className="text-emerald-400">💵 Efec: ${datosSede.efectivo.toLocaleString()}</div>
+                        <div className="text-sky-300">📲 Nequi: ${datosSede.nequi.toLocaleString()}</div>
+                        <div className="text-rose-300">💳 Davi: ${datosSede.daviplata.toLocaleString()}</div>
+                      </div>
+                    </div>
+                  ))
                 )}
+
               </div>
             )}
           </div>
