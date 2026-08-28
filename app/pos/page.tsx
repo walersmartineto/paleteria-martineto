@@ -159,7 +159,6 @@ export default function MartinetoPOSPage() {
   const [mostrarModalNuevoProd, setMostrarModalNuevoProd] = useState(false);
   const [nuevoProdNombre, setNuevoProdNombre] = useState('');
   const [nuevoProdCategoria, setNuevoProdCategoria] = useState('Paleta');
-  const [nuevoProdGrupo, setNuevoProdGrupo] = useState('');
   const [nuevoProdDondeComprar, setNuevoProdDondeComprar] = useState('');
   const [dondeComprarPersonalizado, setDondeComprarPersonalizado] = useState('');
   const [guardandoProducto, setGuardandoProducto] = useState(false);
@@ -712,7 +711,6 @@ export default function MartinetoPOSPage() {
           ...p,
           nombre: p.nombre || p.Nombre || '',
           categoriaLimpia: String(p.categoria || p.Categoria || 'general').trim().toLowerCase(),
-          grupoLimpio: String(p.grupo || p.Grupo || '').trim().toLowerCase(),
           donde_comprar: p.donde_comprar || '',
         }));
 
@@ -947,14 +945,12 @@ export default function MartinetoPOSPage() {
 
     setGuardandoProducto(true);
 
-    const grupoAInsertar =
-      nuevoProdCategoria === 'Paleta'
-        ? nuevoProdGrupo.trim() || 'Paleta'
-        : nuevoProdCategoria;
+    const categoriaAInsertar = nuevoProdCategoria;
+    const grupoAInsertar = nuevoProdCategoria;
 
     const arregloNuevosProductos = sedesSeleccionadasProd.map((sId) => ({
       nombre: nombreLimpio,
-      categoria: nuevoProdCategoria,
+      categoria: categoriaAInsertar,
       grupo: grupoAInsertar,
       donde_comprar: dondeComprarFinal,
       sede_id: Number(sId),
@@ -977,7 +973,6 @@ export default function MartinetoPOSPage() {
         ...d,
         nombre: d.nombre,
         categoriaLimpia: String(d.categoria || '').trim().toLowerCase(),
-        grupoLimpio: String(d.grupo || '').trim().toLowerCase(),
         donde_comprar: d.donde_comprar || '',
       }));
 
@@ -985,7 +980,6 @@ export default function MartinetoPOSPage() {
     }
 
     setNuevoProdNombre('');
-    setNuevoProdGrupo('');
     if (listaLugaresCompraUnica.length > 0) {
       setNuevoProdDondeComprar(listaLugaresCompraUnica[0]);
     }
@@ -1341,46 +1335,6 @@ export default function MartinetoPOSPage() {
     };
     setPedidosRappi((prev) => [...prev, nuevoPedido]);
     setMesaActivaId(nuevoId);
-  }
-
-  function moverMesaA(destinoId: number) {
-    if (!mesaActiva || mesaActiva.items.length === 0) {
-      alert('⚠️ No hay ítems en esta mesa para mover.');
-      return;
-    }
-
-    const mesaDestino = mesas.find((m) => m.id === destinoId);
-
-    if (!mesaDestino) return;
-
-    if (mesaDestino.estado !== 'libre') {
-      alert(`⚠️ La mesa ${mesaDestino.nombre} ya está ocupada o pagada.`);
-      return;
-    }
-
-    actualizarEstadoMesaBD(Number(mesaActivaId), 'libre');
-    actualizarEstadoMesaBD(destinoId, 'ocupada');
-
-    setMesas((prev) =>
-      prev.map((m) => {
-        if (m.id === mesaActivaId) {
-          return { ...m, items: [], total: 0, totalAbonado: 0, estado: 'libre' };
-        }
-        if (m.id === destinoId) {
-          return {
-            ...m,
-            items: mesaActiva.items,
-            total: mesaActiva.total,
-            totalAbonado: mesaActiva.totalAbonado || 0,
-            estado: 'ocupada',
-          };
-        }
-        return m;
-      })
-    );
-
-    setMesaActivaId(destinoId);
-    alert(`🚚 Pedido trasladado con éxito de ${mesaActiva.nombre} a ${mesaDestino.nombre}.`);
   }
 
   const calcularDisponibilidadActual = (nombreEmpaque: string) => {
@@ -2709,7 +2663,6 @@ export default function MartinetoPOSPage() {
                   <div key={prod.id || prod.nombre} className="flex justify-between items-center bg-[#051829] p-3 rounded-xl border border-[#0066b3]">
                     <div>
                       <p className="text-xs text-white font-bold">{prod.nombre}</p>
-                      {prod.grupo && <p className="text-[10px] text-sky-300">{prod.grupo}</p>}
                     </div>
                     <input
                       ref={(el) => { inputRefs.current[`pedido_${prod.nombre}`] = el; }}
@@ -3691,7 +3644,7 @@ export default function MartinetoPOSPage() {
         </div>
       )}
 
-      {/* MODAL CREAR NUEVO PRODUCTO EN BD (FILTRANDO GLOBAL, ADMINISTRACIÓN Y PRODUCCIÓN) */}
+      {/* MODAL CREAR NUEVO PRODUCTO EN BD */}
       {mostrarModalNuevoProd && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
           <div className="bg-[#0b2b48] border border-[#0066b3] p-5 rounded-2xl w-full max-w-lg space-y-4 shadow-2xl">
@@ -3730,17 +3683,6 @@ export default function MartinetoPOSPage() {
                   <option value="Insumo">Insumo</option>
                   <option value="Aseo">Aseo</option>
                 </select>
-              </div>
-
-              <div>
-                <label className="text-sky-300 font-bold block mb-1">Grupo / Subgrupo:</label>
-                <input
-                  type="text"
-                  placeholder="Ej. Lácteos, Plásticos, Limpieza..."
-                  value={nuevoProdGrupo}
-                  onChange={(e) => setNuevoProdGrupo(e.target.value)}
-                  className="w-full bg-[#051829] border border-[#0066b3] text-white font-bold p-2.5 rounded-xl outline-none"
-                />
               </div>
 
               <div>
