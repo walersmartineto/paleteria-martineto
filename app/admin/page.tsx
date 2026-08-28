@@ -15,6 +15,29 @@ const obtenerFechaLocalStr = (fechaRaw: any): string => {
   return `${year}-${month}-${day}`;
 };
 
+// 🕒 FORMATEADOR DE HORA BLINDADO (EXTRAE LIMPIO EN HORA COLOMBIA)
+const obtenerHoraLocalStr = (fechaRaw: any): string => {
+  if (!fechaRaw) return '--:--';
+  
+  const d = new Date(fechaRaw);
+  if (isNaN(d.getTime())) return String(fechaRaw);
+
+  try {
+    return d.toLocaleTimeString('es-CO', { 
+      hour: '2-digit', 
+      minute: '2-digit', 
+      hour12: true, 
+      timeZone: 'America/Bogota' 
+    });
+  } catch (e) {
+    const horas = d.getHours();
+    const minutos = d.getMinutes();
+    const h12 = horas % 12 || 12;
+    const ampm = horas >= 12 ? 'p. m.' : 'a. m.';
+    return `${String(h12).padStart(2, '0')}:${String(minutos).padStart(2, '0')} ${ampm}`;
+  }
+};
+
 export default function AdminPage() {
   const router = useRouter();
   const { sedeData } = useSede();
@@ -24,6 +47,7 @@ export default function AdminPage() {
   const [fechaFin, setFechaFin] = useState<string>(fechaHoy);
   const [sedeSeleccionada, setSedeSeleccionada] = useState<string>('todos');
 
+  const [acordeonAperturaAbierto, setAcordeonAperturaAbierto] = useState<boolean>(true);
   const [moduloAbierto, setModuloAbierto] = useState<string | null>(null);
   const [subPestanaLogistica, setSubPestanaLogistica] = useState<'compras' | 'despachos'>('compras');
   const [subPestanaCierres, setSubPestanaCierres] = useState<'caja' | 'descuadres'>('caja');
@@ -186,12 +210,6 @@ export default function AdminPage() {
       });
 
       const { data: invDiarioRaw } = await supabase.from('inventario_diario').select('*');
-      
-      const invMovsFiltrado = (invDiarioRaw || []).filter(row => {
-        if (!row.fecha_registro) return false;
-        const fRow = obtenerFechaLocalStr(row.fecha_registro);
-        return fRow >= fechaInicio && fRow <= fechaFin;
-      });
 
       setInventarioMovsDia(invDiarioRaw || []);
 
@@ -216,6 +234,48 @@ export default function AdminPage() {
 
   const getNombreSede = (id: number) => mapaSedes[id] || `Sede ${id}`;
   const getNombreUsuario = (id: number) => usuariosBD[id] || `Empleado #${id}`;
+
+  const controlAperturaSedes = (() => {
+    return sedesBD.map(s => {
+      const idSede = s.id;
+      const nombreSede = getNombreSede(idSede);
+
+      const registrosCajaSede = registrosCaja
+        .filter(c => Number(c.sede_id) === idSede)
+        .sort((a, b) => new Date(b.created_at || b.fecha || 0).getTime() - new Date(a.created_at || a.fecha || 0).getTime());
+
+      const regCajaActual = registrosCajaSede[0];
+      const regInvApertura = inventarioMovsDia.find(m => Number(m.sede_id) === idSede && String(m.tipo_movimiento || '').toLowerCase().trim() === 'apertura' && obtenerFechaLocalStr(m.fecha_registro) === fechaInicio);
+
+      const estaAbierta = regCajaActual ? (regCajaActual.estado === 'abierta' || regCajaActual.tipo === 'apertura') : false;
+      const estadoCaja = regCajaActual 
+        ? (estaAbierta ? '🟢 Abierta' : '🔒 Cerrada') 
+        : (regInvApertura ? '🟢 Abierta' : '🔒 Pendiente');
+
+      const timestampRaw = regCajaActual?.created_at || regCajaActual?.fecha || regInvApertura?.fecha_registro;
+      const horaApertura = timestampRaw ? obtenerHoraLocalStr(timestampRaw) : '--:--';
+
+      const paletasContadas = regInvApertura?.total_paletas !== undefined && regInvApertura?.total_paletas !== null 
+        ? `✅ ${regInvApertura.total_paletas} unids` 
+        : '⚠️ Pendiente';
+
+      const tieneEmpaques = regInvApertura?.detalle_empaques && Object.keys(regInvApertura.detalle_empaques).length > 0;
+      const insumosContados = tieneEmpaques ? '✅ Registrados' : '⚠️ Pendiente';
+
+      const idUsuarioOp = regCajaActual?.usuario_id || regInvApertura?.usuario_id;
+      const operario = idUsuarioOp ? getNombreUsuario(idUsuarioOp) : (regCajaActual?.operario_nombre || '--');
+
+      return {
+        idSede,
+        nombreSede,
+        horaApertura,
+        estadoCaja,
+        paletasContadas,
+        insumosContados,
+        operario
+      };
+    });
+  })();
 
   const pedidosPendientesCompra = pedidos.filter(p => p.estado === 'pendiente');
   const pedidosListosParaEntrega = pedidos.filter(p => p.estado === 'comprado');
@@ -696,7 +756,6 @@ export default function AdminPage() {
     return { categoriasMap, totalUnidadesViva, vivaEncontrado: vivaId !== null };
   })();
 
-  // 📦 PROYECCIÓN Y SUGERIDO NETO UNIFICADO (TODAS LAS SEDES CUBREN PALETAS, RICHI, PRODUCCIÓN, INSUMOS/DESECHABLES Y ASEO)
   const proyeccionDemandaTodasSedes = (() => {
     const resultadoPorSede: { 
       [nombreSede: string]: { 
@@ -714,7 +773,6 @@ export default function AdminPage() {
       const acumuladoProds: { [prod: string]: number } = {};
       const diasConDatos = new Set<string>();
 
-      // 1. Acumulado por Ventas en Histórico (Últimos 30 días)
       historicoVentas30DiasBD.forEach(row => {
         if (Number(row.sede_id) === idSede) {
           const fStr = obtenerFechaLocalStr(row.fecha);
@@ -727,7 +785,6 @@ export default function AdminPage() {
         }
       });
 
-      // 2. Acumulado por Pedidos de Insumos (Paletas, Richi, Producción, Insumos/Desechables, Aseo)
       pedidos30Dias.forEach(p => {
         if (Number(p.sede_id) === idSede) {
           const fStr = obtenerFechaLocalStr(p.fecha);
@@ -746,7 +803,6 @@ export default function AdminPage() {
         }
       });
 
-      // 3. Stock Físico Actual en la Sede (Apertura + Nuevos - Bajas / Cierre)
       const stockActualSede: { [prod: string]: number } = {};
       const movsSede = inventarioMovsDia
         .filter(m => Number(m.sede_id) === idSede)
@@ -773,7 +829,6 @@ export default function AdminPage() {
         }
       });
 
-      // 4. Pedidos en camino (Pendiente o Comprado)
       const pedidosEnCaminoSede: { [prod: string]: number } = {};
       pedidosPendientesGlobal.filter(p => Number(p.sede_id) === idSede).forEach(p => {
         const jsonItems = { 
@@ -967,6 +1022,52 @@ export default function AdminPage() {
         </div>
         <button onClick={() => router.back()} className="bg-[#031d35] hover:bg-[#003d6d] px-3 py-1.5 rounded-xl text-xs font-bold border border-[#0066b3] cursor-pointer">Volver</button>
       </header>
+
+      {/* 🕒 PRIMERA SECCIÓN: CONTROL Y ESTADO DE APERTURA DE SEDES EN TIEMPO REAL CON ACORDEÓN (OJITO) */}
+      <div className="bg-[#0b2b48] border border-amber-500/60 rounded-2xl overflow-hidden shadow-lg">
+        <button 
+          onClick={() => setAcordeonAperturaAbierto(prev => !prev)}
+          className="w-full p-3 flex justify-between items-center text-xs font-black text-amber-300 uppercase bg-[#0b2b48] cursor-pointer"
+        >
+          <span className="flex items-center gap-2">
+            <span>{acordeonAperturaAbierto ? '👁️‍🗨️' : '👁️'}</span> 🟢 CONTROL DE APERTURAS (HOY)
+          </span>
+          <span className="text-[9px] bg-amber-950 text-amber-300 px-2 py-0.5 rounded font-bold border border-amber-500/40">
+            {controlAperturaSedes.filter(s => s.horaApertura !== '--:--').length} / {controlAperturaSedes.length} Abiertas
+          </span>
+        </button>
+
+        {acordeonAperturaAbierto && (
+          <div className="p-3 pt-0 border-t border-amber-500/30 bg-[#031d35]/60">
+            <div className="overflow-x-auto pt-2">
+              <table className="w-full text-left text-[10px]">
+                <thead>
+                  <tr className="border-b border-[#0066b3]/50 text-sky-300 uppercase">
+                    <th className="py-1">Sede</th>
+                    <th className="py-1 text-center">Hora</th>
+                    <th className="py-1 text-center">Estado</th>
+                    <th className="py-1 text-center">Paletas</th>
+                    <th className="py-1 text-center">Insumos</th>
+                    <th className="py-1 text-right">Operario</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#0066b3]/20 text-white font-medium">
+                  {controlAperturaSedes.map((item) => (
+                    <tr key={item.idSede} className="hover:bg-[#031d35]/40">
+                      <td className="py-1.5 font-bold uppercase text-amber-300">{item.nombreSede}</td>
+                      <td className="py-1.5 text-center font-black text-emerald-300">{item.horaApertura}</td>
+                      <td className="py-1.5 text-center">{item.estadoCaja}</td>
+                      <td className="py-1.5 text-center text-[9px]">{item.paletasContadas}</td>
+                      <td className="py-1.5 text-center text-[9px]">{item.insumosContados}</td>
+                      <td className="py-1.5 text-right font-bold text-sky-200 truncate max-w-[70px]">{item.operario}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
 
       <div className="bg-[#0b2b48] border border-[#0066b3] p-3 rounded-2xl shadow-md space-y-2">
         <label className="text-[10px] font-extrabold text-sky-300 uppercase block">📅 Rango de Fechas de Consulta:</label>
