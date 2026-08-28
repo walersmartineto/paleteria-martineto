@@ -919,7 +919,6 @@ export default function MartinetoPOSPage() {
     );
   };
 
-  // CREACIÓN DE NUEVO PRODUCTO CON ARREGLO DE SEDES DESDE LA TABLA 'sede' (EXCLUYENDO GLOBAL, ADMINISTRACIÓN Y PRODUCCIÓN)
   async function crearNuevoProductoBD() {
     const nombreLimpio = nuevoProdNombre.trim();
 
@@ -1132,7 +1131,7 @@ export default function MartinetoPOSPage() {
       {
         sede_id: SEDE_ID_MARTINETO,
         usuario_id: Number(usuarioId),
-        tipo: tipoMovimiento,
+        tipo_movimiento: tipoMovimiento, // <-- CORREGIDO AQUÍ (apunta correctamente a la columna real)
         total_paletas: totalPaletasNum,
         detalle_paletas: {},
         detalle_empaques: detalleEmpaquesLimpio,
@@ -3714,7 +3713,6 @@ export default function MartinetoPOSPage() {
                 </div>
               )}
 
-              {/* SELECCIÓN DE SEDES DINÁMICAS (FILTRANDO GLOBAL, ADMINISTRACIÓN Y PRODUCCIÓN) */}
               <div className="bg-[#051829] border border-[#0066b3] p-3 rounded-xl space-y-2">
                 <div className="flex justify-between items-center">
                   <label className="text-sky-300 font-bold block">Asignar a Sedes:</label>
