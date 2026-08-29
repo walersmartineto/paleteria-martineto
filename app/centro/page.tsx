@@ -125,34 +125,44 @@ export default function CentroPage() {
     (n) => String(n.usuario_id) === String(usuarioIdActual)
   );
 
-  const insumosSedeFiltrados = insumosSede.filter(
-    (item) => String(item.nombre || '').trim().toLowerCase() !== 'total paletas'
-  );
+  const insumosSedeFiltrados = insumosSede
+    .filter((item) => String(item.nombre || '').trim().toLowerCase() !== 'total paletas')
+    .sort((a, b) => String(a.nombre || '').localeCompare(String(b.nombre || '')));
 
-  const paletasFiltradasPedido = productosInsumosBD.filter((p) => {
-    const cat = String(p.categoriaLimpia || '');
-    return cat.includes('paleta') || cat === '';
-  });
+  const paletasFiltradasPedido = productosInsumosBD
+    .filter((p) => {
+      const cat = String(p.categoriaLimpia || '');
+      return cat.includes('paleta') || cat === '';
+    })
+    .sort((a, b) => String(a.nombre || '').localeCompare(String(b.nombre || '')));
 
-  const richiFiltradosPedido = productosInsumosBD.filter((p) => {
-    const cat = String(p.categoriaLimpia || '');
-    return cat.includes('richi') || cat.includes('empaque');
-  });
+  const richiFiltradosPedido = productosInsumosBD
+    .filter((p) => {
+      const cat = String(p.categoriaLimpia || '');
+      return cat.includes('richi') || cat.includes('empaque');
+    })
+    .sort((a, b) => String(a.nombre || '').localeCompare(String(b.nombre || '')));
 
-  const insumosFiltradosPedido = productosInsumosBD.filter((p) => {
-    const cat = String(p.categoriaLimpia || '');
-    return cat.includes('insumo') || cat.includes('topping') || cat.includes('materia');
-  });
+  const insumosFiltradosPedido = productosInsumosBD
+    .filter((p) => {
+      const cat = String(p.categoriaLimpia || '');
+      return cat.includes('insumo') || cat.includes('topping') || cat.includes('materia');
+    })
+    .sort((a, b) => String(a.nombre || '').localeCompare(String(b.nombre || '')));
 
-  const aseoFiltradosPedido = productosInsumosBD.filter((p) => {
-    const cat = String(p.categoriaLimpia || '');
-    return cat.includes('aseo');
-  });
+  const aseoFiltradosPedido = productosInsumosBD
+    .filter((p) => {
+      const cat = String(p.categoriaLimpia || '');
+      return cat.includes('aseo');
+    })
+    .sort((a, b) => String(a.nombre || '').localeCompare(String(b.nombre || '')));
 
-  const produccionFiltradosPedido = productosInsumosBD.filter((p) => {
-    const cat = String(p.categoriaLimpia || '');
-    return cat.includes('produccion') || cat.includes('producción');
-  });
+  const produccionFiltradosPedido = productosInsumosBD
+    .filter((p) => {
+      const cat = String(p.categoriaLimpia || '');
+      return cat.includes('produccion') || cat.includes('producción');
+    })
+    .sort((a, b) => String(a.nombre || '').localeCompare(String(b.nombre || '')));
 
   const listaLugaresCompraUnica = Array.from(
     new Set(

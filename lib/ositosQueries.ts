@@ -43,14 +43,14 @@ export async function obtenerTarifasOsitos(): Promise<TarifasOsitos> {
   }
 }
 
-// 2. OBTENER LISTA DE SABORES DISPONIBLES PARA 12 FRIENDLY BEARS
+// 2. OBTENER LISTA DE SABORES DISPONIBLES PARA 12 FRIENDLY BEARS (ORDENADO ALFABÉTICAMENTE)
 export async function obtenerSaboresOsitos(): Promise<any[]> {
   try {
     const { data, error } = await supabase
       .from('producto')
       .select('id, nombre, activo, stock, categoria, grupo, es_comun, donde_comprar')
       .eq('activo', true)
-      .order('nombre', { ascending: true });
+      .order('nombre', { ascending: true }); // <--- Orden alfabético A-Z por nombre
 
     if (error) {
       console.error('Error cargando sabores para 12 Friendly Bears:', error);
@@ -63,14 +63,14 @@ export async function obtenerSaboresOsitos(): Promise<any[]> {
   }
 }
 
-// 3. OBTENER USUARIOS OPERARIOS
+// 3. OBTENER USUARIOS OPERARIOS (ORDENADO ALFABÉTICAMENTE)
 export async function obtenerUsuariosOperarios(): Promise<any[]> {
   try {
     const { data, error } = await supabase
       .from('usuario')
       .select('id, nombre_completo, codigo_acceso, tipo_usuario, activo')
       .eq('activo', true)
-      .order('nombre_completo', { ascending: true });
+      .order('nombre_completo', { ascending: true }); // <--- Orden alfabético A-Z por nombre_completo
 
     if (error) {
       console.error('Error obteniendo usuarios:', error);

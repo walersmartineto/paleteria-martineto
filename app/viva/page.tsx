@@ -108,7 +108,7 @@ export default function VivaPage() {
   const [listaOperarios, setListaOperarios] = useState<any[]>([]);
   const [operarioEntranteId, setOperarioEntranteId] = useState<string>('');
   const [claveOperarioEntrante, setClaveOperarioEntrante] = useState<string>('');
-  const [turnoRecibido, setTurnoRecibido] = useState<string>('tarde');
+  const [turnoRecibido, setTurnoRecibido] = useState<string>('tarde/cierre');
   const [validandoEntrante, setValidandoEntrante] = useState(false);
 
   const [cargando, setCargando] = useState(true);
@@ -127,6 +127,16 @@ export default function VivaPage() {
     (n) => String(n.usuario_id) === String(usuarioIdActual)
   );
 
+  const tienePedidoSinEnviar = (() => {
+    const paletasCount = Object.values(cantidadesPedidoPaletas).reduce((acc: number, c) => acc + (Number(c) || 0), 0);
+    const richiCount = Object.values(cantidadesRichi).reduce((acc: number, c) => acc + (Number(c) || 0), 0);
+    const insumosCount = Object.values(cantidadesInsumos).reduce((acc: number, c) => acc + (Number(c) || 0), 0);
+    const aseoCount = Object.values(cantidadesAseo).reduce((acc: number, c) => acc + (Number(c) || 0), 0);
+    const tieneOtro = Boolean(otroInsumoTexto.trim());
+
+    return (paletasCount + richiCount + insumosCount + aseoCount > 0) || tieneOtro;
+  })();
+
   const listaLugaresCompraUnica = Array.from(
     new Set(
       productosInsumosBD
@@ -139,27 +149,36 @@ export default function VivaPage() {
     )
   )
     .filter((lugar) => !lugar.toLowerCase().includes('hermanita'))
-    .sort();
+    .sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
 
-  const paletasFiltradas = saboresViva.filter((p) => {
-    const cat = String(p.categoria || '').trim().toLowerCase();
-    return cat === 'paleta' || cat === '';
-  });
+  // LISTAS FILTRADAS Y ORDENADAS ALFABÉTICAMENTE A-Z
+  const paletasFiltradas = saboresViva
+    .filter((p) => {
+      const cat = String(p.categoria || '').trim().toLowerCase();
+      return cat === 'paleta' || cat === '';
+    })
+    .sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'es', { sensitivity: 'base' }));
 
-  const richiFiltrados = productosInsumosBD.filter((p) => {
-    const cat = String(p.categoriaLimpia || '');
-    return cat.includes('richi') || cat.includes('empaque');
-  });
+  const richiFiltrados = productosInsumosBD
+    .filter((p) => {
+      const cat = String(p.categoriaLimpia || '');
+      return cat.includes('richi') || cat.includes('empaque');
+    })
+    .sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'es', { sensitivity: 'base' }));
 
-  const insumosFiltrados = productosInsumosBD.filter((p) => {
-    const cat = String(p.categoriaLimpia || '');
-    return cat.includes('insumo') || cat.includes('topping') || cat.includes('materia');
-  });
+  const insumosFiltrados = productosInsumosBD
+    .filter((p) => {
+      const cat = String(p.categoriaLimpia || '');
+      return cat.includes('insumo') || cat.includes('topping') || cat.includes('materia');
+    })
+    .sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'es', { sensitivity: 'base' }));
 
-  const aseoFiltrados = productosInsumosBD.filter((p) => {
-    const cat = String(p.categoriaLimpia || '');
-    return cat.includes('aseo');
-  });
+  const aseoFiltrados = productosInsumosBD
+    .filter((p) => {
+      const cat = String(p.categoriaLimpia || '');
+      return cat.includes('aseo');
+    })
+    .sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'es', { sensitivity: 'base' }));
 
   const totalPaletasSuma = Object.values(cantidadesSabores).reduce(
     (acc: number, val) => acc + (Number(val) || 0),
@@ -267,11 +286,10 @@ export default function VivaPage() {
         setRegistrosNominaDia(nomBD);
       }
 
-      // CARGA DE SEDES DESDE LA TABLA 'sede'
       const { data: sedesBD } = await supabase
         .from('sede')
         .select('*')
-        .order('id', { ascending: true });
+        .order('nombre', { ascending: true });
 
       if (sedesBD && sedesBD.length > 0) {
         setListaSedesBD(sedesBD);
@@ -309,8 +327,16 @@ export default function VivaPage() {
         obtenerSaboresViva(),
       ]);
 
-      setListaOperarios(operarios);
-      setSaboresViva(listaSabores || []);
+      // ORDENAR OPERARIOS Y SABORES A-Z
+      const operariosOrdenados = (operarios || []).sort((a: any, b: any) =>
+        (a.nombre || '').localeCompare(b.nombre || '', 'es', { sensitivity: 'base' })
+      );
+      const saboresOrdenados = (listaSabores || []).sort((a: any, b: any) =>
+        (a.nombre || '').localeCompare(b.nombre || '', 'es', { sensitivity: 'base' })
+      );
+
+      setListaOperarios(operariosOrdenados);
+      setSaboresViva(saboresOrdenados);
 
       const { data: prodsInsumosBD } = await supabase
         .from('producto')
@@ -324,7 +350,8 @@ export default function VivaPage() {
           categoriaLimpia: String(p.categoria || p.Categoria || 'general').trim().toLowerCase(),
           grupoLimpio: String(p.grupo || p.Grupo || '').trim().toLowerCase(),
           donde_comprar: p.donde_comprar || '',
-        }));
+        })).sort((a: any, b: any) => (a.nombre || '').localeCompare(b.nombre || '', 'es', { sensitivity: 'base' }));
+
         setProductosInsumosBD(mapeados);
 
         const lugaresUnicos = Array.from(
@@ -334,7 +361,9 @@ export default function VivaPage() {
               .filter((l: string) => Boolean(l && l.trim() !== ''))
               .map((l: string) => l.trim().charAt(0).toUpperCase() + l.trim().slice(1).toLowerCase())
           )
-        ).filter((l: string) => !l.toLowerCase().includes('hermanita'));
+        )
+          .filter((l: string) => !l.toLowerCase().includes('hermanita'))
+          .sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
 
         if (lugaresUnicos.length > 0) {
           setNuevoProdDondeComprar(lugaresUnicos[0]);
@@ -408,9 +437,9 @@ export default function VivaPage() {
         donde_comprar: d.donde_comprar || '',
       }));
 
-      setProductosInsumosBD((prev) => [...prev, ...nuevosFormateados]);
+      setProductosInsumosBD((prev) => [...prev, ...nuevosFormateados].sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'es', { sensitivity: 'base' })));
       if (nuevoProdCategoria === 'Paleta') {
-        setSaboresViva((prev) => [...prev, ...nuevosFormateados]);
+        setSaboresViva((prev) => [...prev, ...nuevosFormateados].sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'es', { sensitivity: 'base' })));
       }
     }
 
@@ -803,7 +832,6 @@ export default function VivaPage() {
     }
   }
 
-  // CÁLCULOS FINANCIEROS Y DE NÓMINA ACUMULADA
   const totalDescuentosDia = ventasDiaBD.reduce((acc, v) => acc + Number(v.descuento || 0), 0);
   
   const listaMotivosUnicosDescuento = Array.from(
@@ -1030,7 +1058,7 @@ export default function VivaPage() {
       operarioEncontrado &&
       String(operarioEncontrado.pin).trim() === String(claveOperarioEntrante).trim()
     ) {
-      const turnoNormalizado = turnoRecibido.includes('tarde') ? 'tarde' : 'manana';
+      const turnoNormalizado = turnoRecibido.includes('tarde') ? 'tarde/cierre' : 'manana';
 
       const nuevaSesion = {
         usuario_id: operarioEncontrado.id,
@@ -1688,6 +1716,10 @@ export default function VivaPage() {
                     alert('⚠️ ATENCIÓN: Debes seleccionar "Conteo de Cierre" en la sección de inventario y guardar el conteo antes de cerrar la jornada.');
                     return;
                   }
+                  if (tienePedidoSinEnviar) {
+                    alert('⚠️ ATENCIÓN: Tienes productos agregados en la lista de Pedido de Insumos sin enviar. Debes presionar "🚀 Enviar Pedido a Bodega" o vaciar las cantidades antes de cerrar.');
+                    return;
+                  }
                   if (esTurnoCierre) {
                     setMostrarModalResumen(true);
                   } else {
@@ -1897,7 +1929,6 @@ export default function VivaPage() {
                 )}
               </div>
 
-              {/* SELECCIÓN DE SEDES DINÁMICAS (FILTRANDO GLOBAL, ADMINISTRACIÓN Y PRODUCCIÓN) */}
               <div className="bg-[#051829] border border-[#0066b3] p-3 rounded-xl space-y-2">
                 <div className="flex justify-between items-center">
                   <label className="text-sky-300 font-bold block">Asignar a Sedes:</label>
@@ -1941,6 +1972,7 @@ export default function VivaPage() {
                         !nombreSede.includes('produccion')
                       );
                     })
+                    .sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'es', { sensitivity: 'base' }))
                     .map((s) => {
                       const estaSeleccionada = sedesSeleccionadasProd.includes(s.id);
                       return (
@@ -2011,7 +2043,7 @@ export default function VivaPage() {
                   onChange={(e) => setTurnoRecibido(e.target.value)}
                   className="w-full bg-[#051829] border border-[#0066b3] text-white font-bold text-xs rounded-xl p-3 outline-none cursor-pointer focus:border-[#00a4ef]"
                 >
-                  <option value="tarde">🌙 Tarde / Cierre</option>
+                  <option value="tarde/cierre">🌙 Tarde/Cierre</option>
                   <option value="manana">🌅 Mañana / Apertura</option>
                 </select>
               </div>

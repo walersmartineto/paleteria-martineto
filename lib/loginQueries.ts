@@ -13,14 +13,14 @@ export interface UsuarioLoginInfo {
   tipo_usuario: string;
 }
 
-// 1. Obtener la lista de sedes activas
+// 1. Obtener la lista de sedes activas (ORDENADO ALFABÉTICAMENTE A-Z)
 export async function obtenerSedes(): Promise<SedeInfo[]> {
   try {
     const { data, error } = await supabase
       .from('sede')
       .select('id, nombre, codigo, descripcion')
       .eq('activo', true)
-      .order('id', { ascending: true });
+      .order('nombre', { ascending: true }); // <--- Orden alfabético A-Z por nombre
 
     if (error || !data) return [];
     return data;
@@ -30,14 +30,14 @@ export async function obtenerSedes(): Promise<SedeInfo[]> {
   }
 }
 
-// 2. Obtener la lista de usuarios/empleados activos
+// 2. Obtener la lista de usuarios/empleados activos (ORDENADO ALFABÉTICAMENTE A-Z)
 export async function obtenerUsuariosOperadores(): Promise<UsuarioLoginInfo[]> {
   try {
     const { data, error } = await supabase
       .from('usuario')
       .select('id, nombre_completo, tipo_usuario')
       .eq('activo', true)
-      .order('nombre_completo', { ascending: true });
+      .order('nombre_completo', { ascending: true }); // <--- Orden alfabético A-Z por nombre_completo
 
     if (error || !data) return [];
     return data;

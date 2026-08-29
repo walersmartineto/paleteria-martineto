@@ -78,3 +78,22 @@ export async function obtenerConsolidadoCajaAdmin(
     venta_neto_global
   };
 }
+
+// Función auxiliar para obtener usuarios administrados o consultar operarios ordenados A-Z
+export async function obtenerTodosLosUsuariosAdmin() {
+  try {
+    const { data, error } = await supabase
+      .from('usuario')
+      .select('*')
+      .order('nombre_completo', { ascending: true }); // <--- Orden alfabético A-Z
+
+    if (error) {
+      console.error('Error cargando usuarios admin:', error);
+      return [];
+    }
+    return data || [];
+  } catch (err) {
+    console.error('Excepción en obtenerTodosLosUsuariosAdmin:', err);
+    return [];
+  }
+}

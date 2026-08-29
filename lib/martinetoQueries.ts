@@ -6,7 +6,7 @@ export async function obtenerSaboresMartineto(): Promise<any[]> {
       .from('produc_ven_martineto')
       .select('id, nombre, precio, activo, stock, categoria')
       .eq('activo', true)
-      .order('nombre', { ascending: true });
+      .order('nombre', { ascending: true }); // <--- Orden alfabético A-Z
 
     if (error) {
       console.error('Error cargando productos de Martineto:', error);

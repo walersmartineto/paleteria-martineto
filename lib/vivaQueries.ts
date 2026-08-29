@@ -48,7 +48,8 @@ export async function obtenerUsuariosOperarios() {
     const { data, error } = await supabase
       .from('usuario')
       .select('id, nombre_completo, codigo_acceso, tipo_usuario, activo')
-      .eq('activo', true);
+      .eq('activo', true)
+      .order('nombre_completo', { ascending: true }); // <--- Orden alfabético de operarios
 
     if (error) {
       console.error('Error obteniendo operarios:', error.message || error);
@@ -73,7 +74,8 @@ export async function obtenerSaboresViva() {
       .from('producto')
       .select('*')
       .eq('activo', true)
-      .or('sede_id.eq.1,sede_id.eq.0,sede_id.is.null');
+      .or('sede_id.eq.1,sede_id.eq.0,sede_id.is.null')
+      .order('nombre', { ascending: true }); // <--- Orden alfabético de productos
 
     if (error) {
       console.error('Error cargando sabores viva:', error);
@@ -130,7 +132,6 @@ export async function crearPedidoInsumosViva(datos: {
   observaciones: string;
 }) {
   try {
-    // Sincronizado con los nombres que lee el Admin Central: pedidos_paletas, pedidos_richi, etc.
     const payload = {
       sede_id: datos.sedeId,
       usuario_id: datos.usuarioId,
@@ -172,7 +173,6 @@ export async function registrarNominaYCambioTurno(datos: {
   turnoId?: number | null;
 }) {
   try {
-    // 1. Guardar Registro en Nómina con los campos exactos de Supabase
     const payloadNomina: any = {
       sede_id: datos.sedeId,
       usuario_id: datos.usuarioId,
@@ -195,7 +195,6 @@ export async function registrarNominaYCambioTurno(datos: {
       return false;
     }
 
-    // 2. Registro en Caja al Cierre o Entrega de Turno
     if (datos.efectivoCaja > 0 || datos.nequi > 0 || datos.daviplata > 0) {
       const payloadCaja: any = {
         sede_id: datos.sedeId,

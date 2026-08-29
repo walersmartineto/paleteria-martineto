@@ -103,14 +103,12 @@ export default function LoginPage() {
     }
   }
 
-  // FUNCIÓN PARA AUTO-SELECCIONAR EL TURNO AL CAMBIAR DE SEDE
   const handleCambioSede = (idSede: number) => {
     setSedeSeleccionada(idSede);
 
     const sedeObj = sedes.find((s) => s.id === idSede);
     if (sedeObj) {
       const cod = (sedeObj.codigo || '').toLowerCase();
-      // Si la sede es Martineto o Administración Global, asigna 'dia_completo'
       if (cod === 'martineto' || cod === 'admin') {
         setTipoTurno('dia_completo');
       } else {

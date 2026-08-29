@@ -45,7 +45,7 @@ export async function obtenerTarifasCentro(): Promise<TarifasCentro> {
   }
 }
 
-// 2. OBTENER LISTADO DE SABORES Y PRODUCTOS PARA CENTRO
+// 2. OBTENER LISTADO DE SABORES Y PRODUCTOS PARA CENTRO (ORDENADO ALFABÉTICAMENTE)
 export async function obtenerSaboresCentro() {
   try {
     const { data, error } = await supabase
@@ -53,7 +53,7 @@ export async function obtenerSaboresCentro() {
       .select('id, nombre, categoria, grupo, donde_comprar, sede_id, activo')
       .or('sede_id.eq.3,sede_id.eq.0,sede_id.is.null')
       .eq('activo', true)
-      .order('nombre', { ascending: true });
+      .order('nombre', { ascending: true }); // <--- Orden A-Z por nombre
 
     if (error) {
       console.error('Error cargando sabores para Centro:', error.message || error);
@@ -67,14 +67,14 @@ export async function obtenerSaboresCentro() {
   }
 }
 
-// 3. OBTENER LISTA DE OPERARIOS
+// 3. OBTENER LISTA DE OPERARIOS (ORDENADO ALFABÉTICAMENTE)
 export async function obtenerUsuariosOperarios() {
   try {
     const { data, error } = await supabase
       .from('usuario')
       .select('id, nombre_completo, codigo_acceso, tipo_usuario')
       .eq('activo', true)
-      .order('nombre_completo', { ascending: true });
+      .order('nombre_completo', { ascending: true }); // <--- Orden A-Z por nombre_completo
 
     if (error) {
       console.error('Error obteniendo operarios:', error.message || error);
@@ -160,7 +160,7 @@ export async function registrarMovimientoCentro(
   }
 }
 
-// 6. CREAR PEDIDO DE INSUMOS (REQUISICIÓN) - 'produccion' AHORA ES OPCIONAL
+// 6. CREAR PEDIDO DE INSUMOS (REQUISICIÓN)
 export async function crearPedidoInsumosCentro(payload: {
   sedeId: number;
   usuarioId: number;
