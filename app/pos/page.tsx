@@ -84,13 +84,6 @@ export default function MartinetoPOSPage() {
 
   const [efectivoTurnoManana, setEfectivoTurnoManana] = useState<number | null>(null);
 
-  const [mostrarModalCambioTurno, setMostrarModalCambioTurno] = useState(false);
-  const [listaOperarios, setListaOperarios] = useState<any[]>([]);
-  const [operarioEntranteId, setOperarioEntranteId] = useState<string>('');
-  const [claveOperarioEntrante, setClaveOperarioEntrante] = useState<string>('');
-  const [turnoRecibido, setTurnoRecibido] = useState<string>('tarde');
-  const [validandoEntrante, setValidandoEntrante] = useState(false);
-
   const [empaquesBD, setEmpaquesBD] = useState<any[]>([]);
 
   const [tipoMovimiento, setTipoMovimiento] = useState<string>('apertura');
@@ -163,6 +156,13 @@ export default function MartinetoPOSPage() {
   const [guardandoCierre, setGuardandoCierre] = useState(false);
   const [procesandoNomina, setProcesandoNomina] = useState(false);
 
+  // Estados para Modal Entregar Turno (Mañana -> Tarde)
+  const [mostrarModalCambioTurno, setMostrarModalCambioTurno] = useState(false);
+  const [listaOperarios, setListaOperarios] = useState<any[]>([]);
+  const [operarioEntranteId, setOperarioEntranteId] = useState<string>('');
+  const [claveOperarioEntrante, setClaveOperarioEntrante] = useState<string>('');
+  const [validandoEntrante, setValidandoEntrante] = useState(false);
+
   const [mostrarModalNuevoProd, setMostrarModalNuevoProd] = useState(false);
   const [nuevoProdNombre, setNuevoProdNombre] = useState('');
   const [nuevoProdCategoria, setNuevoProdCategoria] = useState('Paleta');
@@ -178,8 +178,6 @@ export default function MartinetoPOSPage() {
   const [horasNoche, setHorasNoche] = useState<number | ''>('');
   const [nominaPagadaEnTurno, setNominaPagadaEnTurno] = useState(false);
   const [listaNominasDia, setListaNominasDia] = useState<RegistroNominaDia[]>([]);
-
-  const [efectivoCajaTurno, setEfectivoCajaTurno] = useState<number | ''>('');
 
   const [tarifasNominaBD, setTarifasNominaBD] = useState<{
     subsidio: number;
@@ -202,6 +200,18 @@ export default function MartinetoPOSPage() {
 
   const inputRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
   const bloqueadoPorApertura = !baseGuardada || !aperturaRealizada;
+
+  // Lógica para determinar si el turno actual es de mañana/apertura
+  const esTurnoManana = (() => {
+    const nombreTurno = String(sesion?.turno_nombre || '').toLowerCase();
+    const idTurno = String(sesion?.turno_id || '');
+    return (
+      nombreTurno.includes('mañana') ||
+      nombreTurno.includes('manana') ||
+      nombreTurno.includes('apertura') ||
+      idTurno === '1'
+    );
+  })();
 
   const listaEmpaquesFiltrados = LISTA_EMPAQUES_MARTINETO.filter((i) => i !== 'Total Paletas');
 
@@ -265,25 +275,6 @@ export default function MartinetoPOSPage() {
 
     cargarInicial(ses);
   }, [router]);
-
-  useEffect(() => {
-    if (mostrarModalCambioTurno && listaOperarios.length === 0) {
-      supabase
-        .from('usuario')
-        .select('*')
-        .then(({ data, error }) => {
-          if (!error && data) {
-            setListaOperarios(
-              data.map((u: any) => ({
-                id: u.id,
-                nombre: u.nombre_completo || u.nombre || 'Usuario',
-                pin: u.codigo_acceso || u.pin || '',
-              })).sort((a: any, b: any) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }))
-            );
-          }
-        });
-    }
-  }, [mostrarModalCambioTurno, listaOperarios.length]);
 
   useEffect(() => {
     const channelMesas = supabase
@@ -541,6 +532,17 @@ export default function MartinetoPOSPage() {
         }
       }
 
+      const { data: listaOpBD } = await supabase
+        .from('usuario')
+        .select('id, nombre, nombre_completo, activo')
+        .eq('activo', true)
+        .order('nombre', { ascending: true });
+
+      if (listaOpBD) {
+        setListaOperarios(listaOpBD);
+        if (listaOpBD.length > 0) setOperarioEntranteId(String(listaOpBD[0].id));
+      }
+
       const { data: sedesBD } = await supabase
         .from('sede')
         .select('*')
@@ -556,21 +558,6 @@ export default function MartinetoPOSPage() {
           { id: 2, nombre: 'Centro' }
         ].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' })));
         setSedesSeleccionadasProd([SEDE_ID_MARTINETO]);
-      }
-
-      const { data: operariosBD, error: errUsuarios } = await supabase
-        .from('usuario')
-        .select('*');
-
-      if (operariosBD && operariosBD.length > 0) {
-        const operariosFormateados = operariosBD.map((u: any) => ({
-          id: u.id,
-          nombre: u.nombre_completo || u.nombre || 'Usuario',
-          pin: u.codigo_acceso || u.pin || '',
-        })).sort((a: any, b: any) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }));
-        setListaOperarios(operariosFormateados);
-      } else if (errUsuarios) {
-        console.error('Error cargando usuarios:', errUsuarios.message);
       }
 
       const { data: empaquesData } = await supabase
@@ -752,6 +739,49 @@ export default function MartinetoPOSPage() {
         }
       }
 
+      const { data: ventasHoyBD } = await supabase
+        .from('venta')
+        .select('*')
+        .eq('sede_id', SEDE_ID_MARTINETO)
+        .gte('fecha', inicioDia);
+
+      if (ventasHoyBD) {
+        setVentasDiaBD(ventasHoyBD);
+      }
+
+      const { data: gastosHoyBD } = await supabase
+        .from('gastos')
+        .select('*')
+        .eq('sede_id', SEDE_ID_MARTINETO)
+        .gte('fecha', inicioDia);
+
+      if (gastosHoyBD) {
+        setListaGastos(
+          gastosHoyBD.map((g: any) => ({
+            id: String(g.id),
+            concepto: g.concepto || '',
+            monto: Number(g.monto || 0),
+            hora: new Date(g.fecha).toLocaleTimeString('es-CO', { timeZone: 'America/Bogota', hour: '2-digit', minute: '2-digit' }),
+          }))
+        );
+      }
+
+      const { data: movsHoyBD } = await supabase
+        .from('inventario_diario')
+        .select('*')
+        .eq('sede_id', SEDE_ID_MARTINETO)
+        .gte('fecha_registro', inicioDia);
+
+      if (movsHoyBD) {
+        setMovimientosDiaBD(
+          movsHoyBD.map((m: any) => ({
+            tipo: m.tipo_movimiento,
+            totalPaletas: Number(m.total_paletas || 0),
+            detalle: m.detalle_empaques || {},
+          }))
+        );
+      }
+
       await cargarHistorialPedidos();
     } catch (e: any) {
       setErrorLecturaBD(`Excepción: ${e.message || 'Error de conexión'}`);
@@ -833,117 +863,83 @@ export default function MartinetoPOSPage() {
     }
   }
 
-  async function pagarNominaYCambioTurno() {
-    if (procesandoNomina) return;
-    if (nominaPagadaEnTurno) {
-      alert('⚠️ La nómina de este turno ya fue registrada.');
-      setMostrarModalCambioTurno(true);
+  async function handleConfirmarEntranteYCambiarTurno() {
+    if (validandoEntrante) return;
+
+    if (!operarioEntranteId) {
+      alert('⚠️ Selecciona el operario que recibe el turno.');
       return;
     }
 
-    const totalPago = calcularTotalNomina();
-
-    if (totalPago <= 0) {
-      alert('⚠️ El valor a pagar de nómina debe ser mayor a 0 (ingresa las horas trabajadas).');
+    if (!claveOperarioEntrante.trim()) {
+      alert('⚠️ Ingresa la clave o PIN del operario entrante.');
       return;
     }
 
-    setProcesandoNomina(true);
-    try {
-      const usuarioId = sesion?.usuario_id || sesion?.id || null;
-      const efCaja = Number(efectivoCajaTurno) || 0;
-
-      const fechaColombia = obtenerFechaHoraColombia();
-
-      const payloadNomina = {
-        sede_id: SEDE_ID_MARTINETO,
-        usuario_id: usuarioId ? Number(usuarioId) : null,
-        monto: totalPago,
-        horas_dia: Number(horasDia) || 0,
-        horas_noche: Number(horasNoche) || 0,
-        tipo_dia: tipoDia,
-        fecha: fechaColombia
-      };
-
-      const { data: dataNomina, error } = await supabase.from('nomina').insert([payloadNomina]).select();
-
-      if (error) {
-        alert('❌ Error al guardar en la tabla nomina: ' + error.message);
+    if (!nominaPagadaEnTurno) {
+      const totalNominaCalculado = calcularTotalNomina();
+      if (totalNominaCalculado <= 0) {
+        alert('⚠️ Debes ingresar las horas trabajadas y registrar el pago de tu nómina antes de entregar el turno.');
         return;
       }
-
-      setNominaPagadaEnTurno(true);
-      if (usuarioId) {
-        localStorage.setItem(`martineto_nomina_pagada_${usuarioId}`, 'true');
-      }
-
-      const nuevoRegistroNomina: RegistroNominaDia = {
-        id: dataNomina?.[0]?.id || Date.now(),
-        nombreOperario: sesion?.nombre || 'Operario',
-        monto: totalPago,
-        hora: new Date().toLocaleTimeString('es-CO', { timeZone: 'America/Bogota', hour: '2-digit', minute: '2-digit' }),
-      };
-
-      setListaNominasDia((prev) => [...prev, nuevoRegistroNomina]);
-
-      setEfectivoTurnoManana(efCaja);
-      localStorage.setItem('martineto_efectivo_manana_principal', efCaja.toString());
-
-      alert(`💸 Pago de Nómina de $ ${totalPago.toLocaleString('es-CO')} registrado.\n\nEfectivo dejado en caja para el siguiente turno: $ ${efCaja.toLocaleString('es-CO')}\n\nA continuación, ingresa el operario que recibe el turno.`);
-
-      setHorasDia('');
-      setHorasNoche('');
-      setEfectivoCajaTurno('');
-
-      setMostrarModalCambioTurno(true);
-    } finally {
-      setProcesandoNomina(false);
-    }
-  }
-
-  async function handleConfirmarEntrante() {
-    if (validandoEntrante) return;
-    if (!operarioEntranteId) {
-      alert('Selecciona al operario que recibe el turno.');
-      return;
-    }
-    if (!claveOperarioEntrante) {
-      alert('Ingresa la contraseña/PIN del operario.');
-      return;
     }
 
     setValidandoEntrante(true);
 
-    const operarioEncontrado = listaOperarios.find(
-      (u) => String(u.id) === String(operarioEntranteId)
-    );
+    try {
+      const { data: operarioBD, error } = await supabase
+        .from('usuario')
+        .select('*')
+        .eq('id', Number(operarioEntranteId))
+        .single();
 
-    if (
-      operarioEncontrado &&
-      String(operarioEncontrado.pin).trim() === String(claveOperarioEntrante).trim()
-    ) {
-      const turnoNormalizado = turnoRecibido.includes('tarde') ? 'tarde' : 'manana';
+      if (error || !operarioBD) {
+        alert('❌ Operario no encontrado.');
+        return;
+      }
+
+      const pinCorrecto = String(operarioBD.clave || operarioBD.pin || operarioBD.password || '');
+      if (pinCorrecto && pinCorrecto.trim() !== claveOperarioEntrante.trim()) {
+        alert('❌ Clave / PIN incorrecto para el operario entrante.');
+        return;
+      }
+
+      let nuevoTurnoId = 2; // Tarde / Cierre
+      let nuevoTurnoNombre = 'Tarde / Cierre';
+
+      const { data: turnosBD } = await supabase
+        .from('turno_trabajo')
+        .select('*')
+        .or(`sede_id.eq.${SEDE_ID_MARTINETO},sede_id.is.null`);
+
+      if (turnosBD) {
+        const turnoTardeObj = turnosBD.find((t: any) =>
+          String(t.nombre || '').toLowerCase().includes('tarde') || String(t.nombre || '').toLowerCase().includes('cierre')
+        );
+        if (turnoTardeObj) {
+          nuevoTurnoId = turnoTardeObj.id;
+          nuevoTurnoNombre = turnoTardeObj.nombre;
+        }
+      }
 
       const nuevaSesion = {
-        usuario_id: operarioEncontrado.id,
-        nombre: operarioEncontrado.nombre,
-        sede_id: SEDE_ID_MARTINETO,
-        turno: turnoNormalizado,
+        ...sesion,
+        usuario_id: operarioBD.id,
+        id: operarioBD.id,
+        nombre: operarioBD.nombre || operarioBD.nombre_completo,
+        turno_id: nuevoTurnoId,
+        turno_nombre: nuevoTurnoNombre,
       };
 
       localStorage.setItem('martineto_session', JSON.stringify(nuevaSesion));
       setSesion(nuevaSesion);
-
-      setMostrarModalCambioTurno(false);
-      setClaveOperarioEntrante('');
-      setOperarioEntranteId('');
       setNominaPagadaEnTurno(false);
 
+      alert(`✅ ¡Turno entregado con éxito a ${nuevaSesion.nombre}! El sistema ahora se encuentra en turno "${nuevoTurnoNombre}".`);
+      setMostrarModalCambioTurno(false);
+      setClaveOperarioEntrante('');
+    } finally {
       setValidandoEntrante(false);
-      alert(`✅ ¡Turno entregado con éxito!\nBienvenido(a) ${nuevaSesion.nombre}. Puedes continuar con la atención y operación normal de la sede.`);
-    } else {
-      setValidandoEntrante(false);
-      alert('❌ Código de acceso / PIN incorrecto para este operario.');
     }
   }
 
@@ -1857,6 +1853,7 @@ export default function MartinetoPOSPage() {
         pago_efectivo: 0,
         pago_nequi: 0,
         pago_daviplata: 0,
+        rappi: rappiActivo.total,
         descuento: 0,
         motivo_descuento: null,
         cambio: 0,
@@ -1970,6 +1967,7 @@ export default function MartinetoPOSPage() {
         pago_efectivo: efec,
         pago_nequi: neq,
         pago_daviplata: dav,
+        rappi: 0,
         descuento: desc,
         motivo_descuento: desc > 0 ? motivoDesc : null,
         cambio: Math.max(0, sumaAbonoActual - pendienteAjustado),
@@ -2105,8 +2103,8 @@ export default function MartinetoPOSPage() {
   ).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
 
   const totalRappiRealizados = ventasDiaBD
-    .filter((v) => v.estado === 'rappi')
-    .reduce((acc, v) => acc + Number(v.monto_total || 0), 0);
+    .filter((v) => v.estado === 'rappi' || Number(v.rappi || 0) > 0)
+    .reduce((acc, v) => acc + Number(v.rappi || v.monto_total || 0), 0);
 
   const totalVentasElectronicas = totalRappiRealizados + totalNequiIngresado + totalDaviplataIngresado;
   const totalVentasGlobal = totalEfectivoIngresado + totalVentasElectronicas;
@@ -2312,6 +2310,15 @@ export default function MartinetoPOSPage() {
 
   async function guardarCierreDefinitivoBD() {
     if (guardandoCierre) return;
+
+    if (!nominaPagadaEnTurno) {
+      const totalNominaCalculado = calcularTotalNomina();
+      if (totalNominaCalculado <= 0) {
+        alert('⚠️ NO PUEDES REALIZAR EL CIERRE:\n\nDebes liquidar y pagar obligatoriamente la nómina antes del cierre. Por favor ingresa las horas trabajadas.');
+        return;
+      }
+    }
+
     const mesasOcupadas = mesas.filter((m) => m.estado !== 'libre');
     const hayRappiPendientes = pedidosRappi.length > 0;
     const pedidosPendientesDeEnviar = resumenPedidoActual.length > 0;
@@ -2340,8 +2347,9 @@ export default function MartinetoPOSPage() {
       return;
     }
 
-    const efecContado = Number(efectivoContadoCierre);
-    const difCaja = efecContado - cajaDisponibleCalculada;
+    const efectFisico = Number(efectivoContadoCierre);
+    const efectCierreVentas = totalEfectivoIngresado;
+    const difCaja = efectFisico - efectCierreVentas;
 
     if (difCaja !== 0 && !motivoDescuadre.trim()) {
       alert('⚠️ Existe un DESCUADRE DE CAJA. Debes ingresar obligatoriamente el motivo / explicación del descuadre.');
@@ -2355,28 +2363,6 @@ export default function MartinetoPOSPage() {
     try {
       const inicioDia = obtenerInicioDiaColombia();
 
-      if (!nominaPagadaEnTurno) {
-        const totalNominaCalculado = calcularTotalNomina();
-        if (totalNominaCalculado > 0) {
-          const payloadNomina = {
-            sede_id: SEDE_ID_MARTINETO,
-            usuario_id: usuarioId ? Number(usuarioId) : null,
-            monto: totalNominaCalculado,
-            horas_dia: Number(horasDia) || 0,
-            horas_noche: Number(horasNoche) || 0,
-            tipo_dia: tipoDia,
-            fecha: obtenerFechaHoraColombia()
-          };
-
-          const { error: errorNomina } = await supabase.from('nomina').insert([payloadNomina]);
-
-          if (errorNomina) {
-            throw new Error('Error al registrar pago de nómina: ' + errorNomina.message);
-          }
-          setNominaPagadaEnTurno(true);
-        }
-      }
-
       let motivosAjustados = [...listaMotivosUnicosDescuento];
       if (difCaja !== 0 && motivoDescuadre.trim()) {
         motivosAjustados.push(`[DESCUADRE CAJA: $${difCaja.toLocaleString('es-CO')}]: ${motivoDescuadre.trim()}`);
@@ -2386,7 +2372,9 @@ export default function MartinetoPOSPage() {
         .from('caja')
         .update({
           estado: 'cerrada',
-          efectivo_cierre: efecContado,
+          efectivo_cierre: efectCierreVentas,
+          efectivo_fisico: efectFisico,
+          rappi: totalRappiRealizados,
           nequi: totalNequiIngresado,
           daviplata: totalDaviplataIngresado,
           monto_gasto: sumaGastosTotal,
@@ -3466,7 +3454,7 @@ export default function MartinetoPOSPage() {
 
           <div className="bg-[#051829] border border-purple-500/40 p-4 rounded-xl space-y-3">
             <span className="text-xs font-black text-purple-200 uppercase block border-b border-purple-500/30 pb-1">
-              💸 Liquidación de Nómina del Turno (Opcional)
+              💸 Liquidación de Nómina del Turno ({sesion?.nombre || 'Operario'})
             </span>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
@@ -3512,11 +3500,11 @@ export default function MartinetoPOSPage() {
               <span className="text-xs text-emerald-300 font-black">$ {calcularTotalNomina().toLocaleString('es-CO')}</span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2">
+            <div className="pt-2">
               <button
                 onClick={pagarNominaSolo}
                 disabled={nominaPagadaEnTurno || procesandoNomina}
-                className={`font-black py-3 rounded-xl text-xs uppercase shadow-md transition-all ${
+                className={`w-full font-black py-3 rounded-xl text-xs uppercase shadow-md transition-all ${
                   nominaPagadaEnTurno
                     ? 'bg-emerald-800 text-emerald-200 cursor-not-allowed border border-emerald-500'
                     : procesandoNomina
@@ -3524,24 +3512,28 @@ export default function MartinetoPOSPage() {
                     : 'bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer'
                 }`}
               >
-                {nominaPagadaEnTurno ? '✓ Nómina Pagada' : procesandoNomina ? '⏳ Procesando...' : '💸 Solo Pagar Nómina'}
-              </button>
-
-              <button
-                onClick={pagarNominaYCambioTurno}
-                disabled={nominaPagadaEnTurno || procesandoNomina}
-                className={`font-black py-3 rounded-xl text-xs uppercase shadow-md transition-all ${
-                  nominaPagadaEnTurno
-                    ? 'bg-emerald-800 text-emerald-200 cursor-not-allowed border border-emerald-500'
-                    : procesandoNomina
-                    ? 'bg-purple-800 text-white cursor-not-allowed opacity-75'
-                    : 'bg-purple-600 hover:bg-purple-500 text-white cursor-pointer'
-                }`}
-              >
-                {procesandoNomina ? '⏳ Procesando...' : '🔄 Entregar Turno a Otro Operario'}
+                {nominaPagadaEnTurno ? '✓ Nómina Pagada' : procesandoNomina ? '⏳ Procesando...' : '💸 Pagar Nómina del Turno'}
               </button>
             </div>
           </div>
+
+          {/* SÓLO SE MUESTRA SI ES TURNO DE MAÑANA / APERTURA */}
+          {esTurnoManana && (
+            <div className="bg-[#051829] border border-amber-500/50 p-4 rounded-xl space-y-3">
+              <span className="text-xs font-black text-amber-300 uppercase block border-b border-amber-500/30 pb-1">
+                🔄 Entregar Turno (Mañana ➡️ Tarde)
+              </span>
+              <p className="text-xs text-sky-200">
+                Usa esta opción para entregar el turno al operario de la tarde. Se liquidará tu nómina y el sistema cambiará al turno Tarde / Cierre.
+              </p>
+              <button
+                onClick={() => setMostrarModalCambioTurno(true)}
+                className="w-full bg-amber-600 hover:bg-amber-500 text-white font-black py-3 rounded-xl text-xs uppercase cursor-pointer shadow-md"
+              >
+                🔄 Entregar Turno a Operario Entrante
+              </button>
+            </div>
+          )}
 
           <div className="bg-[#051829] border border-purple-500/40 p-4 rounded-xl space-y-3">
             <span className="text-xs font-black text-purple-200 uppercase block border-b border-purple-500/30 pb-1">
@@ -3553,6 +3545,14 @@ export default function MartinetoPOSPage() {
 
             <button
               onClick={() => {
+                if (!nominaPagadaEnTurno) {
+                  const totalNominaCalculado = calcularTotalNomina();
+                  if (totalNominaCalculado <= 0) {
+                    alert('⚠️ NO PUEDES CONTINUAR AL CIERRE:\n\nDebes liquidar y pagar obligatoriamente la nómina antes del cierre. Por favor ingresa las horas trabajadas.');
+                    return;
+                  }
+                }
+
                 const mesasOcupadas = mesas.filter((m) => m.estado !== 'libre');
                 const hayRappiPendientes = pedidosRappi.length > 0;
                 const pedidosPendientesDeEnviar = resumenPedidoActual.length > 0;
@@ -3578,6 +3578,81 @@ export default function MartinetoPOSPage() {
         </div>
       )}
 
+      {/* MODAL CAMBIO DE TURNO (MAÑANA A TARDE) */}
+      {mostrarModalCambioTurno && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+          <div className="bg-[#0b2b48] border border-amber-500/60 p-5 rounded-2xl w-full max-w-md space-y-4 shadow-2xl">
+            <div className="flex justify-between items-center border-b border-amber-500/40 pb-2">
+              <h3 className="text-sm font-black text-amber-300 uppercase">🔄 Entregar Turno de Mañana</h3>
+              <button
+                onClick={() => setMostrarModalCambioTurno(false)}
+                disabled={validandoEntrante}
+                className="text-sky-300 hover:text-white font-black text-sm cursor-pointer disabled:opacity-50"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              {!nominaPagadaEnTurno && (
+                <div className="bg-amber-950/80 border border-amber-400 p-2.5 rounded-xl text-amber-200 font-bold">
+                  ⚠️ Asegúrate de haber pagado tu nómina antes de entregar el turno.
+                </div>
+              )}
+
+              <div>
+                <label className="text-sky-300 font-bold block mb-1">Operario Entrante (Turno Tarde):</label>
+                <select
+                  value={operarioEntranteId}
+                  onChange={(e) => setOperarioEntranteId(e.target.value)}
+                  disabled={validandoEntrante}
+                  className="w-full bg-[#051829] border border-[#0066b3] text-white font-bold p-2.5 rounded-xl outline-none cursor-pointer"
+                >
+                  {listaOperarios.map((op) => (
+                    <option key={op.id} value={op.id}>
+                      {op.nombre_completo || op.nombre}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-sky-300 font-bold block mb-1">Clave / PIN del Operario Entrante:</label>
+                <input
+                  type="password"
+                  placeholder="PIN o clave..."
+                  value={claveOperarioEntrante}
+                  onChange={(e) => setClaveOperarioEntrante(e.target.value)}
+                  disabled={validandoEntrante}
+                  className="w-full bg-[#051829] border border-[#0066b3] text-white font-bold p-2.5 rounded-xl outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={() => setMostrarModalCambioTurno(false)}
+                disabled={validandoEntrante}
+                className="w-1/2 bg-[#051829] hover:bg-[#0e385e] border border-[#0066b3] text-white font-bold py-2.5 rounded-xl text-xs uppercase cursor-pointer disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleConfirmarEntranteYCambiarTurno}
+                disabled={validandoEntrante}
+                className={`w-1/2 font-black py-2.5 rounded-xl text-xs uppercase shadow-md transition-all ${
+                  validandoEntrante
+                    ? 'bg-amber-800 text-white cursor-not-allowed opacity-75'
+                    : 'bg-amber-600 hover:bg-amber-500 text-white cursor-pointer'
+                }`}
+              >
+                {validandoEntrante ? '⏳ Confirmando...' : 'Confirmar y Entregar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* MODAL CONSULTA RÁPIDA DE CAJA */}
       {mostrarModalConsultaCaja && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
@@ -3598,7 +3673,7 @@ export default function MartinetoPOSPage() {
                 <b className="text-white">$ {(Number(baseCaja) || 0).toLocaleString('es-CO')}</b>
               </div>
               <div className="flex justify-between">
-                <span className="text-sky-300">Total Efectivo Ingresado:</span>
+                <span className="text-sky-300">Total Efectivo Ingresado (Ventas):</span>
                 <b className="text-emerald-300">$ {totalEfectivoIngresado.toLocaleString('es-CO')}</b>
               </div>
               <div className="flex justify-between">
@@ -3765,76 +3840,6 @@ export default function MartinetoPOSPage() {
                 {procesandoPago ? '⏳ Registrando...' : 'Confirmar Pago'}
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL CAMBIO DE TURNO (OPERARIO ENTRANTE) */}
-      {mostrarModalCambioTurno && (
-        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
-          <div className="bg-[#0b2b48] border border-[#0066b3] p-5 rounded-2xl w-full max-w-md space-y-4 shadow-2xl">
-            <h3 className="text-sm font-black text-white uppercase border-b border-[#0066b3]/50 pb-2">
-              🔄 Cambio de Turno - Operario Entrante
-            </h3>
-            <p className="text-xs text-sky-200">
-              Selecciona el operario que recibe el turno e ingresa su contraseña/PIN para iniciar su sesión:
-            </p>
-
-            <div className="space-y-3 text-xs">
-              <div>
-                <label className="text-sky-300 font-bold block mb-1">Operario Entrante:</label>
-                <select
-                  value={operarioEntranteId}
-                  onChange={(e) => setOperarioEntranteId(e.target.value)}
-                  disabled={validandoEntrante}
-                  className="w-full bg-[#051829] border border-[#0066b3] text-white font-bold p-2.5 rounded-xl outline-none cursor-pointer"
-                >
-                  <option value="">Selecciona operador...</option>
-                  {listaOperarios.map((op) => (
-                    <option key={op.id} value={op.id}>
-                      {op.nombre}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-sky-300 font-bold block mb-1">Contraseña / PIN:</label>
-                <input
-                  type="password"
-                  placeholder="PIN del operario"
-                  value={claveOperarioEntrante}
-                  onChange={(e) => setClaveOperarioEntrante(e.target.value)}
-                  disabled={validandoEntrante}
-                  className="w-full bg-[#051829] border border-[#0066b3] text-white font-bold p-2.5 rounded-xl outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="text-sky-300 font-bold block mb-1">Turno que Recibe:</label>
-                <select
-                  value={turnoRecibido}
-                  onChange={(e) => setTurnoRecibido(e.target.value)}
-                  disabled={validandoEntrante}
-                  className="w-full bg-[#051829] border border-[#0066b3] text-white font-bold p-2.5 rounded-xl outline-none cursor-pointer"
-                >
-                  <option value="manana">Turno Mañana</option>
-                  <option value="tarde">Turno Tarde / Noche</option>
-                </select>
-              </div>
-            </div>
-
-            <button
-              onClick={handleConfirmarEntrante}
-              disabled={validandoEntrante}
-              className={`w-full font-black py-3 rounded-xl text-xs uppercase shadow-md transition-all ${
-                validandoEntrante
-                  ? 'bg-emerald-800 text-white cursor-not-allowed opacity-75'
-                  : 'bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer'
-              }`}
-            >
-              {validandoEntrante ? '⏳ Validando Operario...' : '✓ Iniciar Turno con Nuevo Operario'}
-            </button>
           </div>
         </div>
       )}
@@ -4033,7 +4038,7 @@ export default function MartinetoPOSPage() {
                   <b>$ {(Number(baseCaja) || 0).toLocaleString('es-CO')}</b>
                 </div>
                 <div className="flex justify-between">
-                  <span>Total Efectivo Recibido:</span>
+                  <span>Total Efectivo Recibido (Ventas):</span>
                   <b className="text-emerald-300">$ {totalEfectivoIngresado.toLocaleString('es-CO')}</b>
                 </div>
                 <div className="flex justify-between">
@@ -4052,7 +4057,7 @@ export default function MartinetoPOSPage() {
                 {listaNominasDia.length > 0 && (
                   <div className="pt-2 border-t border-[#0066b3]/30 space-y-1">
                     <span className="text-[10px] text-purple-300 font-bold block uppercase">
-                      👤 Nómina Pagada Hoy ({listaNominasDia.length}):
+                      👤 Nóminas Pagadas Hoy ({listaNominasDia.length}):
                     </span>
                     <div className="max-h-24 overflow-y-auto space-y-1 pr-1">
                       {listaNominasDia.map((nom) => (
@@ -4077,7 +4082,9 @@ export default function MartinetoPOSPage() {
                   />
 
                   {efectivoContadoCierre !== '' && (() => {
-                    const dif = Number(efectivoContadoCierre) - cajaDisponibleCalculada;
+                    const efectFisico = Number(efectivoContadoCierre);
+                    const efectCierreVentas = totalEfectivoIngresado;
+                    const dif = efectFisico - efectCierreVentas;
                     const hayDescuadre = dif !== 0;
 
                     return (
@@ -4152,9 +4159,13 @@ export default function MartinetoPOSPage() {
                         inputMode="numeric"
                         placeholder={String(item.calculado)}
                         value={conteoFisicoProductos[item.nombre] ?? ''}
-                        onChange={(e) =>
-                          conteoFisicoProductos[item.nombre] = e.target.value === '' ? '' : Number(e.target.value.replace(/\D/g, ''))
-                        }
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? '' : Number(e.target.value.replace(/\D/g, ''));
+                          setConteoFisicoProductos((prev) => ({
+                            ...prev,
+                            [item.nombre]: val,
+                          }));
+                        }}
                         disabled={guardandoCierre}
                         className="w-20 bg-[#051829] border border-[#0066b3] text-emerald-300 font-black text-center text-xs p-1.5 rounded outline-none"
                       />

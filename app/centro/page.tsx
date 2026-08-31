@@ -48,7 +48,7 @@ export default function CentroPage() {
   const [cajaIdActual, setCajaIdActual] = useState<number | null>(null);
   const [aperturaRealizada, setAperturaRealizada] = useState(false);
   const [cierreRealizado, setCierreRealizado] = useState(false);
-  
+
   // EFECTIVO ENTREGADO EN CAMBIO DE TURNO (VISUAL)
   const [efectivoTurnoManana, setEfectivoTurnoManana] = useState<number | null>(null);
 
@@ -90,7 +90,11 @@ export default function CentroPage() {
   const [tipoDia, setTipoDia] = useState<'entre_semana' | 'domingo_festivo'>('entre_semana');
   const [horasDia, setHorasDia, limpiarHorasDia] = useAutoSave<number | ''>('centro_horasDia', '');
   const [horasNoche, setHorasNoche, limpiarHorasNoche] = useAutoSave<number | ''>('centro_horasNoche', '');
-  const [efectivoCaja, setEfectivoCaja, limpiarEfCaja] = useAutoSave<number | ''>('centro_efectivoCaja', '');
+
+  // CAMPOS DE EFECTIVO SEPARADOS (SISTEMA VS FÍSICO)
+  const [efectivoSistema, setEfectivoSistema, limpiarEfSistema] = useAutoSave<number | ''>('centro_efectivoSistema', '');
+  const [efectivoFisico, setEfectivoFisico, limpiarEfFisico] = useAutoSave<number | ''>('centro_efectivoFisico', '');
+
   const [nequi, setNequi, limpiarNequi] = useAutoSave<number | ''>('centro_nequi', '');
   const [daviplata, setDaviplata, limpiarDaviplata] = useAutoSave<number | ''>('centro_daviplata', '');
   const [gastos, setGastos, limpiarGastos] = useAutoSave<number | ''>('centro_gastos', '');
@@ -280,7 +284,6 @@ export default function CentroPage() {
 
       if (vtsBD) setVentasDiaBD(vtsBD);
 
-      // Consulta de operarios primero para poder mapear nombres en los registros de nómina si es necesario
       let operariosCargadosTemp: any[] = [];
       const { data: operariosBD, error: errOp } = await supabase
         .from('usuario')
@@ -764,17 +767,18 @@ export default function CentroPage() {
     new Set(ventasDiaBD.map((v) => v.motivo_descuento).filter((m): m is string => Boolean(m && m.trim() !== '')))
   );
 
-  const efecInput = Number(efectivoCaja) || 0;
+  const efecSistemaInput = Number(efectivoSistema) || 0;
+  const efecFisicoInput = Number(efectivoFisico) || 0;
   const nequiInput = Number(nequi) || 0;
   const daviplataInput = Number(daviplata) || 0;
 
   const totalVentasElectronicas = nequiInput + daviplataInput;
-  const totalVentasGlobal = efecInput + totalVentasElectronicas;
+  const totalVentasGlobal = efecSistemaInput + totalVentasElectronicas;
 
   const gast = Number(gastos) || 0;
-  const cajaDisponibleCalculadaCentro = (Number(baseCaja) || 0) + efecInput - gast;
   const sumaNominaTotalDia = registrosNominaDia.reduce((acc, n) => acc + Number(n.monto || 0), 0);
 
+  // PAGAR NÓMINA
   async function pagarNominaBD() {
     if (nominaYaPagadaHoy) {
       alert('⚠️ Ya se ha registrado el pago de nómina para este usuario en el día de hoy.');
@@ -816,9 +820,9 @@ export default function CentroPage() {
   }
 
   async function handleEjecutarCambioTurno() {
-    const efCaja = Number(efectivoCaja) || 0;
-    if (efCaja <= 0) {
-      alert('⚠️ Ingresa el monto de efectivo que queda en caja para el turno siguiente.');
+    const efFisico = Number(efectivoFisico) || 0;
+    if (efFisico <= 0) {
+      alert('⚠️ Ingresa el efectivo físico contado que queda en caja para el turno siguiente.');
       return;
     }
 
@@ -826,16 +830,19 @@ export default function CentroPage() {
       await pagarNominaBD();
     }
 
-    setEfectivoTurnoManana(efCaja);
-    localStorage.setItem('martineto_efectivo_manana_centro', efCaja.toString());
+    setEfectivoTurnoManana(efFisico);
+    localStorage.setItem('martineto_efectivo_manana_centro', efFisico.toString());
 
-    alert(`✅ ¡Arqueo de turno registrado con éxito!\n\nEfectivo dejado en caja: $ ${efCaja.toLocaleString('es-CO')}\n\nA continuación, ingresa el operario que recibe el turno.`);
+    alert(`✅ ¡Arqueo de turno registrado con éxito!\n\nEfectivo físico dejado en caja: $ ${efFisico.toLocaleString('es-CO')}\n\nA continuación, ingresa el operario que recibe el turno.`);
     setMostrarModalCambioTurno(true);
   }
 
+  // CIERRE DEFINITIVO EN BD CON DIFERENCIA CORREGIDA
   async function guardarCierreDefinitivoBD() {
-    const efecContado = Number(efectivoCaja) || 0;
-    const difCaja = efecContado - cajaDisponibleCalculadaCentro;
+    const efecContado = Number(efectivoFisico) || 0;
+    
+    // CORRECCIÓN SOLICITADA: Efectivo Físico (Plata contada) - Efectivo Sistema (Plata según sistema)
+    const difCaja = efecContado - efecSistemaInput;
 
     setGuardandoCierre(true);
     const hoyInicio = new Date();
@@ -887,13 +894,14 @@ export default function CentroPage() {
         .update({
           estado: 'cerrada',
           efectivo_cierre: efecContado,
+          efectivo_sistema: efecSistemaInput,
           nequi: nequiInput,
           daviplata: daviplataInput,
           monto_gasto: gast,
           motivo_gasto: motivoGasto || null,
           descuento: totalDescuentosDia,
           motivo_descuento: listaMotivosUnicosDescuento,
-          diferencia: difCaja,
+          diferencia: difCaja, // Se guarda la resta directa entre efecContado y efecSistemaInput
         });
 
       if (cajaIdActual) {
@@ -926,7 +934,8 @@ export default function CentroPage() {
       limpiarObsPedido();
       limpiarHorasDia();
       limpiarHorasNoche();
-      limpiarEfCaja();
+      limpiarEfSistema();
+      limpiarEfFisico();
       limpiarNequi();
       limpiarDaviplata();
       limpiarGastos();
@@ -978,7 +987,8 @@ export default function CentroPage() {
 
       limpiarHorasDia();
       limpiarHorasNoche();
-      limpiarEfCaja();
+      limpiarEfSistema();
+      limpiarEfFisico();
       limpiarGastos();
       limpiarMotivoGasto();
 
@@ -1476,7 +1486,7 @@ export default function CentroPage() {
                     placeholder="0" 
                     value={horasNoche} 
                     onChange={(e) => setHorasNoche(e.target.value === '' ? '' : Number(e.target.value))} 
-                    onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_efectivo')}
+                    onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_efectivo_sistema')}
                     onFocus={(e) => e.target.select()} 
                     className="w-full bg-[#0e385e] border border-[#0066b3] text-white font-bold text-center rounded-lg p-2 outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
                   />
@@ -1494,20 +1504,36 @@ export default function CentroPage() {
                 2. DINERO EN CAJA / ARQUEO ({esTurnoCierre ? 'CIERRE DE DÍA' : 'ENTREGA DE TURNO'}):
               </span>
               
-              <div className="grid grid-cols-3 gap-2 text-[10px]">
+              <div className="grid grid-cols-2 gap-2 text-[10px]">
                 <div>
-                  <span className="text-emerald-300 block mb-1 font-bold">💵 Efectivo ($)</span>
+                  <span className="text-sky-300 block mb-1 font-bold">💻 Efvo. según Sistema ($)</span>
                   <input 
-                    ref={(el) => { inputsRef.current['cierre_efectivo'] = el; }}
+                    ref={(el) => { inputsRef.current['cierre_efectivo_sistema'] = el; }}
                     type="text" 
                     placeholder="$ 0" 
-                    value={formatearMoneda(efectivoCaja)} 
-                    onChange={(e) => setEfectivoCaja(desformatearMoneda(e.target.value))} 
+                    value={formatearMoneda(efectivoSistema)} 
+                    onChange={(e) => setEfectivoSistema(desformatearMoneda(e.target.value))} 
+                    onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_efectivo_fisico')}
+                    onFocus={(e) => e.target.select()} 
+                    className="w-full bg-[#0e385e] border border-[#0066b3] text-sky-200 font-bold text-center rounded-lg p-2 outline-none focus:border-sky-400" 
+                  />
+                </div>
+                <div>
+                  <span className="text-emerald-300 block mb-1 font-bold">💵 Efvo. Físico en Caja ($)</span>
+                  <input 
+                    ref={(el) => { inputsRef.current['cierre_efectivo_fisico'] = el; }}
+                    type="text" 
+                    placeholder="$ 0" 
+                    value={formatearMoneda(efectivoFisico)} 
+                    onChange={(e) => setEfectivoFisico(desformatearMoneda(e.target.value))} 
                     onKeyDown={(e) => handleKeyDownCierre(e, esTurnoCierre ? 'cierre_nequi' : 'cierre_gastos')}
                     onFocus={(e) => e.target.select()} 
                     className="w-full bg-[#0e385e] border border-[#0066b3] text-emerald-300 font-bold text-center rounded-lg p-2 outline-none focus:border-emerald-400" 
                   />
                 </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 text-[10px] pt-1">
                 <div>
                   <span className={`block mb-1 font-bold ${esTurnoCierre ? 'text-sky-200' : 'text-slate-500'}`}>📲 Nequi ($)</span>
                   <input 
@@ -1576,10 +1602,10 @@ export default function CentroPage() {
 
               <div className="flex justify-between items-center bg-[#0e385e] p-2.5 rounded-xl border border-emerald-400/50 text-xs font-bold mt-2">
                 <span className="text-emerald-300 uppercase font-black">
-                  {esTurnoCierre ? 'Total Recaudado (Ventas):' : 'Efectivo a Dejar en Caja:'}
+                  {esTurnoCierre ? 'Total Recaudado (Ventas):' : 'Efectivo Físico a Dejar:'}
                 </span>
                 <span className="text-base font-black text-emerald-300 bg-[#051829] px-3 py-1 rounded-lg border border-emerald-500/50">
-                  $ {(esTurnoCierre ? totalVentasGlobal : Number(efectivoCaja) || 0).toLocaleString('es-CO')}
+                  $ {(esTurnoCierre ? totalVentasGlobal : Number(efectivoFisico) || 0).toLocaleString('es-CO')}
                 </span>
               </div>
             </div>
@@ -1669,8 +1695,13 @@ export default function CentroPage() {
                 </div>
 
                 <div className="flex justify-between text-emerald-300 font-black pt-1">
-                  <span>💵 Ventas en Efectivo:</span>
-                  <span>$ {efecInput.toLocaleString('es-CO')}</span>
+                  <span>💻 Efectivo según Sistema:</span>
+                  <span>$ {efecSistemaInput.toLocaleString('es-CO')}</span>
+                </div>
+
+                <div className="flex justify-between text-amber-300 font-black pt-1">
+                  <span>💵 Efectivo Físico Contado en Caja:</span>
+                  <span>$ {efecFisicoInput.toLocaleString('es-CO')}</span>
                 </div>
 
                 <div className="flex justify-between text-amber-400">
@@ -1683,7 +1714,6 @@ export default function CentroPage() {
                   <span>- $ {sumaNominaTotalDia.toLocaleString('es-CO')}</span>
                 </div>
 
-                {/* DETALLE DE OPERARIOS CON NÓMINA MOSTRANDO LOS NOMBRES REALES */}
                 <div className="pt-2 border-t border-[#0066b3]/40">
                   <span className="text-[10px] text-sky-300 uppercase block mb-1">Detalle de Operarios con Nómina Hoy:</span>
                   {registrosNominaDia.length === 0 ? (
@@ -1831,7 +1861,7 @@ export default function CentroPage() {
 
               <div>
                 <label className="text-[11px] font-extrabold text-sky-200 block mb-1 uppercase tracking-wider">Contraseña / PIN:</label>
-                <input type="password" placeholder="••••••" value={claveOperarioEntrante} onChange={(e) => setClaveOperarioEntrante(e.target.value)} onFocus={(e) => e.target.select()} className="w-full bg-[#051829] border border-[#0066b3] text-sky-200 font-black text-center text-lg rounded-xl p-2.5 outline-none tracking-widest focus:border-[#00a4ef]" />
+                <input type="password" placeholder="••••••" value={claveOperarioEntrante} onChange={(e) => setClaveOperarioEntrante(e.target.value)} onFocus={(e) => e.target.select()} className="w-full bg-[#051829] border border-[#0066b3] text-sky-200 font-black text-lg text-center rounded-xl p-2.5 outline-none tracking-widest focus:border-[#00a4ef]" />
               </div>
             </div>
 

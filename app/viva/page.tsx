@@ -85,14 +85,18 @@ export default function VivaPage() {
   const [guardandoProducto, setGuardandoProducto] = useState(false);
 
   // NUEVOS ESTADOS PARA SEDES DESDE LA TABLA 'sede'
-  const [listaSedesBD, setListaSedesBD] = useState<any[]>([]);
+  const [, setListaSedesBD] = useState<any[]>([]);
   const [sedesSeleccionadasProd, setSedesSeleccionadasProd] = useState<(number | string)[]>([]);
 
   // NÓMINA Y ARQUEO DE CAJA EN VIVA
   const [tipoDia, setTipoDia] = useState<'entre_semana' | 'domingo_festivo'>('entre_semana');
   const [horasDia, setHorasDia, limpiarHorasDia] = useAutoSave<number | ''>('viva_horasDia', '');
   const [horasNoche, setHorasNoche, limpiarHorasNoche] = useAutoSave<number | ''>('viva_horasNoche', '');
-  const [efectivoCaja, setEfectivoCaja, limpiarEfCaja] = useAutoSave<number | ''>('viva_efectivoCaja', '');
+  
+  // NUEVOS CAMPOS DE EFECTIVO SOLICITADOS
+  const [efectivoSistema, setEfectivoSistema, limpiarEfSistema] = useAutoSave<number | ''>('viva_efectivoSistema', '');
+  const [efectivoFisico, setEfectivoFisico, limpiarEfFisico] = useAutoSave<number | ''>('viva_efectivoFisico', '');
+  
   const [nequi, setNequi, limpiarNequi] = useAutoSave<number | ''>('viva_nequi', '');
   const [daviplata, setDaviplata, limpiarDaviplata] = useAutoSave<number | ''>('viva_daviplata', '');
   const [gastos, setGastos, limpiarGastos] = useAutoSave<number | ''>('viva_gastos', '');
@@ -137,21 +141,6 @@ export default function VivaPage() {
     return (paletasCount + richiCount + insumosCount + aseoCount > 0) || tieneOtro;
   })();
 
-  const listaLugaresCompraUnica = Array.from(
-    new Set(
-      productosInsumosBD
-        .map((p) => p.donde_comprar)
-        .filter((lugar): lugar is string => Boolean(lugar && lugar.trim() !== ''))
-        .map((lugar) => {
-          const l = lugar.trim();
-          return l.charAt(0).toUpperCase() + l.slice(1).toLowerCase();
-        })
-    )
-  )
-    .filter((lugar) => !lugar.toLowerCase().includes('hermanita'))
-    .sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
-
-  // LISTAS FILTRADAS Y ORDENADAS ALFABÉTICAMENTE A-Z
   const paletasFiltradas = saboresViva
     .filter((p) => {
       const cat = String(p.categoria || '').trim().toLowerCase();
@@ -322,22 +311,32 @@ export default function VivaPage() {
         if (configTarifasAux) setTarifas(configTarifasAux);
       }
 
-      const [operarios, listaSabores] = await Promise.all([
+      // CORRECCIÓN 1: Evita el error de TypeScript con .data
+      const [operariosRes, saboresRes] = await Promise.all([
         obtenerUsuariosOperarios(),
         obtenerSaboresViva(),
       ]);
 
-      // ORDENAR OPERARIOS Y SABORES A-Z
-      const operariosOrdenados = (operarios || []).sort((a: any, b: any) =>
+      const operarios: any[] = Array.isArray(operariosRes)
+        ? operariosRes
+        : (operariosRes as any)?.data || [];
+
+      const listaSabores: any[] = Array.isArray(saboresRes)
+        ? saboresRes
+        : (saboresRes as any)?.data || [];
+
+      const operariosOrdenados = [...operarios].sort((a: any, b: any) =>
         (a.nombre || '').localeCompare(b.nombre || '', 'es', { sensitivity: 'base' })
       );
-      const saboresOrdenados = (listaSabores || []).sort((a: any, b: any) =>
+
+      const saboresOrdenados = [...listaSabores].sort((a: any, b: any) =>
         (a.nombre || '').localeCompare(b.nombre || '', 'es', { sensitivity: 'base' })
       );
 
       setListaOperarios(operariosOrdenados);
       setSaboresViva(saboresOrdenados);
 
+      // CORRECCIÓN 2: Sintaxis válida para el .or de Supabase
       const { data: prodsInsumosBD } = await supabase
         .from('producto')
         .select('*')
@@ -353,23 +352,6 @@ export default function VivaPage() {
         })).sort((a: any, b: any) => (a.nombre || '').localeCompare(b.nombre || '', 'es', { sensitivity: 'base' }));
 
         setProductosInsumosBD(mapeados);
-
-        const lugaresUnicos = Array.from(
-          new Set(
-            mapeados
-              .map((p: any) => p.donde_comprar)
-              .filter((l: string) => Boolean(l && l.trim() !== ''))
-              .map((l: string) => l.trim().charAt(0).toUpperCase() + l.trim().slice(1).toLowerCase())
-          )
-        )
-          .filter((l: string) => !l.toLowerCase().includes('hermanita'))
-          .sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
-
-        if (lugaresUnicos.length > 0) {
-          setNuevoProdDondeComprar(lugaresUnicos[0]);
-        } else {
-          setNuevoProdDondeComprar('Otro');
-        }
       }
     } catch (error) {
       console.error('Error cargando datos iniciales en Viva:', error);
@@ -377,14 +359,6 @@ export default function VivaPage() {
       setCargando(false);
     }
   }
-
-  const handleToggleSedeProd = (sedeId: number | string) => {
-    setSedesSeleccionadasProd((prev) =>
-      prev.includes(sedeId)
-        ? prev.filter((id) => id !== sedeId)
-        : [...prev, sedeId]
-    );
-  };
 
   async function crearNuevoProductoBD() {
     const nombreLimpio = nuevoProdNombre.trim();
@@ -838,18 +812,18 @@ export default function VivaPage() {
     new Set(ventasDiaBD.map((v) => v.motivo_descuento).filter((m): m is string => Boolean(m && m.trim() !== '')))
   );
 
-  const efecInput = Number(efectivoCaja) || 0;
+  const efecSistemaInput = Number(efectivoSistema) || 0;
+  const efecFisicoInput = Number(efectivoFisico) || 0;
   const nequiInput = Number(nequi) || 0;
   const daviplataInput = Number(daviplata) || 0;
 
   const totalVentasElectronicas = nequiInput + daviplataInput;
-  const totalVentasGlobal = efecInput + totalVentasElectronicas;
+  const totalVentasGlobal = efecSistemaInput + totalVentasElectronicas;
 
   const gast = Number(gastos) || 0;
-  const cajaDisponibleCalculadaViva = (Number(baseCaja) || 0) + efecInput - gast;
-
   const sumaNominaTotalDia = registrosNominaDia.reduce((acc, n) => acc + Number(n.monto || 0), 0);
 
+  // FUNCIÓN PARA PAGAR NÓMINA (GARANTIZA QUE QUEDE REGISTRADA)
   async function pagarNominaBD() {
     if (nominaYaPagadaHoy) {
       alert('⚠️ Ya se ha registrado el pago de nómina para este usuario en el día de hoy.');
@@ -891,9 +865,8 @@ export default function VivaPage() {
   }
 
   async function handleEjecutarCambioTurno() {
-    const efCaja = Number(efectivoCaja) || 0;
-    if (efCaja <= 0) {
-      alert('⚠️ Ingresa el monto de efectivo que queda en caja para el turno siguiente.');
+    if (efecFisicoInput <= 0) {
+      alert('⚠️ Ingresa el efectivo físico contado que queda en caja para el turno siguiente.');
       return;
     }
 
@@ -901,16 +874,15 @@ export default function VivaPage() {
       await pagarNominaBD();
     }
 
-    setEfectivoTurnoManana(efCaja);
-    localStorage.setItem('martineto_efectivo_manana', efCaja.toString());
+    setEfectivoTurnoManana(efecFisicoInput);
+    localStorage.setItem('martineto_efectivo_manana', efecFisicoInput.toString());
 
-    alert(`✅ ¡Arqueo de turno registrado con éxito!\n\nEfectivo dejado en caja: $ ${efCaja.toLocaleString('es-CO')}\n\nA continuación, ingresa el operario que recibe el turno.`);
+    alert(`✅ ¡Arqueo de turno registrado con éxito!\n\nEfectivo físico dejado en caja: $ ${efecFisicoInput.toLocaleString('es-CO')}\n\nA continuación, ingresa el operario que recibe el turno.`);
     setMostrarModalCambioTurno(true);
   }
 
   async function guardarCierreDefinitivoBD() {
-    const efecContado = Number(efectivoCaja) || 0;
-    const difCaja = efecContado - cajaDisponibleCalculadaViva;
+    const difCaja = efecFisicoInput - efecSistemaInput;
 
     setGuardandoCierre(true);
     const hoyInicio = new Date();
@@ -985,7 +957,8 @@ export default function VivaPage() {
         .from('caja')
         .update({
           estado: 'cerrada',
-          efectivo_cierre: efecContado,
+          efectivo_cierre: efecFisicoInput,
+          efectivo_sistema: efecSistemaInput,
           nequi: nequiInput,
           daviplata: daviplataInput,
           monto_gasto: gast,
@@ -1024,7 +997,8 @@ export default function VivaPage() {
       limpiarObsPedido();
       limpiarHorasDia();
       limpiarHorasNoche();
-      limpiarEfCaja();
+      limpiarEfSistema();
+      limpiarEfFisico();
       limpiarNequi();
       limpiarDaviplata();
       limpiarGastos();
@@ -1076,7 +1050,8 @@ export default function VivaPage() {
 
       limpiarHorasDia();
       limpiarHorasNoche();
-      limpiarEfCaja();
+      limpiarEfSistema();
+      limpiarEfFisico();
       limpiarGastos();
       limpiarMotivoGasto();
 
@@ -1583,7 +1558,7 @@ export default function VivaPage() {
                     placeholder="0" 
                     value={horasNoche} 
                     onChange={(e) => setHorasNoche(e.target.value === '' ? '' : Number(e.target.value))} 
-                    onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_efectivo')}
+                    onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_efectivo_sistema')}
                     onFocus={(e) => e.target.select()} 
                     className="w-full bg-[#0e385e] border border-[#0066b3] text-white font-bold text-center rounded-lg p-2 outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
                   />
@@ -1601,20 +1576,36 @@ export default function VivaPage() {
                 2. DINERO EN CAJA / ARQUEO ({esTurnoCierre ? 'CIERRE DE DÍA' : 'ENTREGA DE TURNO'}):
               </span>
               
-              <div className="grid grid-cols-3 gap-2 text-[10px]">
+              <div className="grid grid-cols-2 gap-2 text-[10px]">
                 <div>
-                  <span className="text-emerald-300 block mb-1 font-bold">💵 Efectivo ($)</span>
+                  <span className="text-sky-300 block mb-1 font-bold">💻 Efvo. según Sistema ($)</span>
                   <input 
-                    ref={(el) => { inputsRef.current['cierre_efectivo'] = el; }}
+                    ref={(el) => { inputsRef.current['cierre_efectivo_sistema'] = el; }}
                     type="text" 
                     placeholder="$ 0" 
-                    value={formatearMoneda(efectivoCaja)} 
-                    onChange={(e) => setEfectivoCaja(desformatearMoneda(e.target.value))} 
+                    value={formatearMoneda(efectivoSistema)} 
+                    onChange={(e) => setEfectivoSistema(desformatearMoneda(e.target.value))} 
+                    onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_efectivo_fisico')}
+                    onFocus={(e) => e.target.select()} 
+                    className="w-full bg-[#0e385e] border border-[#0066b3] text-sky-200 font-bold text-center rounded-lg p-2 outline-none focus:border-sky-400" 
+                  />
+                </div>
+                <div>
+                  <span className="text-emerald-300 block mb-1 font-bold">💵 Efvo. Físico en Caja ($)</span>
+                  <input 
+                    ref={(el) => { inputsRef.current['cierre_efectivo_fisico'] = el; }}
+                    type="text" 
+                    placeholder="$ 0" 
+                    value={formatearMoneda(efectivoFisico)} 
+                    onChange={(e) => setEfectivoFisico(desformatearMoneda(e.target.value))} 
                     onKeyDown={(e) => handleKeyDownCierre(e, esTurnoCierre ? 'cierre_nequi' : 'cierre_gastos')}
                     onFocus={(e) => e.target.select()} 
                     className="w-full bg-[#0e385e] border border-[#0066b3] text-emerald-300 font-bold text-center rounded-lg p-2 outline-none focus:border-emerald-400" 
                   />
                 </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 text-[10px] pt-1">
                 <div>
                   <span className={`block mb-1 font-bold ${esTurnoCierre ? 'text-sky-200' : 'text-slate-500'}`}>📲 Nequi ($)</span>
                   <input 
@@ -1683,10 +1674,10 @@ export default function VivaPage() {
 
               <div className="flex justify-between items-center bg-[#0e385e] p-2.5 rounded-xl border border-emerald-400/50 text-xs font-bold mt-2">
                 <span className="text-emerald-300 uppercase font-black">
-                  {esTurnoCierre ? 'Total Recaudado (Ventas):' : 'Efectivo a Dejar en Caja:'}
+                  {esTurnoCierre ? 'Total Recaudado (Ventas):' : 'Efectivo Físico a Dejar:'}
                 </span>
                 <span className="text-base font-black text-emerald-300 bg-[#051829] px-3 py-1 rounded-lg border border-emerald-500/50">
-                  $ {(esTurnoCierre ? totalVentasGlobal : Number(efectivoCaja) || 0).toLocaleString('es-CO')}
+                  $ {(esTurnoCierre ? totalVentasGlobal : Number(efectivoFisico) || 0).toLocaleString('es-CO')}
                 </span>
               </div>
             </div>
@@ -1768,7 +1759,7 @@ export default function VivaPage() {
                 </div>
 
                 <div className="flex justify-between text-amber-300 font-black pt-1 border-t border-[#0066b3]/30">
-                  <span>🛍️ TOTAL VENTAS:</span>
+                  <span>🛍️ TOTAL VENTAS (Sistema):</span>
                   <span>$ {totalVentasGlobal.toLocaleString('es-CO')}</span>
                 </div>
 
@@ -1784,8 +1775,13 @@ export default function VivaPage() {
                 </div>
 
                 <div className="flex justify-between text-emerald-300 font-black pt-1">
-                  <span>💵 Ventas en Efectivo:</span>
-                  <span>$ {efecInput.toLocaleString('es-CO')}</span>
+                  <span>💻 Efectivo según Sistema:</span>
+                  <span>$ {efecSistemaInput.toLocaleString('es-CO')}</span>
+                </div>
+
+                <div className="flex justify-between text-amber-300 font-black pt-1">
+                  <span>💵 Efectivo Físico Contado en Caja:</span>
+                  <span>$ {efecFisicoInput.toLocaleString('es-CO')}</span>
                 </div>
 
                 <div className="flex justify-between text-amber-400">
@@ -1910,12 +1906,7 @@ export default function VivaPage() {
                   onChange={(e) => setNuevoProdDondeComprar(e.target.value)}
                   className="w-full bg-[#051829] border border-[#0066b3] text-white text-xs p-2.5 rounded-xl outline-none cursor-pointer"
                 >
-                  {listaLugaresCompraUnica.map((lugar) => (
-                    <option key={lugar} value={lugar}>
-                      🛒 {lugar}
-                    </option>
-                  ))}
-                  <option value="Otro">✏️ Otro (Escribir nuevo lugar)...</option>
+                  <option value="Otro">✏️ Escribir nuevo lugar...</option>
                 </select>
 
                 {nuevoProdDondeComprar === 'Otro' && (
@@ -1927,74 +1918,6 @@ export default function VivaPage() {
                     className="w-full bg-[#051829] border border-[#0066b3] text-white text-xs p-2.5 rounded-xl outline-none mt-2"
                   />
                 )}
-              </div>
-
-              <div className="bg-[#051829] border border-[#0066b3] p-3 rounded-xl space-y-2">
-                <div className="flex justify-between items-center">
-                  <label className="text-sky-300 font-bold block">Asignar a Sedes:</label>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const sedesFiltradasIds = listaSedesBD
-                        .filter((s) => {
-                          const nombreSede = (s.nombre || '').toLowerCase();
-                          return (
-                            !nombreSede.includes('global') &&
-                            !nombreSede.includes('administración') &&
-                            !nombreSede.includes('administracion') &&
-                            !nombreSede.includes('producción') &&
-                            !nombreSede.includes('produccion')
-                          );
-                        })
-                        .map((s) => s.id);
-
-                      if (sedesSeleccionadasProd.length === sedesFiltradasIds.length) {
-                        setSedesSeleccionadasProd([]);
-                      } else {
-                        setSedesSeleccionadasProd(sedesFiltradasIds);
-                      }
-                    }}
-                    className="text-[10px] text-emerald-400 font-bold hover:underline cursor-pointer"
-                  >
-                    Seleccionar todas
-                  </button>
-                </div>
-
-                <div className="flex gap-2 flex-wrap">
-                  {listaSedesBD
-                    .filter((s) => {
-                      const nombreSede = (s.nombre || '').toLowerCase();
-                      return (
-                        !nombreSede.includes('global') &&
-                        !nombreSede.includes('administración') &&
-                        !nombreSede.includes('administracion') &&
-                        !nombreSede.includes('producción') &&
-                        !nombreSede.includes('produccion')
-                      );
-                    })
-                    .sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'es', { sensitivity: 'base' }))
-                    .map((s) => {
-                      const estaSeleccionada = sedesSeleccionadasProd.includes(s.id);
-                      return (
-                        <label
-                          key={s.id}
-                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-bold cursor-pointer transition-all ${
-                            estaSeleccionada
-                              ? 'bg-emerald-950/80 border-emerald-400 text-emerald-200'
-                              : 'bg-[#0e385e] border-[#0066b3] text-sky-200'
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={estaSeleccionada}
-                            onChange={() => handleToggleSedeProd(s.id)}
-                            className="w-3.5 h-3.5 accent-emerald-500 cursor-pointer"
-                          />
-                          {s.nombre || `Sede ${s.id}`}
-                        </label>
-                      );
-                    })}
-                </div>
               </div>
             </div>
 

@@ -1,4 +1,5 @@
 'use client';
+
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
@@ -38,7 +39,10 @@ export default function AdminPage() {
   const router = useRouter();
   const { sedeData } = useSede();
 
-  const fechaHoy = new Date().toISOString().split('T')[0];
+  const fechaHoy = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Bogota'
+  }).format(new Date());
+
   const [fechaInicio, setFechaInicio] = useState<string>(fechaHoy);
   const [fechaFin, setFechaFin] = useState<string>(fechaHoy);
   const [sedeSeleccionada, setSedeSeleccionada] = useState<string>('todos');
@@ -134,71 +138,17 @@ export default function AdminPage() {
 
       const { data: prodData } = await supabase.from('producto').select('id, nombre, donde_comprar, categoria');
 
-      // 1. Cargar datos de caja de las demás sedes
       const { data: cajaDataRaw } = await supabase.from('caja').select('*');
-      const cajaDataFiltrada = (cajaDataRaw || []).filter(row => {
-        if (!row.fecha) return false;
-        const fRow = obtenerFechaLocalStr(row.fecha);
-        return fRow >= fechaInicio && fRow <= fechaFin;
-      });
-
-      // 2. Lógica exclusiva para Martineto
-      const martinetoSede = sedesReales.find((s: any) => String(s.nombre || '').toLowerCase().includes('martineto'));
-      const martinetoId = martinetoSede ? martinetoSede.id : null;
-
-      let registrosCajaFinales = cajaDataFiltrada.filter(r => Number(r.sede_id) !== Number(martinetoId));
-
-      if (martinetoId) {
-        // A. Sumatoria SQL de la tabla 'venta' filtrada por el rango de los calendarios
-        const { data: ventasMartinetoRaw } = await supabase.from('venta').select('*');
-        const ventasMartinetoFiltradas = (ventasMartinetoRaw || []).filter(row => {
-          if (!row.fecha_hora) return false;
-          const fRow = obtenerFechaLocalStr(row.fecha_hora);
-          return fRow >= fechaInicio && fRow <= fechaFin;
-        });
-
-        let totalEfectivoMartineto = 0;
-        let totalNequiMartineto = 0;
-        let totalDaviplataMartineto = 0;
-
-        ventasMartinetoFiltradas.forEach(v => {
-          totalEfectivoMartineto += Number(v.pago_efectivo || 0);
-          totalNequiMartineto += Number(v.pago_nequi || 0);
-          totalDaviplataMartineto += Number(v.pago_daviplata || 0);
-        });
-
-        // B. Extraer el efectivo_cierre y base_inicial de la tabla 'caja' para Martineto en ese rango
-        const cierresCajaMartineto = (cajaDataRaw || []).filter(row => {
-          if (Number(row.sede_id) !== Number(martinetoId)) return false;
+      const registrosCajaFinales = (cajaDataRaw || [])
+        .filter(row => {
           if (!row.fecha) return false;
           const fRow = obtenerFechaLocalStr(row.fecha);
           return fRow >= fechaInicio && fRow <= fechaFin;
-        });
-
-        const ultimoCierreMartineto = cierresCajaMartineto.sort((a, b) => new Date(b.fecha || 0).getTime() - new Date(a.fecha || 0).getTime())[0];
-        const efectivoFisicoContadoMartineto = ultimoCierreMartineto && ultimoCierreMartineto.efectivo_cierre !== undefined && ultimoCierreMartineto.efectivo_cierre !== null
-          ? Number(ultimoCierreMartineto.efectivo_cierre)
-          : totalEfectivoMartineto;
-
-        const baseInicialMartineto = (ultimoCierreMartineto && ultimoCierreMartineto.base_inicial !== undefined && ultimoCierreMartineto.base_inicial !== null)
-          ? Number(ultimoCierreMartineto.base_inicial)
-          : 0;
-
-        registrosCajaFinales.push({
-          sede_id: martinetoId,
-          fecha: new Date().toISOString(),
-          created_at: new Date().toISOString(),
-          efectivo_recibido: totalEfectivoMartineto,
-          nequi: totalNequiMartineto,
-          daviplata: totalDaviplataMartineto,
-          efectivo_fisico: efectivoFisicoContadoMartineto,
-          monto_gasto: 0,
-          rappi: 0,
-          descuento: 0,
-          base_inicial: baseInicialMartineto,
-          estado: 'cerrada'
-        });
-      }
+        })
+        .map(row => ({
+          ...row,
+          apertura: row.monto_apertura ?? row.base_inicial ?? 0
+        }));
 
       const { data: nominaDataRaw } = await supabase.from('nomina').select('*');
       const nominaData = (nominaDataRaw || []).filter(row => {
@@ -427,15 +377,17 @@ export default function AdminPage() {
       const efec = Number(row.efectivo_recibido !== undefined && row.efectivo_recibido !== null ? row.efectivo_recibido : (row.efectivo_cierre !== undefined && row.efectivo_cierre !== null ? row.efectivo_cierre : row.efectivo)) || 0;
       const neq = Number(row.nequi) || 0;
       const dav = Number(row.daviplata) || 0;
+      const rap = Number(row.rappi) || 0;
       const gas = Number(row.monto_gasto) || 0;
       return {
         efectivo: acc.efectivo + efec,
         nequi: acc.nequi + neq,
         daviplata: acc.daviplata + dav,
+        rappi: acc.rappi + rap,
         gastos: acc.gastos + gas,
-        totalVenta: acc.totalVenta + (efec + neq + dav)
+        totalVenta: acc.totalVenta + (efec + neq + dav + rap)
       };
-    }, { efectivo: 0, nequi: 0, daviplata: 0, gastos: 0, totalVenta: 0 });
+    }, { efectivo: 0, nequi: 0, daviplata: 0, rappi: 0, gastos: 0, totalVenta: 0 });
 
     const totalNominaBD = registrosNomina.reduce((acc, n) => {
       if (!mapaSedes[n.sede_id]) return acc;
@@ -510,10 +462,7 @@ export default function AdminPage() {
       const nombreSede = getNombreSede(row.sede_id);
       if (sedeSeleccionada !== 'todos' && String(row.sede_id) !== sedeSeleccionada) return;
 
-      // CORRECCIÓN: Respetar valor real de base_inicial si existe en BD
-      const baseInicial = (row.base_inicial !== undefined && row.base_inicial !== null)
-        ? Number(row.base_inicial)
-        : 0;
+      const aperturaVal = Number(row.apertura || 0);
       
       const efecRecibido = Number(row.efectivo_recibido !== undefined && row.efectivo_recibido !== null ? row.efectivo_recibido : (row.efectivo_cierre !== undefined && row.efectivo_cierre !== null ? row.efectivo_cierre : row.efectivo)) || 0;
       const neq = Number(row.nequi) || 0;
@@ -524,8 +473,9 @@ export default function AdminPage() {
 
       if (!mapa[nombreSede]) {
         mapa[nombreSede] = {
-          baseInicial: baseInicial,
+          apertura: aperturaVal,
           efectivoRecibido: 0,
+          efectivoTotal: 0,
           nequi: 0,
           daviplata: 0,
           gastos: 0,
@@ -533,7 +483,6 @@ export default function AdminPage() {
           rappi: 0,
           descuentos: 0,
           totalVenta: 0,
-          efectivoEsperado: 0,
           efectivoFisicoContado: 0,
           descuadreCaja: 0,
           motivoDescuadre: [],
@@ -542,9 +491,8 @@ export default function AdminPage() {
           estadoCaja: 'cerrada'
         };
       } else {
-        // En caso de múltiples registros acumulados, actualizamos la base inicial con la más reciente
-        if (row.base_inicial !== undefined && row.base_inicial !== null) {
-          mapa[nombreSede].baseInicial = Number(row.base_inicial);
+        if (row.apertura !== undefined && row.apertura !== null) {
+          mapa[nombreSede].apertura = aperturaVal;
         }
       }
 
@@ -579,8 +527,9 @@ export default function AdminPage() {
 
       if (!mapa[nombreSede]) {
         mapa[nombreSede] = {
-          baseInicial: 0,
+          apertura: 0,
           efectivoRecibido: 0,
+          efectivoTotal: 0,
           nequi: 0,
           daviplata: 0,
           gastos: 0,
@@ -588,7 +537,6 @@ export default function AdminPage() {
           rappi: 0,
           descuentos: 0,
           totalVenta: 0,
-          efectivoEsperado: 0,
           efectivoFisicoContado: 0,
           descuadreCaja: 0,
           motivoDescuadre: [],
@@ -606,9 +554,17 @@ export default function AdminPage() {
 
     Object.keys(mapa).forEach(sKey => {
       const item = mapa[sKey];
-      item.efectivoEsperado = (item.baseInicial + item.efectivoRecibido) - item.gastos - item.nomina;
-      item.descuadreCaja = item.efectivoFisicoContado - item.efectivoEsperado;
-      item.totalVenta = item.efectivoRecibido + item.nequi + item.daviplata;
+      const esMartineto = sKey.toLowerCase().includes('martineto');
+      
+      if (esMartineto) {
+        item.efectivoTotal = item.efectivoRecibido - item.nomina;
+      } else {
+        item.efectivoTotal = item.efectivoRecibido;
+      }
+
+      item.descuadreCaja = Number(item.diferencia || 0);
+      
+      item.totalVenta = item.efectivoRecibido + item.nequi + item.daviplata + item.rappi;
     });
 
     return mapa;
@@ -1553,6 +1509,7 @@ export default function AdminPage() {
                               <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>💵 Efectivo:</span><span className="font-bold text-emerald-400">${CierreGlobal.efectivo.toLocaleString()}</span></div>
                               <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>📲 Nequi:</span><span className="font-bold text-sky-300">${CierreGlobal.nequi.toLocaleString()}</span></div>
                               <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>💳 Daviplata:</span><span className="font-bold text-rose-300">${CierreGlobal.daviplata.toLocaleString()}</span></div>
+                              <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>🛵 Rappi:</span><span className="font-bold text-orange-300">${CierreGlobal.rappi.toLocaleString()}</span></div>
                               <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>📉 Gastos:</span><span className="font-bold text-amber-400">-${CierreGlobal.gastos.toLocaleString()}</span></div>
                               <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>👥 Nómina Turnos:</span><span className="font-bold text-fuchsia-300">-${CierreGlobal.nomina.toLocaleString()}</span></div>
                               <div className="flex justify-between py-1.5 text-xs font-black border-t border-emerald-400 mt-1 text-white"><span>💰 VENTA NETO GLOBAL:</span><span className="text-emerald-300">${CierreGlobal.ventaNeto.toLocaleString()}</span></div>
@@ -1566,6 +1523,7 @@ export default function AdminPage() {
                           Object.entries(cierresPorSede).map(([nombreSede, dataSede]) => {
                             const abierto = !!acordeonesCierres[nombreSede];
                             const tieneDescuadre = dataSede.descuadreCaja !== 0;
+                            const esMartineto = nombreSede.toLowerCase().includes('martineto');
 
                             return (
                               <div key={nombreSede} className="border border-[#0066b3] bg-[#0b2b48] rounded-xl overflow-hidden shadow-sm">
@@ -1580,17 +1538,20 @@ export default function AdminPage() {
                                 </button>
                                 {abierto && (
                                   <div className="p-3 space-y-2 bg-[#031d35] text-xs border-t border-[#0066b3]/30">
-                                    <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>💵 Base Inicial:</span><span className="font-bold text-sky-200">${dataSede.baseInicial.toLocaleString()}</span></div>
+                                    <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>💵 Apertura:</span><span className="font-bold text-sky-200">${dataSede.apertura.toLocaleString()}</span></div>
                                     <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>📥 Total Efectivo Recibido:</span><span className="font-bold text-emerald-400">${dataSede.efectivoRecibido.toLocaleString()}</span></div>
                                     <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>📲 Total Nequi:</span><span className="font-bold text-sky-300">${dataSede.nequi.toLocaleString()}</span></div>
                                     <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>💳 Total Daviplata:</span><span className="font-bold text-rose-300">${dataSede.daviplata.toLocaleString()}</span></div>
+                                    <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>🛵 Total Rappi:</span><span className="font-bold text-orange-300">${dataSede.rappi.toLocaleString()}</span></div>
                                     <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>📉 Total Gastos de Insumos:</span><span className="font-bold text-amber-400">-${dataSede.gastos.toLocaleString()}</span></div>
                                     <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>👥 Total Nómina Pagada:</span><span className="font-bold text-fuchsia-300">-${dataSede.nomina.toLocaleString()}</span></div>
-                                    
-                                    <div className="flex justify-between border-b border-[#0066b3]/40 py-1 font-bold bg-[#0b2b48]/50 px-2 rounded">
-                                      <span>🧮 Efectivo Esperado en Caja:</span>
-                                      <span className="text-emerald-300">${dataSede.efectivoEsperado.toLocaleString()}</span>
-                                    </div>
+
+                                    {esMartineto && (
+                                      <div className="flex justify-between border-b border-[#0066b3]/20 py-1">
+                                        <span>💵 Efectivo Total (Neto Cierre):</span>
+                                        <span className="font-bold text-cyan-300">${dataSede.efectivoTotal.toLocaleString()}</span>
+                                      </div>
+                                    )}
 
                                     <div className="flex justify-between border-b border-[#0066b3]/20 py-1">
                                       <span>💵 Efectivo Físico Contado:</span>
@@ -1629,6 +1590,7 @@ export default function AdminPage() {
                       </>
                     ) : (
                       (() => {
+                        const nombreSedeClave = Object.keys(cierresPorSede)[0] || '';
                         const datosSedeSeleccionada = Object.values(cierresPorSede)[0];
 
                         if (!datosSedeSeleccionada) {
@@ -1636,20 +1598,24 @@ export default function AdminPage() {
                         }
 
                         const tieneDescuadre = datosSedeSeleccionada.descuadreCaja !== 0;
+                        const esMartineto = nombreSedeClave.toLowerCase().includes('martineto');
 
                         return (
                           <div className="border border-emerald-500/50 bg-[#031d35] p-3 rounded-xl space-y-2 text-xs shadow-md">
-                            <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>💵 Base Inicial:</span><span className="font-bold text-sky-200">${datosSedeSeleccionada.baseInicial.toLocaleString()}</span></div>
+                            <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>💵 Apertura:</span><span className="font-bold text-sky-200">${datosSedeSeleccionada.apertura.toLocaleString()}</span></div>
                             <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>📥 Total Efectivo Recibido:</span><span className="font-bold text-emerald-400">${datosSedeSeleccionada.efectivoRecibido.toLocaleString()}</span></div>
                             <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>📲 Total Nequi:</span><span className="font-bold text-sky-300">${datosSedeSeleccionada.nequi.toLocaleString()}</span></div>
                             <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>💳 Total Daviplata:</span><span className="font-bold text-rose-300">${datosSedeSeleccionada.daviplata.toLocaleString()}</span></div>
+                            <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>🛵 Total Rappi:</span><span className="font-bold text-orange-300">${datosSedeSeleccionada.rappi.toLocaleString()}</span></div>
                             <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>📉 Total Gastos de Insumos:</span><span className="font-bold text-amber-400">-${datosSedeSeleccionada.gastos.toLocaleString()}</span></div>
                             <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>👥 Total Nómina Pagada:</span><span className="font-bold text-fuchsia-300">-${datosSedeSeleccionada.nomina.toLocaleString()}</span></div>
-                            
-                            <div className="flex justify-between border-b border-[#0066b3]/40 py-1 font-bold bg-[#0b2b48]/50 px-2 rounded">
-                              <span>🧮 Efectivo Esperado en Caja:</span>
-                              <span className="text-emerald-300">${datosSedeSeleccionada.efectivoEsperado.toLocaleString()}</span>
-                            </div>
+
+                            {esMartineto && (
+                              <div className="flex justify-between border-b border-[#0066b3]/20 py-1">
+                                <span>💵 Efectivo Total (Neto Cierre):</span>
+                                <span className="font-bold text-cyan-300">${datosSedeSeleccionada.efectivoTotal.toLocaleString()}</span>
+                              </div>
+                            )}
 
                             <div className="flex justify-between border-b border-[#0066b3]/20 py-1">
                               <span>💵 Efectivo Físico Contado:</span>
