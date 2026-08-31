@@ -156,7 +156,6 @@ export default function MartinetoPOSPage() {
   const [guardandoCierre, setGuardandoCierre] = useState(false);
   const [procesandoNomina, setProcesandoNomina] = useState(false);
 
-  // Estados para Modal Entregar Turno (Mañana -> Tarde)
   const [mostrarModalCambioTurno, setMostrarModalCambioTurno] = useState(false);
   const [listaOperarios, setListaOperarios] = useState<any[]>([]);
   const [operarioEntranteId, setOperarioEntranteId] = useState<string>('');
@@ -201,7 +200,6 @@ export default function MartinetoPOSPage() {
   const inputRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
   const bloqueadoPorApertura = !baseGuardada || !aperturaRealizada;
 
-  // Lógica para determinar si el turno actual es de mañana/apertura
   const esTurnoManana = (() => {
     const nombreTurno = String(sesion?.turno_nombre || '').toLowerCase();
     const idTurno = String(sesion?.turno_id || '');
@@ -904,7 +902,7 @@ export default function MartinetoPOSPage() {
         return;
       }
 
-      let nuevoTurnoId = 2; // Tarde / Cierre
+      let nuevoTurnoId = 2;
       let nuevoTurnoNombre = 'Tarde / Cierre';
 
       const { data: turnosBD } = await supabase
@@ -3060,28 +3058,28 @@ export default function MartinetoPOSPage() {
       )}
 
       {moduloActivo === 'ventas' && (
-        <div className={`grid grid-cols-1 lg:grid-cols-12 gap-4 items-start ${bloqueadoPorApertura ? 'opacity-50 pointer-events-none' : ''}`}>
-          <div className={`${!mesaActivaId ? 'lg:col-span-12' : itemActivoActual && itemActivoActual.items.length > 0 ? 'lg:col-span-3' : 'lg:col-span-4'} bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md transition-all duration-300`}>
-            <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
-              <h2 className="text-xs md:text-sm font-black text-white">🪑 Mesas y Rappi</h2>
-              <div className="flex gap-1.5">
+        <div className={`grid grid-cols-1 lg:grid-cols-12 gap-3 items-stretch h-[calc(100vh-140px)] overflow-hidden ${bloqueadoPorApertura ? 'opacity-50 pointer-events-none' : ''}`}>
+          
+          <div className={`${!mesaActivaId ? 'lg:col-span-12' : itemActivoActual && itemActivoActual.items.length > 0 ? 'lg:col-span-2' : 'lg:col-span-3'} bg-[#0b2b48] border border-[#0066b3] p-3 rounded-2xl flex flex-col shadow-md transition-all duration-300 h-full overflow-hidden`}>
+            <div className="flex flex-col gap-2 border-b border-[#0066b3]/50 pb-2 shrink-0">
+              <h2 className="text-xs font-black text-white text-center">🪑 Mesas</h2>
+              <div className="flex gap-1 justify-center">
                 <button
                   onClick={() => setMostrarModalConsultaCaja(true)}
-                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[10px] px-2.5 py-1 rounded-lg uppercase cursor-pointer shadow border border-emerald-400"
-                  title="Consultar efectivo en caja, nequi, daviplata y ventas"
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[9px] px-2 py-1 rounded-lg uppercase cursor-pointer shadow border border-emerald-400"
                 >
-                  💵 Ver Caja
+                  💵 Caja
                 </button>
                 <button
                   onClick={agregarNuevoRappi}
-                  className="bg-rose-600 hover:bg-rose-500 text-white font-bold text-[10px] px-2.5 py-1 rounded-lg uppercase cursor-pointer shadow"
+                  className="bg-rose-600 hover:bg-rose-500 text-white font-bold text-[9px] px-2 py-1 rounded-lg uppercase cursor-pointer shadow"
                 >
-                  + Rappi
+                  +Rappi
                 </button>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-1 gap-2.5 max-h-[480px] overflow-y-auto pr-1">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-1 gap-2 overflow-y-auto pr-1 pt-2 flex-1">
               {pedidosRappi.map((rappi) => {
                 const activa = mesaActivaId === rappi.id;
                 const estaPreparado = rappi.estado === 'Preparando';
@@ -3090,7 +3088,7 @@ export default function MartinetoPOSPage() {
                   <div
                     key={rappi.id}
                     onClick={() => setMesaActivaId(rappi.id)}
-                    className={`p-3 rounded-xl border cursor-pointer transition-all flex justify-between items-center shadow-md ${
+                    className={`p-2.5 rounded-xl border cursor-pointer transition-all flex flex-col justify-between shadow-md shrink-0 ${
                       activa
                         ? 'border-white ring-2 ring-white bg-rose-700'
                         : estaPreparado
@@ -3098,10 +3096,8 @@ export default function MartinetoPOSPage() {
                         : 'bg-rose-950/80 border-rose-500 hover:bg-rose-900'
                     }`}
                   >
-                    <div>
-                      <p className="font-black text-xs text-white uppercase">📦 {rappi.nombre}</p>
-                      <p className="text-[10px] font-bold text-rose-200 mt-0.5">{rappi.estado}</p>
-                    </div>
+                    <p className="font-black text-[11px] text-white uppercase truncate">📦 {rappi.nombre}</p>
+                    <p className="text-[9px] font-bold text-rose-200 mt-0.5">{rappi.estado}</p>
                   </div>
                 );
               })}
@@ -3134,13 +3130,13 @@ export default function MartinetoPOSPage() {
                   <div
                     key={mesa.id}
                     onClick={() => setMesaActivaId(mesa.id)}
-                    className={`p-3 rounded-xl border cursor-pointer transition-all flex justify-between items-center shadow-md ${estiloColor}`}
+                    className={`p-2.5 rounded-xl border cursor-pointer transition-all flex flex-col justify-between shadow-md shrink-0 ${estiloColor}`}
                   >
-                    <div>
-                      <p className="font-black text-xs text-white uppercase">{mesa.nombre}</p>
-                      <p className={`text-[10px] font-bold capitalize mt-0.5 ${textoEstadoColor}`}>{mesa.estado}</p>
+                    <p className="font-black text-[11px] text-white uppercase truncate">{mesa.nombre}</p>
+                    <div className="flex justify-between items-center mt-1">
+                      <p className={`text-[9px] font-bold capitalize ${textoEstadoColor}`}>{mesa.estado}</p>
+                      <p className="text-[10px] text-emerald-300 font-black">${mesa.total.toLocaleString('es-CO')}</p>
                     </div>
-                    <p className="text-xs text-emerald-300 font-black">$ {mesa.total.toLocaleString('es-CO')}</p>
                   </div>
                 );
               })}
@@ -3148,59 +3144,51 @@ export default function MartinetoPOSPage() {
           </div>
 
           {mesaActivaId && (
-            <div className={`${itemActivoActual && itemActivoActual.items.length > 0 ? 'lg:col-span-6' : 'lg:col-span-8'} bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md transition-all duration-300`}>
-              <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
+            <div className={`${itemActivoActual && itemActivoActual.items.length > 0 ? 'lg:col-span-6' : 'lg:col-span-9'} bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl flex flex-col shadow-md transition-all duration-300 h-full overflow-hidden`}>
+              <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2 shrink-0">
                 <h2 className="text-xs md:text-sm font-black text-white">📂 Categorías y Productos</h2>
                 <span className="text-xs text-sky-200 font-bold truncate max-w-[150px]">
                   Activo: <b className="text-emerald-300">{itemActivoActual ? itemActivoActual.nombre : 'Ninguno'}</b>
                 </span>
               </div>
 
-              <div className="relative pt-1">
+              <div className="pt-2 shrink-0 space-y-2">
                 <input
                   type="text"
                   placeholder="🔍 Buscar producto por nombre..."
                   value={busquedaProducto}
                   onChange={(e) => setBusquedaProducto(e.target.value)}
-                  className="w-full bg-[#051829] border-2 border-[#00a4ef] text-white text-xs font-bold rounded-xl p-2.5 pr-8 outline-none shadow-inner"
+                  className="w-full bg-[#051829] border-2 border-[#00a4ef] text-white text-xs font-bold rounded-xl p-2.5 outline-none shadow-inner"
                 />
-                {busquedaProducto && (
-                  <button
-                    onClick={() => setBusquedaProducto('')}
-                    className="absolute right-3 top-3.5 text-sky-300 hover:text-white font-black text-xs cursor-pointer"
-                  >
-                    ✕
-                  </button>
-                )}
-              </div>
 
-              <div className="flex flex-wrap gap-1.5 pt-1 max-h-24 overflow-y-auto pr-1">
-                <button
-                  onClick={() => setCategoriaVentaSel('TODAS')}
-                  className={`px-3 py-2 rounded-xl text-[11px] font-black uppercase cursor-pointer transition-all ${
-                    categoriaVentaSel === 'TODAS'
-                      ? 'bg-[#00a4ef] text-white border border-white shadow'
-                      : 'bg-[#0e385e] text-sky-200 border border-[#0066b3]'
-                  }`}
-                >
-                  🌟 TODAS
-                </button>
-                {listaCategoriasVenta.map((cat) => (
+                <div className="flex flex-wrap gap-1.5 overflow-x-auto pb-1 no-scrollbar">
                   <button
-                    key={cat}
-                    onClick={() => setCategoriaVentaSel(cat)}
-                    className={`px-3 py-2 rounded-xl text-[11px] font-black uppercase cursor-pointer transition-all ${
-                      categoriaVentaSel.toLowerCase() === cat.toLowerCase()
+                    onClick={() => setCategoriaVentaSel('TODAS')}
+                    className={`px-3 py-1.5 rounded-xl text-[11px] font-black uppercase cursor-pointer transition-all shrink-0 ${
+                      categoriaVentaSel === 'TODAS'
                         ? 'bg-[#00a4ef] text-white border border-white shadow'
                         : 'bg-[#0e385e] text-sky-200 border border-[#0066b3]'
                     }`}
                   >
-                    🏷️ {cat}
+                    🌟 TODAS
                   </button>
-                ))}
+                  {listaCategoriasVenta.map((cat) => (
+                    <button
+                      key={cat}
+                      onClick={() => setCategoriaVentaSel(cat)}
+                      className={`px-3 py-1.5 rounded-xl text-[11px] font-black uppercase cursor-pointer transition-all shrink-0 ${
+                        categoriaVentaSel.toLowerCase() === cat.toLowerCase()
+                          ? 'bg-[#00a4ef] text-white border border-white shadow'
+                          : 'bg-[#0e385e] text-sky-200 border border-[#0066b3]'
+                      }`}
+                    >
+                      🏷️ {cat}
+                    </button>
+                  ))}
+                </div>
               </div>
 
-              <div className="max-h-[350px] overflow-y-auto grid grid-cols-2 sm:grid-cols-3 gap-2 pr-1 pt-1">
+              <div className="overflow-y-auto grid grid-cols-2 sm:grid-cols-3 gap-2.5 pr-1 pt-2 flex-1">
                 {productosFiltradosVenta.length === 0 ? (
                   <p className="text-xs text-sky-400 italic col-span-full py-6 text-center">
                     No hay productos que coincidan con la búsqueda.
@@ -3214,10 +3202,10 @@ export default function MartinetoPOSPage() {
                     return (
                       <div
                         key={prod.id || prod.nombre}
-                        className="bg-[#0e385e] border border-[#0066b3] p-2.5 rounded-xl flex flex-col justify-between shadow-sm"
+                        className="bg-[#0e385e] border border-[#0066b3] p-3 rounded-xl flex flex-col justify-between shadow-sm h-fit"
                       >
                         <div>
-                          <p className="font-bold text-white text-xs truncate">{prod.nombre}</p>
+                          <p className="font-black text-white text-xs leading-snug">{prod.nombre}</p>
                           <p className="text-[10px] text-sky-300 uppercase mt-0.5">{prod.categoriaMostrar}</p>
                           <p className="text-xs text-emerald-300 font-black mt-1">
                             $ {Number(prod.precio || 0).toLocaleString('es-CO')}
@@ -3225,17 +3213,16 @@ export default function MartinetoPOSPage() {
                         </div>
 
                         {esCorralito ? (
-                          <div className="grid grid-cols-2 gap-1 mt-2 pt-1 border-t border-[#0066b3]">
+                          <div className="grid grid-cols-2 gap-1.5 mt-3 pt-1 border-t border-[#0066b3]">
                             <button
                               onClick={() => agregarProductoAMesa(prod, false)}
-                              className="bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-[9px] py-1 rounded text-center cursor-pointer"
+                              className="bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-[10px] py-1.5 rounded-lg text-center cursor-pointer shadow"
                             >
                               🍽️ Mesa
                             </button>
                             <button
                               onClick={() => agregarProductoAMesa(prod, true)}
-                              className="bg-amber-600 hover:bg-amber-500 text-white font-bold text-[9px] py-1 rounded text-center cursor-pointer"
-                              title="Usa tapa extra: descuenta 1 como Venta y 1 como Merma"
+                              className="bg-amber-600 hover:bg-amber-500 text-white font-bold text-[10px] py-1.5 rounded-lg text-center cursor-pointer shadow"
                             >
                               🛵 Llevar
                             </button>
@@ -3243,7 +3230,7 @@ export default function MartinetoPOSPage() {
                         ) : (
                           <button
                             onClick={() => agregarProductoAMesa(prod, false)}
-                            className="w-full bg-[#0066b3] hover:bg-[#0078d4] text-white font-bold text-[10px] py-1.5 rounded-lg mt-2 cursor-pointer"
+                            className="w-full bg-[#0066b3] hover:bg-[#0078d4] text-white font-black text-[11px] py-2 rounded-xl mt-3 cursor-pointer shadow"
                           >
                             ➕ Agregar
                           </button>
@@ -3257,98 +3244,97 @@ export default function MartinetoPOSPage() {
           )}
 
           {itemActivoActual && itemActivoActual.items.length > 0 && (
-            <div className="lg:col-span-3 bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md transition-all duration-300">
-              <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
-                <h2 className="text-xs md:text-sm font-black text-white">🧾 Factura / Pedido</h2>
-                <span className="bg-[#051829] text-sky-300 text-[10px] px-2.5 py-1 rounded-lg border border-[#0066b3] uppercase font-bold">
-                  {esRappiActivo ? rappiActivo?.estado : mesaActiva ? mesaActiva.estado : 'Sin Selección'}
+            <div className="lg:col-span-4 bg-[#0b2b48] border border-[#0066b3] p-3.5 rounded-2xl flex flex-col shadow-md transition-all duration-300 h-full overflow-hidden">
+              <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2 shrink-0">
+                <h2 className="text-xs font-black text-white">🧾 Productos Pedidos</h2>
+                <span className="bg-[#051829] text-sky-300 text-[9px] px-2 py-0.5 rounded border border-[#0066b3] uppercase font-bold">
+                  {esRappiActivo ? rappiActivo?.estado : mesaActiva ? mesaActiva.estado : ''}
                 </span>
               </div>
 
-              <div className="space-y-3">
-                {/* Contenedor ampliado en altura y ancho para tablet */}
-                <div className="max-h-[480px] overflow-y-auto space-y-2.5 pr-1">
-                  {itemsVisualesAgrupados.map((i: any, idx: number) => {
-                    const estado = i.estadoItem || 'pedido';
+              <div className="overflow-y-auto space-y-2 pr-1 pt-2 flex-1">
+                {itemsVisualesAgrupados.map((i: any, idx: number) => {
+                  const estado = i.estadoItem || 'pedido';
 
-                    let badgeBg = 'bg-emerald-800 text-emerald-200 border-emerald-500';
-                    if (estado === 'entregado') badgeBg = 'bg-amber-700 text-amber-200 border-amber-400';
+                  let badgeBg = 'bg-emerald-800 text-emerald-200 border-emerald-500';
+                  if (estado === 'entregado') badgeBg = 'bg-amber-700 text-amber-200 border-amber-400';
 
-                    const esRappiPreparado = esRappiActivo && rappiActivo?.estado === 'Preparado';
+                  const esRappiPreparado = esRappiActivo && rappiActivo?.estado === 'Preparado';
 
-                    return (
-                      <div key={`${i.nombre}_${estado}_${idx}`} className="bg-[#051829] border-2 border-[#0066b3] p-3 rounded-2xl space-y-2.5 shadow-md">
-                        <div className="flex justify-between items-start gap-2">
-                          <span className="font-black text-sm text-white leading-snug">
-                            {i.cantidad > 1 ? `${i.cantidad}x ` : ''}{i.nombre}
+                  return (
+                    <div key={`${i.nombre}_${estado}_${idx}`} className="bg-[#051829] border border-[#0066b3] p-2.5 rounded-xl space-y-2 shadow-sm">
+                      <div className="flex justify-between items-start gap-1">
+                        <span className="font-black text-xs text-white leading-tight">
+                          {i.cantidad > 1 ? `${i.cantidad}x ` : ''}{i.nombre}
+                        </span>
+                        {!esRappiActivo && (
+                          <span className="text-[11px] font-black text-emerald-300 whitespace-nowrap">
+                            $ {(Number(i.precio || 0) * i.cantidad).toLocaleString('es-CO')}
                           </span>
-                          {!esRappiActivo && (
-                            <span className="text-xs font-black text-emerald-300 whitespace-nowrap">
-                              $ {(Number(i.precio || 0) * i.cantidad).toLocaleString('es-CO')}
-                            </span>
+                        )}
+                      </div>
+
+                      <div className="flex justify-between items-center pt-1.5 border-t border-[#0066b3]/40">
+                        <span className={`text-[9px] px-2 py-0.5 rounded font-black border uppercase ${badgeBg}`}>
+                          {estado}
+                        </span>
+
+                        <div className="flex items-center gap-1.5">
+                          {!esRappiActivo && estado === 'pedido' && (
+                            <button
+                              onClick={() => marcarItemEntregado(i.nombre, estado)}
+                              className="bg-amber-600 hover:bg-amber-500 text-white font-bold text-[10px] px-2 py-0.5 rounded-lg cursor-pointer shadow"
+                              title="Marcar entregado"
+                            >
+                              ✓ Entregar
+                            </button>
+                          )}
+                          {!esRappiPreparado && (
+                            <div className="flex items-center bg-[#0e385e] border border-[#0066b3] rounded-lg overflow-hidden shadow">
+                              <button
+                                onClick={() => restarProductoDeMesa(i.nombre, estado)}
+                                className="bg-rose-800 hover:bg-rose-700 text-white font-bold text-xs px-2 py-0.5 cursor-pointer"
+                                title="Restar"
+                              >
+                                −
+                              </button>
+                              <button
+                                onClick={() => {
+                                  const productoOriginal = productosVenta.find((p) => p.nombre.replace(' (LLEVAR)', '') === i.nombre.replace(' (LLEVAR)', ''));
+                                  if (productoOriginal) {
+                                    agregarProductoAMesa(productoOriginal, i.nombre.includes('(LLEVAR)'));
+                                  } else {
+                                    agregarProductoAMesa({ nombre: i.nombre.replace(' (LLEVAR)', ''), precio: i.precio }, i.nombre.includes('(LLEVAR)'));
+                                  }
+                                }}
+                                className="bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-xs px-2 py-0.5 cursor-pointer border-l border-[#0066b3]"
+                                title="Sumar"
+                              >
+                                +
+                              </button>
+                            </div>
                           )}
                         </div>
-
-                        <div className="flex justify-between items-center pt-2 border-t border-[#0066b3]/50">
-                          <span className={`text-[10px] px-2.5 py-0.5 rounded-md font-black border uppercase ${badgeBg}`}>
-                            {estado}
-                          </span>
-
-                          <div className="flex items-center gap-2">
-                            {!esRappiActivo && estado === 'pedido' && (
-                              <button
-                                onClick={() => marcarItemEntregado(i.nombre, estado)}
-                                className="bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs px-2.5 py-1 rounded-xl cursor-pointer shadow"
-                                title="Marcar entregado"
-                              >
-                                ✓ Entregar
-                              </button>
-                            )}
-                            {!esRappiPreparado && (
-                              <div className="flex items-center bg-[#0e385e] border border-[#0066b3] rounded-xl overflow-hidden shadow">
-                                <button
-                                  onClick={() => restarProductoDeMesa(i.nombre, estado)}
-                                  className="bg-rose-800 hover:bg-rose-700 text-white font-bold text-sm px-2.5 py-1 cursor-pointer"
-                                  title="Restar cantidad"
-                                >
-                                  −
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    const productoOriginal = productosVenta.find((p) => p.nombre.replace(' (LLEVAR)', '') === i.nombre.replace(' (LLEVAR)', ''));
-                                    if (productoOriginal) {
-                                      agregarProductoAMesa(productoOriginal, i.nombre.includes('(LLEVAR)'));
-                                    } else {
-                                      agregarProductoAMesa({ nombre: i.nombre.replace(' (LLEVAR)', ''), precio: i.precio }, i.nombre.includes('(LLEVAR)'));
-                                    }
-                                  }}
-                                  className="bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-sm px-2.5 py-1 cursor-pointer border-l border-[#0066b3]"
-                                  title="Sumar una unidad más"
-                                >
-                                  +
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        </div>
                       </div>
-                    );
-                  })}
-                </div>
+                    </div>
+                  );
+                })}
+              </div>
 
+              <div className="shrink-0 pt-2 space-y-2 border-t border-[#0066b3]/50 mt-2">
                 {!esRappiActivo && (
-                  <div className="bg-[#051829] border border-[#0066b3] p-3 rounded-xl space-y-1.5">
-                    <div className="flex justify-between text-xs text-sky-200">
+                  <div className="bg-[#051829] border border-[#0066b3] p-2 rounded-xl space-y-1 text-xs">
+                    <div className="flex justify-between text-sky-200">
                       <span>Subtotal:</span>
                       <b>$ {itemActivoActual.total.toLocaleString('es-CO')}</b>
                     </div>
                     {itemActivoActual.totalAbonado > 0 && (
-                      <div className="flex justify-between text-xs text-amber-300">
-                        <span>Total Abonado / Pagado:</span>
+                      <div className="flex justify-between text-amber-300">
+                        <span>Abonado:</span>
                         <b>$ {itemActivoActual.totalAbonado.toLocaleString('es-CO')}</b>
                       </div>
                     )}
-                    <div className="flex justify-between text-sm font-black text-white pt-1 border-t border-[#0066b3]/50">
+                    <div className="flex justify-between font-black text-white pt-1 border-t border-[#0066b3]/50">
                       <span>Saldo Pendiente:</span>
                       <span className="text-emerald-400">$ {saldoPendienteActual.toLocaleString('es-CO')}</span>
                     </div>
@@ -3356,26 +3342,25 @@ export default function MartinetoPOSPage() {
                 )}
 
                 {(!esRappiActivo || rappiActivo?.estado !== 'Preparado') && (
-                  <div className="space-y-1.5 pt-1">
-                    <span className="text-[10px] text-sky-300 font-bold block uppercase">Adición o Extra Manual:</span>
-                    <div className="flex gap-1.5">
+                  <div className="space-y-1">
+                    <div className="flex gap-1">
                       <input
                         type="text"
-                        placeholder="Concepto (ej. Extra helado)"
+                        placeholder="Concepto extra"
                         value={nombreAdicionManual}
                         onChange={(e) => setNombreAdicionManual(e.target.value)}
-                        className="w-full bg-[#051829] border border-[#0066b3] text-white text-xs p-2 rounded-xl outline-none"
+                        className="w-full bg-[#051829] border border-[#0066b3] text-white text-[11px] p-1.5 rounded-lg outline-none"
                       />
                       <input
                         type="text"
                         placeholder="Valor $"
                         value={formatearMoneda(valorAdicionManual)}
                         onChange={(e) => setValorAdicionManual(desformatearMoneda(e.target.value))}
-                        className="w-24 bg-[#051829] border border-[#0066b3] text-amber-300 font-black text-xs p-2 rounded-xl outline-none text-center"
+                        className="w-20 bg-[#051829] border border-[#0066b3] text-amber-300 font-black text-[11px] p-1.5 rounded-lg outline-none text-center"
                       />
                       <button
                         onClick={agregarAdicionManualAMesa}
-                        className="bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs px-3 rounded-xl cursor-pointer"
+                        className="bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs px-2.5 rounded-lg cursor-pointer"
                       >
                         +
                       </button>
@@ -3384,56 +3369,56 @@ export default function MartinetoPOSPage() {
                 )}
 
                 {esRappiActivo ? (
-                  <div className="space-y-2 pt-2">
+                  <div className="space-y-1.5">
                     {rappiActivo?.estado === 'Preparando' ? (
                       <button
                         onClick={marcarRappiPreparado}
-                        className="w-full bg-amber-600 hover:bg-amber-500 text-white font-black py-2.5 rounded-xl text-xs uppercase cursor-pointer"
+                        className="w-full bg-amber-600 hover:bg-amber-500 text-white font-black py-2 rounded-xl text-xs uppercase cursor-pointer shadow"
                       >
-                        🍳 Marcar como Preparado
+                        🍳 Marcar Preparado
                       </button>
                     ) : (
                       <button
                         onClick={entregarRappi}
                         disabled={procesandoRappi}
-                        className={`w-full font-black py-2.5 rounded-xl text-xs uppercase shadow-md transition-all ${
+                        className={`w-full font-black py-2 rounded-xl text-xs uppercase shadow-md transition-all ${
                           procesandoRappi
                             ? 'bg-emerald-800 text-white cursor-not-allowed opacity-75'
                             : 'bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer'
                         }`}
                       >
-                        {procesandoRappi ? '⏳ Procesando Rappi...' : '🚀 Entregar y Finalizar Rappi'}
+                        {procesandoRappi ? '⏳ Procesando...' : '🚀 Entregar Rappi'}
                       </button>
                     )}
                   </div>
                 ) : (
-                  <div className="grid grid-cols-2 gap-2 pt-2">
+                  <div className="grid grid-cols-2 gap-1.5">
                     {hayProductosPorEntregar && (
                       <button
                         onClick={marcarTodosEntregados}
-                        className="col-span-full bg-amber-600 hover:bg-amber-500 text-white font-black py-2.5 rounded-xl text-xs uppercase cursor-pointer"
+                        className="col-span-full bg-amber-600 hover:bg-amber-500 text-white font-black py-2 rounded-xl text-xs uppercase cursor-pointer shadow"
                       >
-                        ✓ Entregar Todo el Pedido
+                        ✓ Entregar Todo
                       </button>
                     )}
 
                     <button
                       onClick={abrirModalCobro}
                       disabled={procesandoPago}
-                      className="bg-emerald-600 hover:bg-emerald-500 text-white font-black py-3 rounded-xl text-xs uppercase cursor-pointer shadow-md disabled:opacity-50"
+                      className="bg-emerald-600 hover:bg-emerald-500 text-white font-black py-2.5 rounded-xl text-xs uppercase cursor-pointer shadow-md disabled:opacity-50"
                     >
-                      💳 Cobrar / Abono
+                      💳 Cobrar
                     </button>
 
                     {mesaTotalmentePagada ? (
                       <button
                         onClick={liberarMesa}
-                        className="bg-purple-700 hover:bg-purple-600 text-white font-black py-3 rounded-xl text-xs uppercase cursor-pointer shadow-md"
+                        className="bg-purple-700 hover:bg-purple-600 text-white font-black py-2.5 rounded-xl text-xs uppercase cursor-pointer shadow-md"
                       >
-                        🧹 Liberar Mesa
+                        🧹 Liberar
                       </button>
                     ) : (
-                      <div className="bg-[#051829] border border-[#0066b3] text-sky-300 font-bold text-[10px] p-2 rounded-xl flex items-center justify-center text-center">
+                      <div className="bg-[#051829] border border-[#0066b3] text-sky-300 font-bold text-[9px] p-1.5 rounded-xl flex items-center justify-center text-center">
                         {saldoPendienteActual > 0 ? 'Falta Pagar' : 'Entregar Todo'}
                       </div>
                     )}
@@ -3518,7 +3503,6 @@ export default function MartinetoPOSPage() {
             </div>
           </div>
 
-          {/* SÓLO SE MUESTRA SI ES TURNO DE MAÑANA / APERTURA */}
           {esTurnoManana && (
             <div className="bg-[#051829] border border-amber-500/50 p-4 rounded-xl space-y-3">
               <span className="text-xs font-black text-amber-300 uppercase block border-b border-amber-500/30 pb-1">
@@ -3579,7 +3563,6 @@ export default function MartinetoPOSPage() {
         </div>
       )}
 
-      {/* MODAL CAMBIO DE TURNO (MAÑANA A TARDE) */}
       {mostrarModalCambioTurno && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
           <div className="bg-[#0b2b48] border border-amber-500/60 p-5 rounded-2xl w-full max-w-md space-y-4 shadow-2xl">
@@ -3654,7 +3637,6 @@ export default function MartinetoPOSPage() {
         </div>
       )}
 
-      {/* MODAL CONSULTA RÁPIDA DE CAJA */}
       {mostrarModalConsultaCaja && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
           <div className="bg-[#0b2b48] border border-[#0066b3] p-5 rounded-2xl w-full max-w-md space-y-4 shadow-2xl">
@@ -3709,7 +3691,6 @@ export default function MartinetoPOSPage() {
         </div>
       )}
 
-      {/* MODAL COBRO / ABONO */}
       {mostrarModalCobro && mesaActiva && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
           <div className="bg-[#0b2b48] border border-[#0066b3] p-5 rounded-2xl w-full max-w-md space-y-4 shadow-2xl">
@@ -3845,7 +3826,6 @@ export default function MartinetoPOSPage() {
         </div>
       )}
 
-      {/* MODAL CREAR NUEVO PRODUCTO EN BD */}
       {mostrarModalNuevoProd && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
           <div className="bg-[#0b2b48] border border-[#0066b3] p-5 rounded-2xl w-full max-w-lg space-y-4 shadow-2xl">
@@ -4014,7 +3994,6 @@ export default function MartinetoPOSPage() {
         </div>
       )}
 
-      {/* MODAL RESUMEN CIERRE TOTAL */}
       {mostrarModalResumen && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
           <div className="bg-[#0b2b48] border border-purple-500/60 p-5 rounded-2xl w-full max-w-4xl space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
