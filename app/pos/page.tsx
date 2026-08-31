@@ -3148,7 +3148,7 @@ export default function MartinetoPOSPage() {
           </div>
 
           {mesaActivaId && (
-            <div className={`${itemActivoActual && itemActivoActual.items.length > 0 ? 'lg:col-span-5' : 'lg:col-span-8'} bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md transition-all duration-300`}>
+            <div className={`${itemActivoActual && itemActivoActual.items.length > 0 ? 'lg:col-span-6' : 'lg:col-span-8'} bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md transition-all duration-300`}>
               <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
                 <h2 className="text-xs md:text-sm font-black text-white">📂 Categorías y Productos</h2>
                 <span className="text-xs text-sky-200 font-bold truncate max-w-[150px]">
@@ -3257,7 +3257,7 @@ export default function MartinetoPOSPage() {
           )}
 
           {itemActivoActual && itemActivoActual.items.length > 0 && (
-            <div className="lg:col-span-4 bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md transition-all duration-300">
+            <div className="lg:col-span-3 bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md transition-all duration-300">
               <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
                 <h2 className="text-xs md:text-sm font-black text-white">🧾 Factura / Pedido</h2>
                 <span className="bg-[#051829] text-sky-300 text-[10px] px-2.5 py-1 rounded-lg border border-[#0066b3] uppercase font-bold">
@@ -3266,7 +3266,8 @@ export default function MartinetoPOSPage() {
               </div>
 
               <div className="space-y-3">
-                <div className="max-h-[220px] overflow-y-auto space-y-2 pr-1">
+                {/* Contenedor ampliado en altura y ancho para tablet */}
+                <div className="max-h-[480px] overflow-y-auto space-y-2.5 pr-1">
                   {itemsVisualesAgrupados.map((i: any, idx: number) => {
                     const estado = i.estadoItem || 'pedido';
 
@@ -3276,38 +3277,38 @@ export default function MartinetoPOSPage() {
                     const esRappiPreparado = esRappiActivo && rappiActivo?.estado === 'Preparado';
 
                     return (
-                      <div key={`${i.nombre}_${estado}_${idx}`} className="bg-[#051829] border border-[#0066b3] p-2.5 rounded-xl space-y-2 shadow-sm">
-                        <div className="flex justify-between items-center">
-                          <span className="font-bold text-xs text-white">
+                      <div key={`${i.nombre}_${estado}_${idx}`} className="bg-[#051829] border-2 border-[#0066b3] p-3 rounded-2xl space-y-2.5 shadow-md">
+                        <div className="flex justify-between items-start gap-2">
+                          <span className="font-black text-sm text-white leading-snug">
                             {i.cantidad > 1 ? `${i.cantidad}x ` : ''}{i.nombre}
                           </span>
                           {!esRappiActivo && (
-                            <span className="text-xs font-black text-emerald-300">
+                            <span className="text-xs font-black text-emerald-300 whitespace-nowrap">
                               $ {(Number(i.precio || 0) * i.cantidad).toLocaleString('es-CO')}
                             </span>
                           )}
                         </div>
 
-                        <div className="flex justify-between items-center pt-1 border-t border-[#0066b3]/40">
-                          <span className={`text-[9px] px-2 py-0.5 rounded font-black border uppercase ${badgeBg}`}>
+                        <div className="flex justify-between items-center pt-2 border-t border-[#0066b3]/50">
+                          <span className={`text-[10px] px-2.5 py-0.5 rounded-md font-black border uppercase ${badgeBg}`}>
                             {estado}
                           </span>
 
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex items-center gap-2">
                             {!esRappiActivo && estado === 'pedido' && (
                               <button
                                 onClick={() => marcarItemEntregado(i.nombre, estado)}
-                                className="bg-amber-600 hover:bg-amber-500 text-white font-bold text-[10px] px-2 py-1 rounded cursor-pointer"
+                                className="bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs px-2.5 py-1 rounded-xl cursor-pointer shadow"
                                 title="Marcar entregado"
                               >
                                 ✓ Entregar
                               </button>
                             )}
                             {!esRappiPreparado && (
-                              <div className="flex items-center bg-[#051829] border border-[#0066b3] rounded-lg overflow-hidden">
+                              <div className="flex items-center bg-[#0e385e] border border-[#0066b3] rounded-xl overflow-hidden shadow">
                                 <button
                                   onClick={() => restarProductoDeMesa(i.nombre, estado)}
-                                  className="bg-rose-800 hover:bg-rose-700 text-white font-bold text-xs px-2 py-1 cursor-pointer"
+                                  className="bg-rose-800 hover:bg-rose-700 text-white font-bold text-sm px-2.5 py-1 cursor-pointer"
                                   title="Restar cantidad"
                                 >
                                   −
@@ -3321,7 +3322,7 @@ export default function MartinetoPOSPage() {
                                       agregarProductoAMesa({ nombre: i.nombre.replace(' (LLEVAR)', ''), precio: i.precio }, i.nombre.includes('(LLEVAR)'));
                                     }
                                   }}
-                                  className="bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-xs px-2 py-1 cursor-pointer border-l border-[#0066b3]"
+                                  className="bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-sm px-2.5 py-1 cursor-pointer border-l border-[#0066b3]"
                                   title="Sumar una unidad más"
                                 >
                                   +
