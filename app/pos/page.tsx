@@ -673,6 +673,7 @@ export default function MartinetoPOSPage() {
           items: [],
           total: 0,
           totalAbonado: 0,
+          descuentoAcumulado: 0,
           estado: (m.estado || 'libre').toLowerCase(),
         })).sort((a: any, b: any) => (a.nombre || '').localeCompare(b.nombre || '', 'es', { sensitivity: 'base' }))
       );
@@ -1725,7 +1726,7 @@ export default function MartinetoPOSPage() {
         });
 
         const algunPendiente = itemsActuales.some((i: any) => (i.estadoItem || 'pedido') === 'pedido');
-        const estaTotalmentePagado = (m.totalAbonado || 0) >= m.total && m.total > 0;
+        const estaTotalmentePagado = ((m.totalAbonado || 0) + (m.descuentoAcumulado || 0)) >= m.total && m.total > 0;
 
         let nuevoEstadoMesa = m.estado;
         if (estaTotalmentePagado) {
@@ -1805,7 +1806,7 @@ export default function MartinetoPOSPage() {
             let nuevoEstado = itemsActuales.length === 0 ? 'libre' : m.estado;
             if (itemsActuales.length > 0) {
               const algunPendiente = itemsActuales.some((i: any) => (i.estadoItem || 'pedido') === 'pedido');
-              const estaTotalmentePagado = (m.totalAbonado || 0) >= nuevoTotal && nuevoTotal > 0;
+              const estaTotalmentePagado = ((m.totalAbonado || 0) + (m.descuentoAcumulado || 0)) >= nuevoTotal && nuevoTotal > 0;
               if (estaTotalmentePagado) nuevoEstado = algunPendiente ? 'ocupada' : 'pagada';
               else if (algunPendiente) nuevoEstado = 'ocupada';
               else nuevoEstado = 'entregado';
@@ -1832,7 +1833,6 @@ export default function MartinetoPOSPage() {
     alert('🍳 Pedido marcado como PREPARADO. Ya no se pueden quitar productos.');
   }
 
-  // MODIFICADO: Guarda directamente el valor en rappi y cierra el pedido sin mostrar ventanas
   async function procesarEntregarRappiDirecto() {
     if (procesandoRappi || !rappiActivo) return;
 
@@ -1894,7 +1894,7 @@ export default function MartinetoPOSPage() {
             ...i,
             estadoItem: i.estadoItem === 'pedido' ? 'entregado' : i.estadoItem,
           }));
-          const estaTotalmentePagado = (m.totalAbonado || 0) >= m.total && m.total > 0;
+          const estaTotalmentePagado = ((m.totalAbonado || 0) + (m.descuentoAcumulado || 0)) >= m.total && m.total > 0;
           const nuevoEstado = estaTotalmentePagado ? 'pagada' : 'entregado';
 
           actualizarEstadoMesaBD(m.id, nuevoEstado);
@@ -1916,7 +1916,7 @@ export default function MartinetoPOSPage() {
       alert('⚠️ No hay productos en la orden para cobrar.');
       return;
     }
-    const pendiente = Math.max(0, mesaActiva.total - (mesaActiva.totalAbonado || 0));
+    const pendiente = Math.max(0, mesaActiva.total - (mesaActiva.totalAbonado || 0) - (mesaActiva.descuentoAcumulado || 0));
     setPagoEfectivo(pendiente);
     setPagoNequi('');
     setPagoDaviplata('');
@@ -1939,7 +1939,7 @@ export default function MartinetoPOSPage() {
       return;
     }
 
-    const pendienteActualSinDesc = Math.max(0, mesaActiva.total - (mesaActiva.totalAbonado || 0));
+    const pendienteActualSinDesc = Math.max(0, mesaActiva.total - (mesaActiva.totalAbonado || 0) - (mesaActiva.descuentoAcumulado || 0));
 
     if (desc > pendienteActualSinDesc) {
       alert('⚠️ El descuento no puede ser mayor que el valor pendiente por pagar.');
@@ -1989,7 +1989,8 @@ export default function MartinetoPOSPage() {
       }
 
       const nuevoTotalAbonado = (mesaActiva.totalAbonado || 0) + sumaAbonoActual;
-      const estaCompletamentePagado = (nuevoTotalAbonado + desc) >= mesaActiva.total;
+      const nuevoDescuentoAcumulado = (mesaActiva.descuentoAcumulado || 0) + desc;
+      const estaCompletamentePagado = (nuevoTotalAbonado + nuevoDescuentoAcumulado) >= mesaActiva.total;
 
       setMesas((prev) =>
         prev.map((m) => {
@@ -2007,8 +2008,8 @@ export default function MartinetoPOSPage() {
 
             return {
               ...m,
-              total: montoTotalVentaAjustado,
               totalAbonado: nuevoTotalAbonado,
+              descuentoAcumulado: nuevoDescuentoAcumulado,
               estado: nuevoEstadoMesa,
             };
           }
@@ -2023,7 +2024,7 @@ export default function MartinetoPOSPage() {
       } else {
         alert(
           `✅ ¡Abono registrado con éxito! Saldo pendiente: $ ${(
-            montoTotalVentaAjustado - nuevoTotalAbonado
+            mesaActiva.total - nuevoTotalAbonado - nuevoDescuentoAcumulado
           ).toLocaleString('es-CO')}`
         );
       }
@@ -2045,7 +2046,7 @@ export default function MartinetoPOSPage() {
     setMesas((prev) =>
       prev.map((m) =>
         m.id === mesaActivaId
-          ? { ...m, items: [], total: 0, totalAbonado: 0, estado: 'libre' }
+          ? { ...m, items: [], total: 0, totalAbonado: 0, descuentoAcumulado: 0, estado: 'libre' }
           : m
       )
     );
@@ -2078,7 +2079,7 @@ export default function MartinetoPOSPage() {
 
   const itemsVisualesAgrupados = itemActivoActual ? obtenerItemsAgrupados(itemActivoActual.items) : [];
   const hayProductosPorEntregar = itemActivoActual?.items?.some((i: any) => (i.estadoItem || 'pedido') === 'pedido') || false;
-  const saldoPendienteActual = itemActivoActual ? Math.max(0, itemActivoActual.total - (itemActivoActual.totalAbonado || 0)) : 0;
+  const saldoPendienteActual = itemActivoActual ? Math.max(0, itemActivoActual.total - (itemActivoActual.totalAbonado || 0) - (itemActivoActual.descuentoAcumulado || 0)) : 0;
 
   const mesaTotalmentePagada =
     !esRappiActivo &&
@@ -3337,6 +3338,12 @@ export default function MartinetoPOSPage() {
                         <b>$ {itemActivoActual.totalAbonado.toLocaleString('es-CO')}</b>
                       </div>
                     )}
+                    {(itemActivoActual.descuentoAcumulado || 0) > 0 && (
+                      <div className="flex justify-between text-rose-300">
+                        <span>Descuento:</span>
+                        <b>- $ {itemActivoActual.descuentoAcumulado.toLocaleString('es-CO')}</b>
+                      </div>
+                    )}
                     <div className="flex justify-between font-black text-white pt-1 border-t border-[#0066b3]/50">
                       <span>Saldo Pendiente:</span>
                       <span className="text-emerald-400">$ {saldoPendienteActual.toLocaleString('es-CO')}</span>
@@ -3717,6 +3724,12 @@ export default function MartinetoPOSPage() {
                 <span>Total ya Abonado:</span>
                 <b>$ {(mesaActiva.totalAbonado || 0).toLocaleString('es-CO')}</b>
               </div>
+              {(mesaActiva.descuentoAcumulado || 0) > 0 && (
+                <div className="flex justify-between text-rose-300">
+                  <span>Descuentos Previos:</span>
+                  <b>- $ {mesaActiva.descuentoAcumulado.toLocaleString('es-CO')}</b>
+                </div>
+              )}
               <div className="flex justify-between text-sm font-black text-white pt-1 border-t border-[#0066b3]/50">
                 <span>Saldo Pendiente Actual:</span>
                 <span className="text-emerald-400">$ {saldoPendienteActual.toLocaleString('es-CO')}</span>
