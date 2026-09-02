@@ -1832,9 +1832,11 @@ export default function MartinetoPOSPage() {
     alert('🍳 Pedido marcado como PREPARADO. Ya no se pueden quitar productos.');
   }
 
-  async function entregarRappi() {
-    if (procesandoRappi) return;
-    if (!rappiActivo || rappiActivo.items.length === 0) {
+  // MODIFICADO: Guarda directamente el valor en rappi y cierra el pedido sin mostrar ventanas
+  async function procesarEntregarRappiDirecto() {
+    if (procesandoRappi || !rappiActivo) return;
+
+    if (rappiActivo.items.length === 0) {
       alert('⚠️ No hay productos en este pedido Rappi.');
       return;
     }
@@ -1842,16 +1844,17 @@ export default function MartinetoPOSPage() {
     setProcesandoRappi(true);
     try {
       const usuarioId = sesion?.usuario_id || sesion?.id;
+      const montoTotalRappi = rappiActivo.total;
 
       const payloadVenta = {
         sede_id: SEDE_ID_MARTINETO,
         mesa_id: null,
         usuario_id: usuarioId ? String(usuarioId) : null,
-        monto_total: rappiActivo.total,
+        monto_total: montoTotalRappi,
         pago_efectivo: 0,
         pago_nequi: 0,
         pago_daviplata: 0,
-        rappi: rappiActivo.total,
+        rappi: montoTotalRappi,
         descuento: 0,
         motivo_descuento: null,
         cambio: 0,
@@ -1873,7 +1876,7 @@ export default function MartinetoPOSPage() {
 
       setPedidosRappi((prev) => prev.filter((r) => r.id !== mesaActivaId));
       setMesaActivaId(null);
-      alert('🚀 ¡Pedido Rappi entregado, sumado a ventas electrónicas y liberado!');
+      alert('🚀 ¡Pedido Rappi entregado, guardado en Rappi y cerrado con éxito!');
     } finally {
       setProcesandoRappi(false);
     }
@@ -3379,7 +3382,7 @@ export default function MartinetoPOSPage() {
                       </button>
                     ) : (
                       <button
-                        onClick={entregarRappi}
+                        onClick={procesarEntregarRappiDirecto}
                         disabled={procesandoRappi}
                         className={`w-full font-black py-2 rounded-xl text-xs uppercase shadow-md transition-all ${
                           procesandoRappi
@@ -3387,7 +3390,7 @@ export default function MartinetoPOSPage() {
                             : 'bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer'
                         }`}
                       >
-                        {procesandoRappi ? '⏳ Procesando...' : '🚀 Entregar Rappi'}
+                        {procesandoRappi ? '⏳ Procesando...' : '🛵 Entregar Rappi'}
                       </button>
                     )}
                   </div>
