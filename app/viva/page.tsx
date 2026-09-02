@@ -311,7 +311,6 @@ export default function VivaPage() {
         if (configTarifasAux) setTarifas(configTarifasAux);
       }
 
-      // CORRECCIÓN 1: Evita el error de TypeScript con .data
       const [operariosRes, saboresRes] = await Promise.all([
         obtenerUsuariosOperarios(),
         obtenerSaboresViva(),
@@ -326,7 +325,7 @@ export default function VivaPage() {
         : (saboresRes as any)?.data || [];
 
       const operariosOrdenados = [...operarios].sort((a: any, b: any) =>
-        (a.nombre || '').localeCompare(b.nombre || '', 'es', { sensitivity: 'base' })
+        (a.nombre_completo || a.nombre || '').localeCompare(b.nombre_completo || b.nombre || '', 'es', { sensitivity: 'base' })
       );
 
       const saboresOrdenados = [...listaSabores].sort((a: any, b: any) =>
@@ -336,7 +335,6 @@ export default function VivaPage() {
       setListaOperarios(operariosOrdenados);
       setSaboresViva(saboresOrdenados);
 
-      // CORRECCIÓN 2: Sintaxis válida para el .or de Supabase
       const { data: prodsInsumosBD } = await supabase
         .from('producto')
         .select('*')
@@ -889,6 +887,22 @@ export default function VivaPage() {
     hoyInicio.setHours(0, 0, 0, 0);
 
     try {
+      // 🛑 NUEVO: Cerrar el turno activo en la tabla 'turno_trabajo'
+      const turnoIdActual = sesion?.turno_id || sesion?.turnoId;
+      if (turnoIdActual) {
+        await supabase
+          .from('turno_trabajo')
+          .update({ hora_salida: new Date().toISOString() })
+          .eq('id', turnoIdActual);
+      } else if (usuarioIdActual) {
+        await supabase
+          .from('turno_trabajo')
+          .update({ hora_salida: new Date().toISOString() })
+          .eq('sede_id', SEDE_ID_VIVA)
+          .eq('usuario_id', usuarioIdActual)
+          .is('hora_salida', null);
+      }
+
       const { data: empaquesSedeBD, error: errEmpaques } = await supabase
         .from('inventario_empaques_sedes')
         .select('*')
@@ -1025,38 +1039,80 @@ export default function VivaPage() {
     setValidandoEntrante(true);
 
     const operarioEncontrado = listaOperarios.find(
-      (u) => String(u.id) === String(operarioEntranteId)
+      (op) => String(op.id) === String(operarioEntranteId)
     );
+
+    const pinOperario = operarioEncontrado?.codigo_acceso || operarioEncontrado?.pin || '';
 
     if (
       operarioEncontrado &&
-      String(operarioEncontrado.pin).trim() === String(claveOperarioEntrante).trim()
+      String(pinOperario).trim() === String(claveOperarioEntrante).trim()
     ) {
-      const turnoNormalizado = turnoRecibido.includes('tarde') ? 'tarde/cierre' : 'manana';
+      try {
+        // 🛑 NUEVO: Cerrar el turno del operario saliente en la base de datos
+        const turnoIdActual = sesion?.turno_id || sesion?.turnoId;
+        if (turnoIdActual) {
+          await supabase
+            .from('turno_trabajo')
+            .update({ hora_salida: new Date().toISOString() })
+            .eq('id', turnoIdActual);
+        } else if (usuarioIdActual) {
+          await supabase
+            .from('turno_trabajo')
+            .update({ hora_salida: new Date().toISOString() })
+            .eq('sede_id', SEDE_ID_VIVA)
+            .eq('usuario_id', usuarioIdActual)
+            .is('hora_salida', null);
+        }
 
-      const nuevaSesion = {
-        usuario_id: operarioEncontrado.id,
-        nombre: operarioEncontrado.nombre,
-        sede_id: SEDE_ID_VIVA,
-        turno: turnoNormalizado,
-      };
+        // 🛑 NUEVO: Registrar el inicio de turno para el NUEVO operario que entra
+        const turnoNormalizado = turnoRecibido.includes('tarde') ? 'tarde_cierre' : 'manana_apertura';
+        const { data: nuevoTurnoDB } = await supabase
+          .from('turno_trabajo')
+          .insert([
+            {
+              sede_id: SEDE_ID_VIVA,
+              usuario_id: Number(operarioEncontrado.id),
+              tipo_turno: turnoNormalizado,
+              hora_entrada: new Date().toISOString(),
+            },
+          ])
+          .select()
+          .single();
 
-      localStorage.setItem('martineto_session', JSON.stringify(nuevaSesion));
-      setSesion(nuevaSesion);
+        const nombreOperarioEntrante = operarioEncontrado.nombre_completo || operarioEncontrado.nombre || 'Operario';
 
-      setMostrarModalCambioTurno(false);
-      setClaveOperarioEntrante('');
-      setOperarioEntranteId('');
+        const nuevaSesion = {
+          usuario_id: operarioEncontrado.id,
+          nombre: nombreOperarioEntrante,
+          rol: (operarioEncontrado.tipo_usuario || 'operador').toLowerCase(),
+          sede_id: SEDE_ID_VIVA,
+          sede_nombre: 'Walers Viva',
+          sede_codigo: 'viva',
+          turno_id: nuevoTurnoDB ? nuevoTurnoDB.id : null,
+          turno: turnoNormalizado,
+        };
 
-      limpiarHorasDia();
-      limpiarHorasNoche();
-      limpiarEfSistema();
-      limpiarEfFisico();
-      limpiarGastos();
-      limpiarMotivoGasto();
+        localStorage.setItem('martineto_session', JSON.stringify(nuevaSesion));
+        setSesion(nuevaSesion);
 
-      setValidandoEntrante(false);
-      alert(`✅ ¡Turno entregado con éxito!\nBienvenido(a) ${nuevaSesion.nombre}.`);
+        setMostrarModalCambioTurno(false);
+        setClaveOperarioEntrante('');
+        setOperarioEntranteId('');
+
+        limpiarHorasDia();
+        limpiarHorasNoche();
+        limpiarEfSistema();
+        limpiarEfFisico();
+        limpiarGastos();
+        limpiarMotivoGasto();
+
+        setValidandoEntrante(false);
+        alert(`✅ ¡Turno entregado con éxito!\nBienvenido(a) ${nuevaSesion.nombre}.`);
+      } catch (err: any) {
+        setValidandoEntrante(false);
+        alert('❌ Error al procesar el cambio de turno: ' + (err?.message || 'Error desconocido'));
+      }
     } else {
       setValidandoEntrante(false);
       alert('❌ Código de acceso / PIN incorrecto para este operario.');
@@ -1064,6 +1120,16 @@ export default function VivaPage() {
   }
 
   function cerrarSesion() {
+    // 🛑 Cerrar turno al salir del sistema por seguridad
+    const turnoIdActual = sesion?.turno_id || sesion?.turnoId;
+    if (turnoIdActual) {
+      supabase
+        .from('turno_trabajo')
+        .update({ hora_salida: new Date().toISOString() })
+        .eq('id', turnoIdActual)
+        .then(() => {});
+    }
+
     localStorage.removeItem('martineto_session');
     localStorage.removeItem('martineto_efectivo_manana');
     router.push('/login');
@@ -1813,7 +1879,7 @@ export default function VivaPage() {
                 ) : (
                   registrosNominaDia.map((n, i) => {
                     const opEncontrado = listaOperarios.find((op) => String(op.id) === String(n.usuario_id));
-                    const nombreOperario = opEncontrado ? opEncontrado.nombre : `Operario #${n.usuario_id || 'N/A'}`;
+                    const nombreOperario = opEncontrado ? (opEncontrado.nombre_completo || opEncontrado.nombre) : `Operario #${n.usuario_id || 'N/A'}`;
                     return (
                       <div key={i} className="flex justify-between text-[11px] text-white border-b border-[#0066b3]/30 py-1">
                         <span>{nombreOperario}</span>
@@ -1983,7 +2049,7 @@ export default function VivaPage() {
                   <option value="">-- Seleccionar Operario --</option>
                   {listaOperarios.map((op) => (
                     <option key={op.id} value={op.id}>
-                      👤 {op.nombre}
+                      👤 {op.nombre_completo || op.nombre}
                     </option>
                   ))}
                 </select>

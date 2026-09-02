@@ -8,6 +8,7 @@ import {
   validarAccesoEmpleado,
   registrarInicioTurno,
   actualizarCodigoAcceso,
+  verificarTurnoActivoUsuario, // 👈 Función sugerida para verificar si ya está en otra sede
   SedeInfo,
   UsuarioLoginInfo,
 } from '@/lib/loginQueries';
@@ -159,6 +160,23 @@ export default function LoginPage() {
         setErrorMensaje('⛔ Un usuario Operador solo tiene acceso a Puntos de Venta.');
         setCargando(false);
         return;
+      }
+
+      // 🛑 VALIDACIÓN NUEVA: Verificar si el operario ya tiene un turno abierto en OTRA sede
+      if (sedeCodigo !== 'admin') {
+        try {
+          const turnoActivoOtro = typeof verificarTurnoActivoUsuario === 'function' 
+            ? await verificarTurnoActivoUsuario(usuarioId, sedeId) 
+            : null;
+
+          if (turnoActivoOtro && turnoActivoOtro.tieneTurnoActivo) {
+            setErrorMensaje(`⛔ Ya tienes un turno activo en la sede "${turnoActivoOtro.nombreSede}". Cierra sesión o finaliza tu turno allá antes de ingresar a otra.`);
+            setCargando(false);
+            return;
+          }
+        } catch (errValidacion) {
+          console.warn('No se pudo verificar turno activo previo:', errValidacion);
+        }
       }
 
       if (sedeCodigo === 'admin') {

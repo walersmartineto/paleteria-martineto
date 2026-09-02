@@ -978,6 +978,7 @@ export default function CentroPage() {
         turno: turnoNormalizado,
       };
 
+      // Se guarda la sesión directa del nuevo operario
       localStorage.setItem('martineto_session', JSON.stringify(nuevaSesion));
       setSesion(nuevaSesion);
 
@@ -985,6 +986,7 @@ export default function CentroPage() {
       setClaveOperarioEntrante('');
       setOperarioEntranteId('');
 
+      // Limpia campos del formulario para el nuevo operario sin sacarte de la app
       limpiarHorasDia();
       limpiarHorasNoche();
       limpiarEfSistema();

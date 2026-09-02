@@ -66,6 +66,7 @@ export default function AdminPage() {
   const [inventarioMovimientos, setInventarioMovimientos] = useState<any[]>([]);
   const [inventarioMovsDia, setInventarioMovsDia] = useState<any[]>([]);
   const [inventarioEmpaquesSedesBD, setInventarioEmpaquesSedesBD] = useState<any[]>([]);
+  const [empaquesMartinetoBD, setEmpaquesMartinetoBD] = useState<any[]>([]);
   const [historicoVentasBD, setHistoricoVentasBD] = useState<any[]>([]);
   const [historicoVentas30DiasBD, setHistoricoVentas30DiasBD] = useState<any[]>([]);
   const [cargando, setCargando] = useState<boolean>(true);
@@ -215,6 +216,7 @@ export default function AdminPage() {
       setInventarioMovsDia(invDiarioRaw || []);
 
       const { data: empaquesSedesData } = await supabase.from('inventario_empaques_sedes').select('*');
+      const { data: empaquesMartinetoData } = await supabase.from('empaques_martineto').select('*');
 
       setPedidos(pedidosData);
       setPedidos30Dias(pedidos30DiasFiltrado);
@@ -223,6 +225,7 @@ export default function AdminPage() {
       setRegistrosNomina(nominaData);
       setInventarioMovimientos(diffDataFiltrado);
       setInventarioEmpaquesSedesBD(empaquesSedesData || []);
+      setEmpaquesMartinetoBD(empaquesMartinetoData || []);
       setHistoricoVentasBD(historicoVentasFiltrado);
       setHistoricoVentas30DiasBD(historicoVentas30DiasFiltrado);
       setItemsChequeados({});
@@ -714,37 +717,28 @@ export default function AdminPage() {
       const ultimoRegistroPaletas = movimientosSede.find(m => m.total_paletas !== undefined && m.total_paletas !== null);
       const totalPaletasBD = ultimoRegistroPaletas ? Number(ultimoRegistroPaletas.total_paletas || 0) : 0;
 
-      const registrosSedeEmpaques = inventarioEmpaquesSedesBD.filter(item => Number(item.sede_id) === idSede);
       const detalleEmpaques: { [k: string]: number } = {};
+      const esMartineto = nombreSede.toLowerCase().includes('martineto');
 
-      if (registrosSedeEmpaques.length > 0) {
-        registrosSedeEmpaques.forEach(item => {
-          const nombreItem = String(item.nombre || '').trim();
-          const stockVal = Number(item.stock || 0);
-
-          if (nombreItem.toLowerCase() !== 'total paletas') {
+      if (esMartineto) {
+        empaquesMartinetoBD.forEach(item => {
+          const nombreItem = String(item.nombre || item.producto || '').trim();
+          const stockVal = Number(item.stok ?? item.stock ?? 0);
+          if (nombreItem) {
             detalleEmpaques[nombreItem] = stockVal;
           }
         });
       } else {
-        movimientosSede.forEach(reg => {
-          const tipo = String(reg.tipo_movimiento || '').toLowerCase().trim();
-          let factor = 0;
-          if (tipo === 'apertura' || tipo === 'nuevo' || tipo === 'nuevas' || tipo === 'compradas' || tipo === 'compra') factor = 1;
-          else if (tipo === 'de_baja' || tipo === 'baja' || tipo === 'debaja') factor = -1;
+        const registrosSedeEmpaques = inventarioEmpaquesSedesBD.filter(item => Number(item.sede_id) === idSede);
+        registrosSedeEmpaques.forEach(item => {
+          const nombreItem = String(item.nombre || item.producto || '').trim();
+          const stockVal = Number(item.stok ?? item.stock ?? 0);
 
-          if (factor !== 0) {
-            const dEmpaques = reg.detalle_empaques || reg.detalle_paletas || {};
-            Object.entries(dEmpaques).forEach(([k, v]) => {
-              detalleEmpaques[k] = (detalleEmpaques[k] || 0) + (Number(v) || 0) * factor;
-            });
+          if (nombreItem && nombreItem.toLowerCase() !== 'total paletas') {
+            detalleEmpaques[nombreItem] = stockVal;
           }
         });
       }
-
-      Object.keys(detalleEmpaques).forEach(k => {
-        if (detalleEmpaques[k] === 0) delete detalleEmpaques[k];
-      });
 
       mapa[nombreSede] = {
         totalPaletas: totalPaletasBD,
@@ -856,30 +850,23 @@ export default function AdminPage() {
       });
 
       const stockActualSede: { [prod: string]: number } = {};
-      const movsSede = inventarioMovsDia
-        .filter(m => Number(m.sede_id) === idSede)
-        .sort((a, b) => new Date(a.fecha_registro).getTime() - new Date(b.fecha_registro).getTime());
+      const esMartineto = nombreSede.toLowerCase().includes('martineto');
 
-      movsSede.forEach(reg => {
-        const tipo = String(reg.tipo_movimiento || '').toLowerCase().trim();
-        let factor = 0;
-        if (tipo === 'apertura' || tipo === 'nuevo' || tipo === 'nuevas' || tipo === 'compradas' || tipo === 'compra') factor = 1;
-        else if (tipo === 'de_baja' || tipo === 'baja' || tipo === 'debaja') factor = -1;
-
-        if (factor !== 0) {
-          const combinados = { ...(reg.detalle_empaques || {}), ...(reg.detalle_paletas || {}) };
-          Object.entries(combinados).forEach(([k, v]) => {
-            stockActualSede[k] = (stockActualSede[k] || 0) + (Number(v) || 0) * factor;
-          });
-        }
-      });
-
-      inventarioEmpaquesSedesBD.filter(e => Number(e.sede_id) === idSede).forEach(e => {
-        const pNombre = String(e.nombre || '').trim();
-        if (pNombre.toLowerCase() !== 'total paletas') {
-          stockActualSede[pNombre] = Number(e.stock || 0);
-        }
-      });
+      if (esMartineto) {
+        empaquesMartinetoBD.forEach(e => {
+          const pNombre = String(e.nombre || e.producto || '').trim();
+          if (pNombre) {
+            stockActualSede[pNombre] = Number(e.stok ?? e.stock ?? 0);
+          }
+        });
+      } else {
+        inventarioEmpaquesSedesBD.filter(e => Number(e.sede_id) === idSede).forEach(e => {
+          const pNombre = String(e.nombre || e.producto || '').trim();
+          if (pNombre && pNombre.toLowerCase() !== 'total paletas') {
+            stockActualSede[pNombre] = Number(e.stok ?? e.stock ?? 0);
+          }
+        });
+      }
 
       const pedidosEnCaminoSede: { [prod: string]: number } = {};
       pedidosPendientesGlobal.filter(p => Number(p.sede_id) === idSede).forEach(p => {

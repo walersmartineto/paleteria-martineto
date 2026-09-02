@@ -70,7 +70,37 @@ export async function validarAccesoEmpleado(usuarioId: number, codigoAcceso: str
   }
 }
 
-// 4. Iniciar turno de trabajo en la sede (Soporta ambos órdenes de parámetros)
+// 4. Verificar si el operario ya tiene un turno activo en otra sede
+export async function verificarTurnoActivoUsuario(usuarioId: number, sedeActualId: number) {
+  try {
+    const { data, error } = await supabase
+      .from('turno_trabajo')
+      .select('id, sede_id, sede:sede_id(nombre)')
+      .eq('usuario_id', usuarioId)
+      .is('hora_salida', null); // Busca turnos que aún no han sido cerrados
+
+    if (error) {
+      console.error('Error al verificar turno activo:', error);
+      return { tieneTurnoActivo: false };
+    }
+
+    if (data && data.length > 0) {
+      const turnoEnOtraSede = data.find((t: any) => Number(t.sede_id) !== Number(sedeActualId));
+      
+      if (turnoEnOtraSede) {
+        const nombreSede = (turnoEnOtraSede.sede as any)?.nombre || 'otra sede';
+        return { tieneTurnoActivo: true, nombreSede };
+      }
+    }
+
+    return { tieneTurnoActivo: false };
+  } catch (err) {
+    console.error('Excepción al verificar turno activo:', err);
+    return { tieneTurnoActivo: false };
+  }
+}
+
+// 5. Iniciar turno de trabajo en la sede (Soporta ambos órdenes de parámetros)
 export async function registrarInicioTurno(
   arg1: number,
   arg2: number | string,
