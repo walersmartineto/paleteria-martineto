@@ -70,14 +70,14 @@ export async function validarAccesoEmpleado(usuarioId: number, codigoAcceso: str
   }
 }
 
-// 4. Verificar si el operario ya tiene un turno activo en otra sede
+// 4. Verificar si el operario ya tiene un turno activo en OTRA sede
 export async function verificarTurnoActivoUsuario(usuarioId: number, sedeActualId: number) {
   try {
     const { data, error } = await supabase
       .from('turno_trabajo')
       .select('id, sede_id, sede:sede_id(nombre)')
       .eq('usuario_id', usuarioId)
-      .is('hora_salida', null); // Busca turnos que aún no han sido cerrados
+      .is('hora_salida', null); // Busca turnos activos sin hora de salida
 
     if (error) {
       console.error('Error al verificar turno activo:', error);
@@ -85,11 +85,17 @@ export async function verificarTurnoActivoUsuario(usuarioId: number, sedeActualI
     }
 
     if (data && data.length > 0) {
+      // Filtrar turnos activos que NO sean de la sede a la que el usuario quiere ingresar
       const turnoEnOtraSede = data.find((t: any) => Number(t.sede_id) !== Number(sedeActualId));
       
       if (turnoEnOtraSede) {
         const nombreSede = (turnoEnOtraSede.sede as any)?.nombre || 'otra sede';
-        return { tieneTurnoActivo: true, nombreSede };
+        return { 
+          tieneTurnoActivo: true, 
+          sedeId: turnoEnOtraSede.sede_id, 
+          sede_id: turnoEnOtraSede.sede_id, 
+          nombreSede 
+        };
       }
     }
 
@@ -118,7 +124,7 @@ export async function registrarInicioTurno(
       sedeId = Number(arg3) || 2;
     } else {
       sedeId = arg1;
-      usuarioId = arg2;
+      usuarioId = Number(arg2);
       tipoTurno = arg3 || 'manana_apertura';
     }
 
@@ -147,7 +153,7 @@ export async function registrarInicioTurno(
   }
 }
 
-// Actualizar contraseña/PIN de usuario
+// 6. Actualizar contraseña/PIN de usuario
 export async function actualizarCodigoAcceso(usuarioId: number, codigoActual: string, codigoNuevo: string): Promise<{ exito: boolean; mensaje: string }> {
   try {
     // 1. Validar que la clave actual sea correcta

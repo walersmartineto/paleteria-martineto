@@ -162,14 +162,23 @@ export default function LoginPage() {
         return;
       }
 
-      // 🛑 VALIDACIÓN: Verificar turno activo previo ÚNICAMENTE si el usuario es de tipo 'operador'
+      // 🛑 VALIDACIÓN CORREGIDA DE TURNO ACTIVO
       if (tipoUsuario === 'operador' && sedeCodigo !== 'admin') {
         try {
           const turnoActivoOtro = typeof verificarTurnoActivoUsuario === 'function' 
             ? await verificarTurnoActivoUsuario(usuarioId, sedeId) 
             : null;
 
-          if (turnoActivoOtro && turnoActivoOtro.tieneTurnoActivo) {
+          // Extraer la sede que tiene activa el usuario
+          const idSedeActiva = turnoActivoOtro?.sedeId || turnoActivoOtro?.sede_id;
+
+          // Solo bloquea si tiene un turno activo en OTRA sede (distinta a la que seleccionó)
+          if (
+            turnoActivoOtro && 
+            turnoActivoOtro.tieneTurnoActivo && 
+            idSedeActiva &&
+            Number(idSedeActiva) !== Number(sedeId)
+          ) {
             setErrorMensaje(`⛔ Ya tienes un turno activo en la sede "${turnoActivoOtro.nombreSede}". Cierra sesión o finaliza tu turno allá antes de ingresar a otra.`);
             setCargando(false);
             return;
