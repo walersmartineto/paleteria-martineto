@@ -13,6 +13,18 @@ export interface UsuarioLoginInfo {
   tipo_usuario: string;
 }
 
+// Función auxiliar para obtener el inicio del día de hoy (00:00:00) en formato ISO para Colombia
+const obtenerInicioDiaColombiaISO = () => {
+  const fechaHoraLocal = new Date().toLocaleString("en-US", {
+    timeZone: "America/Bogota",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  });
+  const [month, day, year] = fechaHoraLocal.split('/');
+  return `${year}-${month}-${day}T00:00:00.000Z`;
+};
+
 // 1. Obtener la lista de sedes activas (ORDENADO ALFABÉTICAMENTE A-Z)
 export async function obtenerSedes(): Promise<SedeInfo[]> {
   try {
@@ -20,7 +32,7 @@ export async function obtenerSedes(): Promise<SedeInfo[]> {
       .from('sede')
       .select('id, nombre, codigo, descripcion')
       .eq('activo', true)
-      .order('nombre', { ascending: true }); // <--- Orden alfabético A-Z por nombre
+      .order('nombre', { ascending: true });
 
     if (error || !data) return [];
     return data;
@@ -37,7 +49,7 @@ export async function obtenerUsuariosOperadores(): Promise<UsuarioLoginInfo[]> {
       .from('usuario')
       .select('id, nombre_completo, tipo_usuario')
       .eq('activo', true)
-      .order('nombre_completo', { ascending: true }); // <--- Orden alfabético A-Z por nombre_completo
+      .order('nombre_completo', { ascending: true });
 
     if (error || !data) return [];
     return data;
@@ -70,13 +82,16 @@ export async function validarAccesoEmpleado(usuarioId: number, codigoAcceso: str
   }
 }
 
-// 4. Verificar si el operario ya tiene un turno activo en OTRA sede
+// 4. Verificar si el operario ya tiene un turno activo en OTRA sede SOLO HOY
 export async function verificarTurnoActivoUsuario(usuarioId: number, sedeActualId: number) {
   try {
+    const inicioHoyISO = obtenerInicioDiaColombiaISO();
+
     const { data, error } = await supabase
       .from('turno_trabajo')
-      .select('id, sede_id, sede:sede_id(nombre)')
+      .select('id, sede_id, hora_entrada, sede:sede_id(nombre)')
       .eq('usuario_id', usuarioId)
+      .gte('hora_entrada', inicioHoyISO) // 👈 Evalúa únicamente turnos creados hoy
       .is('hora_salida', null); // Busca turnos activos sin hora de salida
 
     if (error) {
@@ -85,7 +100,7 @@ export async function verificarTurnoActivoUsuario(usuarioId: number, sedeActualI
     }
 
     if (data && data.length > 0) {
-      // Filtrar turnos activos que NO sean de la sede a la que el usuario quiere ingresar
+      // Filtrar si el turno abierto de hoy pertenece a OTRA sede distinta a la seleccionada
       const turnoEnOtraSede = data.find((t: any) => Number(t.sede_id) !== Number(sedeActualId));
       
       if (turnoEnOtraSede) {
@@ -117,7 +132,6 @@ export async function registrarInicioTurno(
     let usuarioId: number;
     let tipoTurno: string;
 
-    // Adaptador para compatibilidad de orden de parámetros (sedeId, usuarioId, tipoTurno) o (usuarioId, sedeId, tipoTurno)
     if (typeof arg2 === 'string') {
       usuarioId = arg1;
       tipoTurno = arg2;
@@ -156,7 +170,6 @@ export async function registrarInicioTurno(
 // 6. Actualizar contraseña/PIN de usuario
 export async function actualizarCodigoAcceso(usuarioId: number, codigoActual: string, codigoNuevo: string): Promise<{ exito: boolean; mensaje: string }> {
   try {
-    // 1. Validar que la clave actual sea correcta
     const { data: usuario, error: errVal } = await supabase
       .from('usuario')
       .select('id, codigo_acceso')
@@ -171,7 +184,6 @@ export async function actualizarCodigoAcceso(usuarioId: number, codigoActual: st
       return { exito: false, mensaje: 'La clave actual es incorrecta.' };
     }
 
-    // 2. Actualizar con la nueva clave
     const { error: errUpdate } = await supabase
       .from('usuario')
       .update({ codigo_acceso: codigoNuevo })
