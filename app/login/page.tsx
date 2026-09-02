@@ -8,7 +8,7 @@ import {
   validarAccesoEmpleado,
   registrarInicioTurno,
   actualizarCodigoAcceso,
-  verificarTurnoActivoUsuario, // 👈 Función sugerida para verificar si ya está en otra sede
+  verificarTurnoActivoUsuario,
   SedeInfo,
   UsuarioLoginInfo,
 } from '@/lib/loginQueries';
@@ -162,8 +162,8 @@ export default function LoginPage() {
         return;
       }
 
-      // 🛑 VALIDACIÓN NUEVA: Verificar si el operario ya tiene un turno abierto en OTRA sede
-      if (sedeCodigo !== 'admin') {
+      // 🛑 VALIDACIÓN: Verificar turno activo previo ÚNICAMENTE si el usuario es de tipo 'operador'
+      if (tipoUsuario === 'operador' && sedeCodigo !== 'admin') {
         try {
           const turnoActivoOtro = typeof verificarTurnoActivoUsuario === 'function' 
             ? await verificarTurnoActivoUsuario(usuarioId, sedeId) 
