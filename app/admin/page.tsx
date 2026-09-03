@@ -84,7 +84,6 @@ export default function AdminPage() {
   const [acordeonesVentasAbanico, setAcordeonesVentasAbanico] = useState<{ [key: string]: boolean }>({});
   const [acordeonesRappi, setAcordeonesRappi] = useState<{ [key: string]: boolean }>({ global: true });
   
-  const [acordeonProyeccionMain, setAcordeonProyeccionMain] = useState<boolean>(true);
   const [acordeonesProyeccionSedes, setAcordeonesProyeccionSedes] = useState<{ [key: string]: boolean }>({});
 
   useEffect(() => {
@@ -1339,82 +1338,6 @@ export default function AdminPage() {
                         </div>
                       )}
                     </div>
-
-                    <div className="bg-[#0b2b48] border border-teal-500/50 rounded-xl overflow-hidden shadow-sm">
-                      <button 
-                        onClick={() => setAcordeonProyeccionMain(prev => !prev)}
-                        className="w-full p-3 bg-teal-950/40 border-b border-teal-500/30 flex justify-between items-center text-left cursor-pointer"
-                      >
-                        <div>
-                          <span className="text-[11px] font-black text-teal-300 uppercase block">
-                            {acordeonProyeccionMain ? '👁️‍🗨️' : '👁️'} 📦 Proyección de Demanda e Insumos
-                          </span>
-                          <span className="text-[9px] text-teal-200 italic">Sugerido Neto = Demanda (30d) - Stock Actual - Pedidos en Camino</span>
-                        </div>
-                        <span className="text-[10px] bg-[#031d35] px-2 py-0.5 rounded text-teal-300 border border-teal-500/40 font-bold">
-                          {Object.keys(proyeccionDemandaTodasSedes).length} Sedes
-                        </span>
-                      </button>
-
-                      {acordeonProyeccionMain && (
-                        <div className="p-3 space-y-2 bg-[#031d35]/60 text-xs border-t border-teal-500/20">
-                          {Object.keys(proyeccionDemandaTodasSedes).length === 0 ? (
-                            <p className="text-center text-[11px] text-sky-300 py-2">No hay suficientes datos registrados en los últimos 30 días para proyectar.</p>
-                          ) : (
-                            Object.entries(proyeccionDemandaTodasSedes).map(([nombreSede, infoSede], idx) => {
-                              const abiertoProySede = !!acordeonesProyeccionSedes[nombreSede];
-                              const cantProds = Object.keys(infoSede.sugeridos).length;
-
-                              return (
-                                <div key={idx} className="bg-[#0b2b48] border border-[#0066b3] rounded-xl overflow-hidden">
-                                  <button 
-                                    onClick={() => setAcordeonesProyeccionSedes(prev => ({ ...prev, [nombreSede]: !abiertoProySede }))}
-                                    className="w-full p-2.5 flex justify-between items-center text-xs font-bold text-white uppercase cursor-pointer"
-                                  >
-                                    <span className="flex items-center gap-2">
-                                      <span>{abiertoProySede ? '👁️‍🗨️' : '👁️'}</span> 📍 {nombreSede}
-                                    </span>
-                                    <span className="text-[9px] bg-[#031d35] text-teal-300 px-2 py-0.5 rounded border border-teal-500/40">
-                                      {cantProds} Analizados ({infoSede.numDias}d base)
-                                    </span>
-                                  </button>
-
-                                  {abiertoProySede && (
-                                    <div className="p-2.5 pt-0 space-y-1.5 bg-[#031d35] border-t border-[#0066b3]/30">
-                                      <p className="text-[9px] text-sky-300 italic pt-1 border-b border-[#0066b3]/20 pb-1">
-                                        Origen: {infoSede.origenDatos}
-                                      </p>
-                                      {cantProds === 0 ? (
-                                        <p className="text-[10px] text-sky-400 italic py-1">Sin historial suficiente en los últimos 30 días.</p>
-                                      ) : (
-                                        <div className="space-y-2 max-h-56 overflow-y-auto pr-1 pt-1">
-                                          {Object.entries(infoSede.sugeridos).map(([prod, detalle], i) => (
-                                            <div key={i} className="bg-[#0b2b48] p-2 rounded-lg border border-[#0066b3]/40 space-y-1">
-                                              <div className="flex justify-between items-center text-white">
-                                                <span className="truncate font-bold text-[11px]">{prod}</span>
-                                                <span className={`font-black px-2 py-0.5 rounded text-[10px] border ${detalle.sugerido > 0 ? 'bg-emerald-950 text-emerald-300 border-emerald-500/50' : 'bg-[#031d35] text-sky-400 border-[#0066b3]'}`}>
-                                                  Pedir: x{detalle.sugerido}
-                                                </span>
-                                              </div>
-                                              <div className="grid grid-cols-3 gap-1 text-[9px] text-sky-200 bg-[#031d35] p-1.5 rounded">
-                                                <div><span className="text-sky-400 font-bold block">Meta (7d):</span> x{detalle.teorico}</div>
-                                                <div><span className="text-amber-300 font-bold block">Stock Cava:</span> x{detalle.stock}</div>
-                                                <div><span className="text-fuchsia-300 font-bold block">En Camino:</span> x{detalle.enCamino}</div>
-                                              </div>
-                                            </div>
-                                          ))}
-                                        </div>
-                                      )}
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })
-                          )}
-                        </div>
-                      )}
-                    </div>
-
                   </div>
                 )}
 
@@ -1458,14 +1381,89 @@ export default function AdminPage() {
             )}
           </div>
 
-          {/* MÓDULO 2: CIERRES DE CAJA Y DESCUADRES */}
+          {/* MÓDULO 2: PROYECCIÓN DE DEMANDA E INSUMOS (COMPLETAMENTE INDEPENDIENTE) */}
+          <div className="border border-[#0066b3] bg-[#0b2b48] rounded-2xl overflow-hidden shadow-lg">
+            <button 
+              onClick={() => toggleModulo('proyeccion')}
+              className="w-full p-4 flex justify-between items-center text-xs font-black uppercase text-teal-300 bg-[#0b2b48] cursor-pointer"
+            >
+              <span className="flex items-center gap-2">
+                <span>{moduloAbierto === 'proyeccion' ? '▼' : '▶'}</span> 📦 2. PROYECCIÓN DE DEMANDA E INSUMOS
+              </span>
+              <span className="bg-[#031d35] text-teal-300 font-bold text-[10px] px-2 py-0.5 rounded border border-[#0066b3]">
+                {Object.keys(proyeccionDemandaTodasSedes).length} Sedes
+              </span>
+            </button>
+
+            {moduloAbierto === 'proyeccion' && (
+              <div className="p-3 space-y-2 bg-[#031d35]/60 text-xs border-t border-[#0066b3]/30">
+                <p className="text-[9px] text-teal-200 italic mb-2">Sugerido Neto = Demanda (30d) - Stock Actual - Pedidos en Camino</p>
+                
+                {Object.keys(proyeccionDemandaTodasSedes).length === 0 ? (
+                  <p className="text-center text-[11px] text-sky-300 py-4">No hay suficientes datos registrados en los últimos 30 días para proyectar.</p>
+                ) : (
+                  Object.entries(proyeccionDemandaTodasSedes).map(([nombreSede, infoSede], idx) => {
+                    const abiertoProySede = !!acordeonesProyeccionSedes[nombreSede];
+                    const cantProds = Object.keys(infoSede.sugeridos).length;
+
+                    return (
+                      <div key={idx} className="bg-[#0b2b48] border border-[#0066b3] rounded-xl overflow-hidden">
+                        <button 
+                          onClick={() => setAcordeonesProyeccionSedes(prev => ({ ...prev, [nombreSede]: !abiertoProySede }))}
+                          className="w-full p-2.5 flex justify-between items-center text-xs font-bold text-white uppercase cursor-pointer"
+                        >
+                          <span className="flex items-center gap-2">
+                            <span>{abiertoProySede ? '👁️‍🗨️' : '👁️'}</span> 📍 {nombreSede}
+                          </span>
+                          <span className="text-[9px] bg-[#031d35] text-teal-300 px-2 py-0.5 rounded border border-teal-500/40">
+                            {cantProds} Analizados ({infoSede.numDias}d base)
+                          </span>
+                        </button>
+
+                        {abiertoProySede && (
+                          <div className="p-2.5 pt-0 space-y-1.5 bg-[#031d35] border-t border-[#0066b3]/30">
+                            <p className="text-[9px] text-sky-300 italic pt-1 border-b border-[#0066b3]/20 pb-1">
+                              Origen: {infoSede.origenDatos}
+                            </p>
+                            {cantProds === 0 ? (
+                              <p className="text-[10px] text-sky-400 italic py-1">Sin historial suficiente en los últimos 30 días.</p>
+                            ) : (
+                              <div className="space-y-2 max-h-56 overflow-y-auto pr-1 pt-1">
+                                {Object.entries(infoSede.sugeridos).map(([prod, detalle], i) => (
+                                  <div key={i} className="bg-[#0b2b48] p-2 rounded-lg border border-[#0066b3]/40 space-y-1">
+                                    <div className="flex justify-between items-center text-white">
+                                      <span className="truncate font-bold text-[11px]">{prod}</span>
+                                      <span className={`font-black px-2 py-0.5 rounded text-[10px] border ${detalle.sugerido > 0 ? 'bg-emerald-950 text-emerald-300 border-emerald-500/50' : 'bg-[#031d35] text-sky-400 border-[#0066b3]'}`}>
+                                        Pedir: x{detalle.sugerido}
+                                      </span>
+                                    </div>
+                                    <div className="grid grid-cols-3 gap-1 text-[9px] text-sky-200 bg-[#031d35] p-1.5 rounded">
+                                      <div><span className="text-sky-400 font-bold block">Meta (7d):</span> x{detalle.teorico}</div>
+                                      <div><span className="text-amber-300 font-bold block">Stock Cava:</span> x{detalle.stock}</div>
+                                      <div><span className="text-fuchsia-300 font-bold block">En Camino:</span> x{detalle.enCamino}</div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* MÓDULO 3: CIERRES DE CAJA Y DESCUADRES */}
           <div className="border border-[#0066b3] bg-[#0b2b48] rounded-2xl overflow-hidden shadow-lg">
             <button 
               onClick={() => toggleModulo('cierres')}
               className="w-full p-4 flex justify-between items-center text-xs font-black uppercase text-emerald-300 bg-[#0b2b48] cursor-pointer"
             >
               <span className="flex items-center gap-2">
-                <span>{moduloAbierto === 'cierres' ? '▼' : '▶'}</span> 💰 2. CIERRES DE CAJA Y DESCUADRES
+                <span>{moduloAbierto === 'cierres' ? '▼' : '▶'}</span> 💰 3. CIERRES DE CAJA Y DESCUADRES
               </span>
               <span className="bg-[#031d35] text-emerald-300 font-bold text-[10px] px-2 py-0.5 rounded border border-[#0066b3]">
                 ${CierreGlobal.ventaNeto.toLocaleString()}
@@ -1726,14 +1724,14 @@ export default function AdminPage() {
             )}
           </div>
 
-          {/* MÓDULO 3: INVENTARIOS Y STOCK GENERAL */}
+          {/* MÓDULO 4: INVENTARIOS Y STOCK GENERAL */}
           <div className="border border-[#0066b3] bg-[#0b2b48] rounded-2xl overflow-hidden shadow-lg">
             <button 
               onClick={() => toggleModulo('inventarios')}
               className="w-full p-4 flex justify-between items-center text-xs font-black uppercase text-sky-300 bg-[#0b2b48] cursor-pointer"
             >
               <span className="flex items-center gap-2">
-                <span>{moduloAbierto === 'inventarios' ? '▼' : '▶'}</span> 📦 3. INVENTARIOS Y STOCK GENERAL
+                <span>{moduloAbierto === 'inventarios' ? '▼' : '▶'}</span> 📦 4. INVENTARIOS Y STOCK GENERAL
               </span>
               <span className="bg-[#031d35] text-sky-200 text-[10px] px-2 py-0.5 rounded border border-[#0066b3]">
                 {Object.keys(inventarioStockGeneralPorSede).length} Sedes
@@ -1796,14 +1794,14 @@ export default function AdminPage() {
             )}
           </div>
 
-          {/* MÓDULO 4: NÓMINA Y REGISTRO DE TURNOS */}
+          {/* MÓDULO 5: NÓMINA Y REGISTRO DE TURNOS */}
           <div className="border border-[#0066b3] bg-[#0b2b48] rounded-2xl overflow-hidden shadow-lg">
             <button 
               onClick={() => toggleModulo('modulo_nomina')}
               className="w-full p-4 flex justify-between items-center text-xs font-black uppercase text-fuchsia-300 bg-[#0b2b48] cursor-pointer"
             >
               <span className="flex items-center gap-2">
-                <span>{moduloAbierto === 'modulo_nomina' ? '▼' : '▶'}</span> 👥 4. NÓMINA Y REGISTRO DE TURNOS
+                <span>{moduloAbierto === 'modulo_nomina' ? '▼' : '▶'}</span> 👥 5. NÓMINA Y REGISTRO DE TURNOS
               </span>
               <span className="bg-[#031d35] text-fuchsia-300 font-bold text-[10px] px-2 py-0.5 rounded border border-[#0066b3]">
                 {resumenNominaOperarios.length} Operarios
@@ -1850,14 +1848,14 @@ export default function AdminPage() {
             )}
           </div>
 
-          {/* MÓDULO 5: VENTAS Y MIX DE SABORES */}
+          {/* MÓDULO 6: VENTAS Y MIX DE SABORES */}
           <div className="border border-[#0066b3] bg-[#0b2b48] rounded-2xl overflow-hidden shadow-lg">
             <button 
               onClick={() => toggleModulo('ventas_abanico')}
               className="w-full p-4 flex justify-between items-center text-xs font-black uppercase text-cyan-300 bg-[#0b2b48] cursor-pointer"
             >
               <span className="flex items-center gap-2">
-                <span>{moduloAbierto === 'ventas_abanico' ? '▼' : '▶'}</span> 📊 5. VENTAS Y MIX DE SABORES
+                <span>{moduloAbierto === 'ventas_abanico' ? '▼' : '▶'}</span> 📊 6. VENTAS Y MIX DE SABORES
               </span>
               <span className="bg-[#031d35] text-cyan-300 font-bold text-[10px] px-2 py-0.5 rounded border border-[#0066b3]">
                 {Object.keys(ventasAbanicoPorSede).length} Sedes
@@ -1945,14 +1943,14 @@ export default function AdminPage() {
             )}
           </div>
 
-          {/* MÓDULO 6: INTELIGENCIA DE NEGOCIO (BI) */}
+          {/* MÓDULO 7: INTELIGENCIA DE NEGOCIO (BI) */}
           <div className="border border-[#0066b3] bg-[#0b2b48] rounded-2xl overflow-hidden shadow-lg">
             <button 
               onClick={() => toggleModulo('bi')}
               className="w-full p-4 flex justify-between items-center text-xs font-black uppercase text-amber-300 bg-[#0b2b48] cursor-pointer"
             >
               <span className="flex items-center gap-2">
-                <span>{moduloAbierto === 'bi' ? '▼' : '▶'}</span> 🧠 6. INTELIGENCIA DE NEGOCIO (BI)
+                <span>{moduloAbierto === 'bi' ? '▼' : '▶'}</span> 🧠 7. INTELIGENCIA DE NEGOCIO (BI)
               </span>
               <span className="bg-[#031d35] text-amber-300 font-bold text-[10px] px-2 py-0.5 rounded border border-[#0066b3]">
                 Analítica Avanzada
@@ -2110,14 +2108,14 @@ export default function AdminPage() {
             )}
           </div>
 
-          {/* MÓDULO 7: RAPPI Y DESCUENTOS */}
+          {/* MÓDULO 8: RAPPI Y DESCUENTOS */}
           <div className="border border-[#0066b3] bg-[#0b2b48] rounded-2xl overflow-hidden shadow-lg">
             <button 
               onClick={() => toggleModulo('rappi')}
               className="w-full p-4 flex justify-between items-center text-xs font-black uppercase text-orange-300 bg-[#0b2b48] cursor-pointer"
             >
               <span className="flex items-center gap-2">
-                <span>{moduloAbierto === 'rappi' ? '▼' : '▶'}</span> 🛵 7. RAPPI Y DESCUENTOS
+                <span>{moduloAbierto === 'rappi' ? '▼' : '▶'}</span> 🛵 8. RAPPI Y DESCUENTOS
               </span>
               <span className="bg-[#031d35] text-orange-300 font-bold text-[10px] px-2 py-0.5 rounded border border-[#0066b3]">
                 Rappi: ${rappiYDescuentosData.totalRappiGlobal.toLocaleString()}
@@ -2193,14 +2191,14 @@ export default function AdminPage() {
             )}
           </div>
 
-          {/* MÓDULO 8: COMPARATIVO DE MÉTODOS DE PAGO */}
+          {/* MÓDULO 9: COMPARATIVO DE MÉTODOS DE PAGO */}
           <div className="border border-[#0066b3] bg-[#0b2b48] rounded-2xl overflow-hidden shadow-lg">
             <button 
               onClick={() => toggleModulo('pagos')}
               className="w-full p-4 flex justify-between items-center text-xs font-black uppercase text-emerald-300 bg-[#0b2b48] cursor-pointer"
             >
               <span className="flex items-center gap-2">
-                <span>{moduloAbierto === 'pagos' ? '▼' : '▶'}</span> 💳 8. COMPARATIVO DE MÉTODOS DE PAGO
+                <span>{moduloAbierto === 'pagos' ? '▼' : '▶'}</span> 💳 9. COMPARATIVO DE MÉTODOS DE PAGO
               </span>
               <span className="bg-[#031d35] text-emerald-300 font-bold text-[10px] px-2 py-0.5 rounded border border-[#0066b3]">
                 Total: ${comparativoMetodosPago.totalGeneralPagos.toLocaleString()}
