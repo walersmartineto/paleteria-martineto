@@ -2113,7 +2113,11 @@ export default function MartinetoPOSPage() {
 
   const totalNominaDia = listaNominasDia.reduce((acc, n) => acc + Number(n.monto || 0), 0);
 
-  const cajaDisponibleCalculada = (Number(baseCaja) || 0) + totalEfectivoIngresado - sumaGastosTotal - totalNominaDia;
+  // Mapeos directos sin operaciones adicionales (tal como se solicitó)
+  const totalEfectivoRecibido = totalEfectivoIngresado;
+  const efectivoEsperadoEnCaja = (Number(baseCaja) || 0) + totalEfectivoRecibido;
+  const efectivoTotalNetoCierre = efectivoEsperadoEnCaja;
+  const cajaDisponibleCalculada = efectivoTotalNetoCierre;
 
   const listaAuditoriaInventario = LISTA_EMPAQUES_MARTINETO.map((nombreProd) => {
     let cantApertura = 0;
@@ -2350,7 +2354,7 @@ export default function MartinetoPOSPage() {
     }
 
     const efectFisico = Number(efectivoContadoCierre);
-    const efectEsperado = cajaDisponibleCalculada;
+    const efectEsperado = efectivoEsperadoEnCaja;
     const difCaja = efectFisico - efectEsperado;
 
     if (difCaja !== 0 && !motivoDescuadre.trim()) {
@@ -2374,7 +2378,7 @@ export default function MartinetoPOSPage() {
         .from('caja')
         .update({
           estado: 'cerrada',
-          efectivo_cierre: cajaDisponibleCalculada,
+          efectivo_cierre: efectivoTotalNetoCierre,
           efectivo_fisico: efectFisico,
           rappi: totalRappiRealizados,
           nequi: totalNequiIngresado,
@@ -4035,7 +4039,7 @@ export default function MartinetoPOSPage() {
                 </div>
                 <div className="flex justify-between">
                   <span>Total Efectivo Recibido (Ventas):</span>
-                  <b className="text-emerald-300">$ {totalEfectivoIngresado.toLocaleString('es-CO')}</b>
+                  <b className="text-emerald-300">$ {totalEfectivoRecibido.toLocaleString('es-CO')}</b>
                 </div>
                 <div className="flex justify-between">
                   <span>Total Gastos de Insumos:</span>
@@ -4047,7 +4051,7 @@ export default function MartinetoPOSPage() {
                 </div>
                 <div className="flex justify-between pt-1 border-t border-[#0066b3]/50 font-black">
                   <span>Efectivo Esperado en Caja:</span>
-                  <span className="text-emerald-400">$ {cajaDisponibleCalculada.toLocaleString('es-CO')}</span>
+                  <span className="text-emerald-400">$ {efectivoEsperadoEnCaja.toLocaleString('es-CO')}</span>
                 </div>
 
                 {listaNominasDia.length > 0 && (
@@ -4079,7 +4083,7 @@ export default function MartinetoPOSPage() {
 
                   {efectivoContadoCierre !== '' && (() => {
                     const efectFisico = Number(efectivoContadoCierre);
-                    const efectEsperado = cajaDisponibleCalculada;
+                    const efectEsperado = efectivoEsperadoEnCaja;
                     const dif = efectFisico - efectEsperado;
                     const hayDescuadre = dif !== 0;
 
