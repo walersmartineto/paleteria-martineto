@@ -2350,8 +2350,8 @@ export default function MartinetoPOSPage() {
     }
 
     const efectFisico = Number(efectivoContadoCierre);
-    const efectCierreVentas = totalEfectivoIngresado;
-    const difCaja = efectFisico - efectCierreVentas;
+    const efectEsperado = cajaDisponibleCalculada;
+    const difCaja = efectFisico - efectEsperado;
 
     if (difCaja !== 0 && !motivoDescuadre.trim()) {
       alert('⚠️ Existe un DESCUADRE DE CAJA. Debes ingresar obligatoriamente el motivo / explicación del descuadre.');
@@ -2374,7 +2374,7 @@ export default function MartinetoPOSPage() {
         .from('caja')
         .update({
           estado: 'cerrada',
-          efectivo_cierre: efectCierreVentas,
+          efectivo_cierre: cajaDisponibleCalculada,
           efectivo_fisico: efectFisico,
           rappi: totalRappiRealizados,
           nequi: totalNequiIngresado,
@@ -4079,14 +4079,21 @@ export default function MartinetoPOSPage() {
 
                   {efectivoContadoCierre !== '' && (() => {
                     const efectFisico = Number(efectivoContadoCierre);
-                    const efectCierreVentas = totalEfectivoIngresado;
-                    const dif = efectFisico - efectCierreVentas;
+                    const efectEsperado = cajaDisponibleCalculada;
+                    const dif = efectFisico - efectEsperado;
                     const hayDescuadre = dif !== 0;
+
+                    let mensajeDiferencia = '';
+                    if (dif > 0) {
+                      mensajeDiferencia = `⚠️ SOBRANTE DE CAJA: El efectivo físico en caja ($ ${efectFisico.toLocaleString('es-CO')}) es MAYOR al esperado ($ ${efectEsperado.toLocaleString('es-CO')}) por $ ${Math.abs(dif).toLocaleString('es-CO')}`;
+                    } else if (dif < 0) {
+                      mensajeDiferencia = `⚠️ FALTANTE DE CAJA: El efectivo esperado ($ ${efectEsperado.toLocaleString('es-CO')}) es MAYOR al físico en caja ($ ${efectFisico.toLocaleString('es-CO')}) por $ ${Math.abs(dif).toLocaleString('es-CO')}`;
+                    }
 
                     return (
                       <div className="space-y-2 pt-1">
                         <p className={`text-xs font-black uppercase ${hayDescuadre ? 'text-rose-500' : 'text-emerald-300'}`}>
-                          {hayDescuadre ? `⚠️ DESCUADRE CAJA: $ ${dif.toLocaleString('es-CO')}` : `✓ CAJA CUADRADA EXCELENTE ($ 0)`}
+                          {hayDescuadre ? mensajeDiferencia : `✓ CAJA CUADRADA EXCELENTE ($ 0)`}
                         </p>
 
                         {hayDescuadre && (
