@@ -96,7 +96,7 @@ export default function VivaPage() {
   const [horasDia, setHorasDia, limpiarHorasDia] = useAutoSave<number | ''>('viva_horasDia', '');
   const [horasNoche, setHorasNoche, limpiarHorasNoche] = useAutoSave<number | ''>('viva_horasNoche', '');
   
-  // NUEVOS CAMPOS DE EFECTIVO SOLICITADOS
+  // CAMPOS DE EFECTIVO
   const [efectivoSistema, setEfectivoSistema, limpiarEfSistema] = useAutoSave<number | ''>('viva_efectivoSistema', '');
   const [efectivoFisico, setEfectivoFisico, limpiarEfFisico] = useAutoSave<number | ''>('viva_efectivoFisico', '');
   
@@ -988,12 +988,13 @@ export default function VivaPage() {
         }
       }
 
+      // CORRECCIÓN DE NOMBRES DE COLUMNA EN LA TABLA CAJA
       let queryCaja = supabase
         .from('caja')
         .update({
           estado: 'cerrada',
-          efectivo_cierre: efecFisicoInput,
-          efectivo_sistema: efecSistemaInput,
+          efectivo_cierre: efecSistemaInput,
+          efectivo_fisico: efecFisicoInput,
           nequi: nequiInput,
           daviplata: daviplataInput,
           monto_gasto: gast,
@@ -1680,7 +1681,7 @@ export default function VivaPage() {
                       placeholder="0" 
                       value={horasNoche} 
                       onChange={(e) => setHorasNoche(e.target.value === '' ? '' : Number(e.target.value))} 
-                      onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_efectivo_sistema')}
+                      onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_efectivo_fisico')}
                       onFocus={(e) => e.target.select()} 
                       className="w-full bg-[#0e385e] border border-[#0066b3] text-white font-bold text-center rounded-lg p-2 outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
                     />
@@ -1700,16 +1701,21 @@ export default function VivaPage() {
                 
                 <div className="grid grid-cols-2 gap-2 text-[10px]">
                   <div>
-                    <span className="text-sky-300 block mb-1 font-bold">💻 Efvo. según Sistema ($)</span>
+                    <span className={`block mb-1 font-bold ${esTurnoCierre ? 'text-sky-300' : 'text-slate-500'}`}>💻 Efvo. según Sistema ($)</span>
                     <input 
                       ref={(el) => { inputsRef.current['cierre_efectivo_sistema'] = el; }}
                       type="text" 
-                      placeholder="$ 0" 
-                      value={formatearMoneda(efectivoSistema)} 
+                      placeholder={esTurnoCierre ? "$ 0" : "N/A (Cambio Turno)"} 
+                      value={esTurnoCierre ? formatearMoneda(efectivoSistema) : ''} 
                       onChange={(e) => setEfectivoSistema(desformatearMoneda(e.target.value))} 
+                      disabled={!esTurnoCierre}
                       onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_efectivo_fisico')}
                       onFocus={(e) => e.target.select()} 
-                      className="w-full bg-[#0e385e] border border-[#0066b3] text-sky-200 font-bold text-center rounded-lg p-2 outline-none focus:border-sky-400" 
+                      className={`w-full border font-bold text-center rounded-lg p-2 outline-none ${
+                        esTurnoCierre 
+                          ? 'bg-[#0e385e] border-[#0066b3] text-sky-200 focus:border-sky-400' 
+                          : 'bg-[#051829] border-[#003d6d] text-slate-500 cursor-not-allowed'
+                      }`}
                     />
                   </div>
                   <div>
@@ -1720,7 +1726,7 @@ export default function VivaPage() {
                       placeholder="$ 0" 
                       value={formatearMoneda(efectivoFisico)} 
                       onChange={(e) => setEfectivoFisico(desformatearMoneda(e.target.value))} 
-                      onKeyDown={(e) => handleKeyDownCierre(e, esTurnoCierre ? 'cierre_nequi' : 'cierre_gastos')}
+                      onKeyDown={(e) => handleKeyDownCierre(e, esTurnoCierre ? 'cierre_nequi' : '')}
                       onFocus={(e) => e.target.select()} 
                       className="w-full bg-[#0e385e] border border-[#0066b3] text-emerald-300 font-bold text-center rounded-lg p-2 outline-none focus:border-emerald-400" 
                     />
@@ -1733,7 +1739,7 @@ export default function VivaPage() {
                     <input 
                       ref={(el) => { inputsRef.current['cierre_nequi'] = el; }}
                       type="text" 
-                      placeholder={esTurnoCierre ? "$ 0" : "N/A (Cierre)"} 
+                      placeholder={esTurnoCierre ? "$ 0" : "N/A (Cambio Turno)"} 
                       value={esTurnoCierre ? formatearMoneda(nequi) : ''} 
                       onChange={(e) => setNequi(desformatearMoneda(e.target.value))} 
                       disabled={!esTurnoCierre}
@@ -1751,7 +1757,7 @@ export default function VivaPage() {
                     <input 
                       ref={(el) => { inputsRef.current['cierre_daviplata'] = el; }}
                       type="text" 
-                      placeholder={esTurnoCierre ? "$ 0" : "N/A (Cierre)"} 
+                      placeholder={esTurnoCierre ? "$ 0" : "N/A (Cambio Turno)"} 
                       value={esTurnoCierre ? formatearMoneda(daviplata) : ''} 
                       onChange={(e) => setDaviplata(desformatearMoneda(e.target.value))} 
                       disabled={!esTurnoCierre}
@@ -1768,28 +1774,38 @@ export default function VivaPage() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[10px] pt-1">
                   <div>
-                    <span className="text-amber-300 block mb-1 font-bold">🧾 Total Gastos ($)</span>
+                    <span className={`block mb-1 font-bold ${esTurnoCierre ? 'text-amber-300' : 'text-slate-500'}`}>🧾 Total Gastos ($)</span>
                     <input 
                       ref={(el) => { inputsRef.current['cierre_gastos'] = el; }}
                       type="text" 
-                      placeholder="$ 0" 
-                      value={formatearMoneda(gastos)} 
+                      placeholder={esTurnoCierre ? "$ 0" : "N/A (Cambio Turno)"} 
+                      value={esTurnoCierre ? formatearMoneda(gastos) : ''} 
                       onChange={(e) => setGastos(desformatearMoneda(e.target.value))} 
+                      disabled={!esTurnoCierre}
                       onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_motivo_gasto')}
                       onFocus={(e) => e.target.select()} 
-                      className="w-full bg-[#0e385e] border border-[#0066b3] text-amber-300 font-bold text-center rounded-lg p-2 outline-none focus:border-amber-400" 
+                      className={`w-full border font-bold text-center rounded-lg p-2 outline-none ${
+                        esTurnoCierre
+                          ? 'bg-[#0e385e] border-[#0066b3] text-amber-300 focus:border-amber-400'
+                          : 'bg-[#051829] border-[#003d6d] text-slate-500 cursor-not-allowed'
+                      }`}
                     />
                   </div>
                   <div>
-                    <span className="text-sky-200 block mb-1 font-bold">📝 Motivo del Gasto</span>
+                    <span className={`block mb-1 font-bold ${esTurnoCierre ? 'text-sky-200' : 'text-slate-500'}`}>📝 Motivo del Gasto</span>
                     <input 
                       ref={(el) => { inputsRef.current['cierre_motivo_gasto'] = el; }}
                       type="text" 
-                      placeholder="Ej. Compra de hielo, bolsas..." 
-                      value={motivoGasto} 
+                      placeholder={esTurnoCierre ? "Ej. Compra de hielo, bolsas..." : "N/A (Cambio Turno)"} 
+                      value={esTurnoCierre ? motivoGasto : ''} 
                       onChange={(e) => setMotivoGasto(e.target.value)} 
+                      disabled={!esTurnoCierre}
                       onFocus={(e) => e.target.select()} 
-                      className="w-full bg-[#0e385e] border border-[#0066b3] text-white text-xs rounded-lg p-2 outline-none focus:border-[#00a4ef]" 
+                      className={`w-full border text-xs rounded-lg p-2 outline-none ${
+                        esTurnoCierre
+                          ? 'bg-[#0e385e] border-[#0066b3] text-white focus:border-[#00a4ef]'
+                          : 'bg-[#051829] border-[#003d6d] text-slate-500 cursor-not-allowed'
+                      }`}
                     />
                   </div>
                 </div>

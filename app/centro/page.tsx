@@ -82,7 +82,7 @@ export default function CentroPage() {
   const [horasDia, setHorasDia, limpiarHorasDia] = useAutoSave<number | ''>('centro_horasDia', '');
   const [horasNoche, setHorasNoche, limpiarHorasNoche] = useAutoSave<number | ''>('centro_horasNoche', '');
   
-  // NUEVOS CAMPOS DE EFECTIVO SOLICITADOS
+  // CAMPOS DE EFECTIVO
   const [efectivoSistema, setEfectivoSistema, limpiarEfSistema] = useAutoSave<number | ''>('centro_efectivoSistema', '');
   const [efectivoFisico, setEfectivoFisico, limpiarEfFisico] = useAutoSave<number | ''>('centro_efectivoFisico', '');
   
@@ -126,7 +126,6 @@ export default function CentroPage() {
     return cantidadesCount > 0 || tieneOtro;
   })();
 
-  // LÓGICA DINÁMICA DE CATEGORÍAS Y PRODUCTOS PARA LA SEDE 2
   const categoriasDinamicas = Array.from(
     new Set(
       productosInsumosBD
@@ -752,6 +751,7 @@ export default function CentroPage() {
     alert(`💸 Pago de Nómina de $ ${totalNomina.toLocaleString('es-CO')} registrado con éxito.`);
   }
 
+  // AL CAMBIAR DE TURNO: SOLO GUARDA VISUALMENTE Y ABRE MODAL DE ENTRANTE
   async function handleEjecutarCambioTurno() {
     if (efecFisicoInput <= 0) {
       alert('⚠️ Ingresa el efectivo físico contado que queda en caja para el turno siguiente.');
@@ -765,7 +765,7 @@ export default function CentroPage() {
     setEfectivoTurnoManana(efecFisicoInput);
     localStorage.setItem('martineto_efectivo_manana', efecFisicoInput.toString());
 
-    alert(`✅ ¡Arqueo de turno registrado con éxito!\n\nEfectivo físico dejado en caja: $ ${efecFisicoInput.toLocaleString('es-CO')}\n\nA continuación, ingresa el operario que recibe el turno.`);
+    alert(`✅ ¡Efectivo de cambio de turno registrado!\n\nEfectivo en caja: $ ${efecFisicoInput.toLocaleString('es-CO')}\n\nA continuación, ingresa el operario que recibe el turno.`);
     setMostrarModalCambioTurno(true);
   }
 
@@ -856,12 +856,13 @@ export default function CentroPage() {
         }
       }
 
+      // CIERRE DEFINITIVO DEL DÍA EN BD
       let queryCaja = supabase
         .from('caja')
         .update({
           estado: 'cerrada',
-          efectivo_cierre: efecFisicoInput,
-          efectivo_sistema: efecSistemaInput,
+          efectivo_cierre: efecSistemaInput,
+          efectivo_fisico: efecFisicoInput,
           nequi: nequiInput,
           daviplata: daviplataInput,
           monto_gasto: gast,
@@ -1211,7 +1212,6 @@ export default function CentroPage() {
 
             {mostrarModuloPedidos && (
               <div className="space-y-3 pt-1">
-                {/* BOTONES DE CATEGORÍAS OBTENIDOS DINÁMICAMENTE DE LA TABLA PRODUCTOS */}
                 <div className="flex flex-wrap gap-1.5 text-[10px]">
                   {categoriasDinamicas.length === 0 ? (
                     <span className="text-amber-200 italic">Cargando categorías...</span>
@@ -1233,7 +1233,6 @@ export default function CentroPage() {
                   )}
                 </div>
 
-                {/* LISTADO DINÁMICO DE PRODUCTOS DE LA CATEGORÍA SELECCIONADA */}
                 <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 border border-[#0066b3]/50 p-2.5 rounded-xl bg-[#051829]">
                   <span className="text-[10px] text-sky-300 font-bold uppercase block">
                     Productos en {categoriaPedido.toUpperCase()} (Sede 2):
@@ -1261,7 +1260,6 @@ export default function CentroPage() {
                   )}
                 </div>
 
-                {/* LISTADO DEL PEDIDO ACTUAL */}
                 <div className="bg-[#051829] border border-amber-400/40 p-3 rounded-xl space-y-2">
                   <span className="text-[10px] font-black text-amber-300 uppercase block border-b border-[#0066b3]/40 pb-1">
                     📋 Listado de Pedido Actual
@@ -1357,7 +1355,7 @@ export default function CentroPage() {
                       placeholder="0" 
                       value={horasNoche} 
                       onChange={(e) => setHorasNoche(e.target.value === '' ? '' : Number(e.target.value))} 
-                      onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_efectivo_sistema')}
+                      onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_efectivo_fisico')}
                       onFocus={(e) => e.target.select()} 
                       className="w-full bg-[#0e385e] border border-[#0066b3] text-white font-bold text-center rounded-lg p-2 outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
                     />
@@ -1377,16 +1375,21 @@ export default function CentroPage() {
                 
                 <div className="grid grid-cols-2 gap-2 text-[10px]">
                   <div>
-                    <span className="text-sky-300 block mb-1 font-bold">💻 Efvo. según Sistema ($)</span>
+                    <span className={`block mb-1 font-bold ${esTurnoCierre ? 'text-sky-300' : 'text-slate-500'}`}>💻 Efvo. según Sistema ($)</span>
                     <input 
                       ref={(el) => { inputsRef.current['cierre_efectivo_sistema'] = el; }}
                       type="text" 
-                      placeholder="$ 0" 
-                      value={formatearMoneda(efectivoSistema)} 
+                      placeholder={esTurnoCierre ? "$ 0" : "N/A (Cambio Turno)"} 
+                      value={esTurnoCierre ? formatearMoneda(efectivoSistema) : ''} 
                       onChange={(e) => setEfectivoSistema(desformatearMoneda(e.target.value))} 
+                      disabled={!esTurnoCierre}
                       onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_efectivo_fisico')}
                       onFocus={(e) => e.target.select()} 
-                      className="w-full bg-[#0e385e] border border-[#0066b3] text-sky-200 font-bold text-center rounded-lg p-2 outline-none focus:border-sky-400" 
+                      className={`w-full border font-bold text-center rounded-lg p-2 outline-none ${
+                        esTurnoCierre 
+                          ? 'bg-[#0e385e] border-[#0066b3] text-sky-200 focus:border-sky-400' 
+                          : 'bg-[#051829] border-[#003d6d] text-slate-500 cursor-not-allowed'
+                      }`}
                     />
                   </div>
                   <div>
@@ -1397,7 +1400,7 @@ export default function CentroPage() {
                       placeholder="$ 0" 
                       value={formatearMoneda(efectivoFisico)} 
                       onChange={(e) => setEfectivoFisico(desformatearMoneda(e.target.value))} 
-                      onKeyDown={(e) => handleKeyDownCierre(e, esTurnoCierre ? 'cierre_nequi' : 'cierre_gastos')}
+                      onKeyDown={(e) => handleKeyDownCierre(e, esTurnoCierre ? 'cierre_nequi' : '')}
                       onFocus={(e) => e.target.select()} 
                       className="w-full bg-[#0e385e] border border-[#0066b3] text-emerald-300 font-bold text-center rounded-lg p-2 outline-none focus:border-emerald-400" 
                     />
@@ -1410,7 +1413,7 @@ export default function CentroPage() {
                     <input 
                       ref={(el) => { inputsRef.current['cierre_nequi'] = el; }}
                       type="text" 
-                      placeholder={esTurnoCierre ? "$ 0" : "N/A (Cierre)"} 
+                      placeholder={esTurnoCierre ? "$ 0" : "N/A (Cambio Turno)"} 
                       value={esTurnoCierre ? formatearMoneda(nequi) : ''} 
                       onChange={(e) => setNequi(desformatearMoneda(e.target.value))} 
                       disabled={!esTurnoCierre}
@@ -1428,7 +1431,7 @@ export default function CentroPage() {
                     <input 
                       ref={(el) => { inputsRef.current['cierre_daviplata'] = el; }}
                       type="text" 
-                      placeholder={esTurnoCierre ? "$ 0" : "N/A (Cierre)"} 
+                      placeholder={esTurnoCierre ? "$ 0" : "N/A (Cambio Turno)"} 
                       value={esTurnoCierre ? formatearMoneda(daviplata) : ''} 
                       onChange={(e) => setDaviplata(desformatearMoneda(e.target.value))} 
                       disabled={!esTurnoCierre}
@@ -1445,28 +1448,38 @@ export default function CentroPage() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[10px] pt-1">
                   <div>
-                    <span className="text-amber-300 block mb-1 font-bold">🧾 Total Gastos ($)</span>
+                    <span className={`block mb-1 font-bold ${esTurnoCierre ? 'text-amber-300' : 'text-slate-500'}`}>🧾 Total Gastos ($)</span>
                     <input 
                       ref={(el) => { inputsRef.current['cierre_gastos'] = el; }}
                       type="text" 
-                      placeholder="$ 0" 
-                      value={formatearMoneda(gastos)} 
+                      placeholder={esTurnoCierre ? "$ 0" : "N/A (Cambio Turno)"} 
+                      value={esTurnoCierre ? formatearMoneda(gastos) : ''} 
                       onChange={(e) => setGastos(desformatearMoneda(e.target.value))} 
+                      disabled={!esTurnoCierre}
                       onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_motivo_gasto')}
                       onFocus={(e) => e.target.select()} 
-                      className="w-full bg-[#0e385e] border border-[#0066b3] text-amber-300 font-bold text-center rounded-lg p-2 outline-none focus:border-amber-400" 
+                      className={`w-full border font-bold text-center rounded-lg p-2 outline-none ${
+                        esTurnoCierre
+                          ? 'bg-[#0e385e] border-[#0066b3] text-amber-300 focus:border-amber-400'
+                          : 'bg-[#051829] border-[#003d6d] text-slate-500 cursor-not-allowed'
+                      }`}
                     />
                   </div>
                   <div>
-                    <span className="text-sky-200 block mb-1 font-bold">📝 Motivo del Gasto</span>
+                    <span className={`block mb-1 font-bold ${esTurnoCierre ? 'text-sky-200' : 'text-slate-500'}`}>📝 Motivo del Gasto</span>
                     <input 
                       ref={(el) => { inputsRef.current['cierre_motivo_gasto'] = el; }}
                       type="text" 
-                      placeholder="Ej. Compra de hielo, bolsas..." 
-                      value={motivoGasto} 
+                      placeholder={esTurnoCierre ? "Ej. Compra de hielo, bolsas..." : "N/A (Cambio Turno)"} 
+                      value={esTurnoCierre ? motivoGasto : ''} 
                       onChange={(e) => setMotivoGasto(e.target.value)} 
+                      disabled={!esTurnoCierre}
                       onFocus={(e) => e.target.select()} 
-                      className="w-full bg-[#0e385e] border border-[#0066b3] text-white text-xs rounded-lg p-2 outline-none focus:border-[#00a4ef]" 
+                      className={`w-full border text-xs rounded-lg p-2 outline-none ${
+                        esTurnoCierre
+                          ? 'bg-[#0e385e] border-[#0066b3] text-white focus:border-[#00a4ef]'
+                          : 'bg-[#051829] border-[#003d6d] text-slate-500 cursor-not-allowed'
+                      }`}
                     />
                   </div>
                 </div>
