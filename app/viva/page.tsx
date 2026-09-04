@@ -59,6 +59,9 @@ export default function VivaPage() {
   const [cajasMostrador, setCajasMostrador, limpiarCajasMostrador] = useAutoSave<number | ''>('viva_cajasMostrador', '');
   const [observaciones, setObservaciones, limpiarObsInv] = useAutoSave<string>('viva_observacionesInv', '');
 
+  // ESTADO DE STOCK ACTUAL EN SEDE (PARA MOSTRAR DEBAJO DEL NOMBRE)
+  const [inventarioSedeStock, setInventarioSedeStock] = useState<{ [nombreSabor: string]: number }>({});
+
   // AUDITORÍA / HISTORIAL DE MOVIMIENTOS Y VENTAS
   const [, setMovimientosDiaBD] = useState<any[]>([]);
   const [ventasDiaBD, setVentasDiaBD] = useState<any[]>([]);
@@ -197,12 +200,29 @@ export default function VivaPage() {
     cargarInicial();
   }, [router]);
 
+  async function cargarStockSede() {
+    const { data: invEmpaquesSedesBD } = await supabase
+      .from('inventario_empaques_sedes')
+      .select('nombre, stock')
+      .eq('sede_id', SEDE_ID_VIVA);
+
+    if (invEmpaquesSedesBD) {
+      const mapaStock: { [nombre: string]: number } = {};
+      invEmpaquesSedesBD.forEach((item: any) => {
+        mapaStock[item.nombre] = Number(item.stock) || 0;
+      });
+      setInventarioSedeStock(mapaStock);
+    }
+  }
+
   async function cargarInicial() {
     setCargando(true);
 
     try {
       const hoyInicio = new Date();
       hoyInicio.setHours(0, 0, 0, 0);
+
+      await cargarStockSede();
 
       const { data: cajaHoyBD } = await supabase
         .from('caja')
@@ -718,6 +738,8 @@ export default function VivaPage() {
         }
       }
 
+      await cargarStockSede();
+
       setGuardando(false);
       alert(`✅ ¡Inventario (${tipoMovimiento.toUpperCase()}) guardado con éxito!`);
 
@@ -887,7 +909,6 @@ export default function VivaPage() {
     hoyInicio.setHours(0, 0, 0, 0);
 
     try {
-      // 🛑 NUEVO: Cerrar el turno activo en la tabla 'turno_trabajo'
       const turnoIdActual = sesion?.turno_id || sesion?.turnoId;
       if (turnoIdActual) {
         await supabase
@@ -1049,7 +1070,6 @@ export default function VivaPage() {
       String(pinOperario).trim() === String(claveOperarioEntrante).trim()
     ) {
       try {
-        // 🛑 NUEVO: Cerrar el turno del operario saliente en la base de datos
         const turnoIdActual = sesion?.turno_id || sesion?.turnoId;
         if (turnoIdActual) {
           await supabase
@@ -1065,7 +1085,6 @@ export default function VivaPage() {
             .is('hora_salida', null);
         }
 
-        // 🛑 NUEVO: Registrar el inicio de turno para el NUEVO operario que entra
         const turnoNormalizado = turnoRecibido.includes('tarde') ? 'tarde_cierre' : 'manana_apertura';
         const { data: nuevoTurnoDB } = await supabase
           .from('turno_trabajo')
@@ -1120,7 +1139,6 @@ export default function VivaPage() {
   }
 
   function cerrarSesion() {
-    // 🛑 Cerrar turno al salir del sistema por seguridad
     const turnoIdActual = sesion?.turno_id || sesion?.turnoId;
     if (turnoIdActual) {
       supabase
@@ -1224,94 +1242,104 @@ export default function VivaPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-        <div className="bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-4 shadow-md">
-          <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
-            <h2 className="text-xs md:text-sm font-black text-white">🍦 Conteo de Paletas por Sabor</h2>
-            <span className="text-[11px] text-sky-200 font-bold uppercase bg-[#003d6d] px-2 py-0.5 rounded-md border border-[#0066b3]">{tipoMovimiento}</span>
-          </div>
-
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch">
+        <div className="bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-4 shadow-md h-full flex flex-col justify-between">
           <div>
-            <label className="text-[11px] text-sky-200 font-bold block mb-1">Acción a registrar:</label>
-            <select
-              value={tipoMovimiento}
-              onChange={(e) => setTipoMovimiento(e.target.value)}
-              disabled={!aperturaRealizada && baseGuardada}
-              className="w-full bg-[#051829] border border-[#0066b3] text-white font-black text-xs md:text-sm rounded-xl p-2.5 outline-none cursor-pointer focus:border-[#00a4ef]"
-            >
-              {!aperturaRealizada && <option value="apertura">🌅 1. Conteo de Apertura (Obligatorio)</option>}
-              {aperturaRealizada && (
-                <>
-                  <option value="nuevas">📦 Paletas Nuevas (Ingreso)</option>
-                  <option value="compras">🛒 Compras Directas</option>
-                  <option value="debaja">⚠️ De Baja / Mermas</option>
-                  <option value="cierre">🌙 Conteo de Cierre</option>
-                </>
-              )}
-            </select>
-          </div>
-
-          <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1 border border-[#0066b3]/50 p-2.5 rounded-xl bg-[#051829]">
-            <span className="text-[10px] text-sky-300 font-bold uppercase block mb-1">Ingresar Cantidad por Sabor:</span>
-            {paletasFiltradas.length === 0 ? (
-              <p className="text-xs text-amber-200 text-center py-4 font-semibold">
-                ⚠️ No se encontraron paletas registradas.
-              </p>
-            ) : (
-              paletasFiltradas.map((s, idx) => (
-                <div key={s.id} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2 shadow-sm">
-                  <div className="truncate">
-                    <p className="font-bold text-xs text-white truncate">{s.nombre}</p>
-                    <span className="text-[10px] font-semibold text-sky-300 block -mt-0.5 capitalize">
-                      {s.grupo || s.categoria || 'Paleta'}
-                    </span>
-                  </div>
-                  <input
-                    ref={(el) => { inputsRef.current[`sabor_${s.id}`] = el; }}
-                    type="number"
-                    placeholder="0"
-                    value={cantidadesSabores[s.id] ?? ''}
-                    onChange={(e) => handleSaborCantidadChange(s.id, e.target.value)}
-                    onKeyDown={(e) => handleKeyDownSabor(e, idx)}
-                    onFocus={(e) => e.target.select()}
-                    className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                  />
-                </div>
-              ))
-            )}
-          </div>
-
-          <div className="bg-[#0e385e] p-3 rounded-2xl border border-[#0066b3] flex justify-between items-center shadow-inner">
-            <span className="text-xs font-black text-sky-200 uppercase">
-              Total Paletas ({tipoMovimiento.toUpperCase()}):
-            </span>
-            <span className="text-xl font-black text-white bg-[#051829] px-4 py-1.5 rounded-xl border border-[#0066b3] shadow">
-              {totalPaletasSuma}
-            </span>
-          </div>
-
-          <div className="bg-[#0e385e] p-3 rounded-xl border border-[#0066b3]/60 space-y-2">
-            <span className="text-[10px] text-sky-300 font-extrabold uppercase block">Conteo de Empaques:</span>
-            <div className="flex justify-between items-center bg-[#051829] p-2.5 rounded-lg border border-[#0066b3]">
-              <span className="text-xs text-white font-bold">📦 Caja Mostac:</span>
-              <input 
-                ref={(el) => { inputsRef.current['caja_mostac'] = el; }}
-                type="number" 
-                placeholder="0" 
-                value={cajasMostrador} 
-                onChange={(e) => setCajasMostrador(e.target.value === '' ? '' : Number(e.target.value))} 
-                onFocus={(e) => e.target.select()} 
-                className="w-24 bg-[#0e385e] text-sky-200 font-black text-center text-sm rounded-lg p-2 outline-none focus:border-[#00a4ef] border border-[#0066b3] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
-              />
+            <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2 mb-3">
+              <h2 className="text-xs md:text-sm font-black text-white">🍦 Conteo de Paletas por Sabor</h2>
+              <span className="text-[11px] text-sky-200 font-bold uppercase bg-[#003d6d] px-2 py-0.5 rounded-md border border-[#0066b3]">{tipoMovimiento}</span>
             </div>
-          </div>
 
-          <textarea
-            placeholder="Observaciones de inventario..."
-            value={observaciones}
-            onChange={(e) => setObservaciones(e.target.value)}
-            className="w-full bg-[#051829] border border-[#0066b3] rounded-xl p-2.5 text-xs text-white outline-none h-16 resize-none focus:border-[#00a4ef]"
-          />
+            <div className="mb-3">
+              <label className="text-[11px] text-sky-200 font-bold block mb-1">Acción a registrar:</label>
+              <select
+                value={tipoMovimiento}
+                onChange={(e) => setTipoMovimiento(e.target.value)}
+                disabled={!aperturaRealizada && baseGuardada}
+                className="w-full bg-[#051829] border border-[#0066b3] text-white font-black text-xs md:text-sm rounded-xl p-2.5 outline-none cursor-pointer focus:border-[#00a4ef]"
+              >
+                {!aperturaRealizada && <option value="apertura">🌅 1. Conteo de Apertura (Obligatorio)</option>}
+                {aperturaRealizada && (
+                  <>
+                    <option value="nuevas">📦 Paletas Nuevas (Ingreso)</option>
+                    <option value="compras">🛒 Compras Directas</option>
+                    <option value="debaja">⚠️ De Baja / Mermas</option>
+                    <option value="cierre">🌙 Conteo de Cierre</option>
+                  </>
+                )}
+              </select>
+            </div>
+
+            <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1 border border-[#0066b3]/50 p-2.5 rounded-xl bg-[#051829] mb-3">
+              <span className="text-[10px] text-sky-300 font-bold uppercase block mb-1">Ingresar Cantidad por Sabor:</span>
+              {paletasFiltradas.length === 0 ? (
+                <p className="text-xs text-amber-200 text-center py-4 font-semibold">
+                  ⚠️ No se encontraron paletas registradas.
+                </p>
+              ) : (
+                paletasFiltradas.map((s, idx) => {
+                  const stockActualSabor = inventarioSedeStock[s.nombre] ?? 0;
+                  return (
+                    <div key={s.id} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2 shadow-sm">
+                      <div className="truncate">
+                        <p className="font-bold text-xs text-white truncate">{s.nombre}</p>
+                        <span className="text-[10px] font-semibold text-[#00ffff] block -mt-0.5">
+                          Stock: {stockActualSabor}
+                        </span>
+                      </div>
+                      <input
+                        ref={(el) => { inputsRef.current[`sabor_${s.id}`] = el; }}
+                        type="number"
+                        placeholder="0"
+                        value={cantidadesSabores[s.id] ?? ''}
+                        onChange={(e) => handleSaborCantidadChange(s.id, e.target.value)}
+                        onKeyDown={(e) => handleKeyDownSabor(e, idx)}
+                        onFocus={(e) => e.target.select()}
+                        className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      />
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="bg-[#0e385e] p-3 rounded-2xl border border-[#0066b3] flex justify-between items-center shadow-inner mb-3">
+              <span className="text-xs font-black text-sky-200 uppercase">
+                Total Paletas ({tipoMovimiento.toUpperCase()}):
+              </span>
+              <span className="text-xl font-black text-white bg-[#051829] px-4 py-1.5 rounded-xl border border-[#0066b3] shadow">
+                {totalPaletasSuma}
+              </span>
+            </div>
+
+            <div className="bg-[#0e385e] p-3 rounded-xl border border-[#0066b3]/60 space-y-2 mb-3">
+              <span className="text-[10px] text-sky-300 font-extrabold uppercase block">Conteo de Empaques:</span>
+              <div className="flex justify-between items-center bg-[#051829] p-2.5 rounded-lg border border-[#0066b3]">
+                <div className="truncate">
+                  <span className="text-xs text-white font-bold block">📦 Caja Mostac</span>
+                  <span className="text-[10px] font-semibold text-[#00ffff] block -mt-0.5">
+                    Stock: {inventarioSedeStock['Caja Mostac'] ?? 0}
+                  </span>
+                </div>
+                <input 
+                  ref={(el) => { inputsRef.current['caja_mostac'] = el; }}
+                  type="number" 
+                  placeholder="0" 
+                  value={cajasMostrador} 
+                  onChange={(e) => setCajasMostrador(e.target.value === '' ? '' : Number(e.target.value))} 
+                  onFocus={(e) => e.target.select()} 
+                  className="w-24 bg-[#0e385e] text-sky-200 font-black text-center text-sm rounded-lg p-2 outline-none focus:border-[#00a4ef] border border-[#0066b3] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                />
+              </div>
+            </div>
+
+            <textarea
+              placeholder="Observaciones de inventario..."
+              value={observaciones}
+              onChange={(e) => setObservaciones(e.target.value)}
+              className="w-full bg-[#051829] border border-[#0066b3] rounded-xl p-2.5 text-xs text-white outline-none h-16 resize-none focus:border-[#00a4ef] mb-3"
+            />
+          </div>
 
           <button
             onClick={handleGuardarInventario}
@@ -1326,7 +1354,7 @@ export default function VivaPage() {
           </button>
         </div>
 
-        <div className={`space-y-4 transition-opacity ${bloqueadoPorApertura ? 'opacity-50 pointer-events-none select-none' : 'opacity-100'}`}>
+        <div className={`space-y-4 transition-opacity h-full flex flex-col justify-between ${bloqueadoPorApertura ? 'opacity-50 pointer-events-none select-none' : 'opacity-100'}`}>
           <div className="bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md">
             <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
               <h2 className="text-xs md:text-sm font-black text-white flex items-center gap-1.5">
@@ -1362,26 +1390,29 @@ export default function VivaPage() {
                 {categoriaPedido === 'paletas' && (
                   <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 border border-[#0066b3]/50 p-2.5 rounded-xl bg-[#051829]">
                     <span className="text-[10px] text-sky-300 font-bold uppercase block">Seleccionar Sabores a Solicitar:</span>
-                    {paletasFiltradas.map((s, idx) => (
-                      <div key={s.id} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2">
-                        <div className="truncate">
-                          <p className="font-bold text-xs text-white truncate">{s.nombre}</p>
-                          <span className="text-[10px] font-semibold text-sky-300 block -mt-0.5 capitalize">
-                            {s.grupo || s.categoria || 'Paleta'}
-                          </span>
+                    {paletasFiltradas.map((s, idx) => {
+                      const stockActualSabor = inventarioSedeStock[s.nombre] ?? 0;
+                      return (
+                        <div key={s.id} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2">
+                          <div className="truncate">
+                            <p className="font-bold text-xs text-white truncate">{s.nombre}</p>
+                            <span className="text-[10px] font-semibold text-[#00ffff] block -mt-0.5">
+                              Stock: {stockActualSabor}
+                            </span>
+                          </div>
+                          <input
+                            ref={(el) => { inputsRef.current[`pedido_paleta_${s.id}`] = el; }}
+                            type="number"
+                            placeholder="0"
+                            value={cantidadesPedidoPaletas[s.id] ?? ''}
+                            onChange={(e) => handleCantidadPedidoChange(s.id, e.target.value)}
+                            onKeyDown={(e) => handleKeyDownPedido(e, idx, paletasFiltradas, 'pedido_paleta')}
+                            onFocus={(e) => e.target.select()}
+                            className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          />
                         </div>
-                        <input
-                          ref={(el) => { inputsRef.current[`pedido_paleta_${s.id}`] = el; }}
-                          type="number"
-                          placeholder="0"
-                          value={cantidadesPedidoPaletas[s.id] ?? ''}
-                          onChange={(e) => handleCantidadPedidoChange(s.id, e.target.value)}
-                          onKeyDown={(e) => handleKeyDownPedido(e, idx, paletasFiltradas, 'pedido_paleta')}
-                          onFocus={(e) => e.target.select()}
-                          className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                        />
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
 
@@ -1391,21 +1422,29 @@ export default function VivaPage() {
                     {richiFiltrados.length === 0 ? (
                       <p className="text-xs text-amber-200 text-center py-4 font-semibold">No hay empaques guardados en la BD.</p>
                     ) : (
-                      richiFiltrados.map((item, idx) => (
-                        <div key={item.id} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2">
-                          <span className="text-xs font-bold text-white truncate">{item.nombre}</span>
-                          <input 
-                            ref={(el) => { inputsRef.current[`pedido_richi_${item.id}`] = el; }}
-                            type="number" 
-                            placeholder="0" 
-                            value={cantidadesRichi[item.nombre] ?? ''} 
-                            onChange={(e) => handleItemGenericoChange(item.nombre, e.target.value, setCantidadesRichi)} 
-                            onKeyDown={(e) => handleKeyDownPedido(e, idx, richiFiltrados, 'pedido_richi')}
-                            onFocus={(e) => e.target.select()} 
-                            className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
-                          />
-                        </div>
-                      ))
+                      richiFiltrados.map((item, idx) => {
+                        const stockActualItem = inventarioSedeStock[item.nombre] ?? 0;
+                        return (
+                          <div key={item.id} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2">
+                            <div className="truncate">
+                              <span className="text-xs font-bold text-white block truncate">{item.nombre}</span>
+                              <span className="text-[10px] font-semibold text-[#00ffff] block -mt-0.5">
+                                Stock: {stockActualItem}
+                              </span>
+                            </div>
+                            <input 
+                              ref={(el) => { inputsRef.current[`pedido_richi_${item.id}`] = el; }}
+                              type="number" 
+                              placeholder="0" 
+                              value={cantidadesRichi[item.nombre] ?? ''} 
+                              onChange={(e) => handleItemGenericoChange(item.nombre, e.target.value, setCantidadesRichi)} 
+                              onKeyDown={(e) => handleKeyDownPedido(e, idx, richiFiltrados, 'pedido_richi')}
+                              onFocus={(e) => e.target.select()} 
+                              className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                            />
+                          </div>
+                        );
+                      })
                     )}
                   </div>
                 )}
@@ -1416,21 +1455,29 @@ export default function VivaPage() {
                     {insumosFiltrados.length === 0 ? (
                       <p className="text-xs text-amber-200 text-center py-4 font-semibold">No hay insumos guardados en la BD.</p>
                     ) : (
-                      insumosFiltrados.map((item, idx) => (
-                        <div key={item.id} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2">
-                          <span className="text-xs font-bold text-white truncate">{item.nombre}</span>
-                          <input 
-                            ref={(el) => { inputsRef.current[`pedido_ins_${item.id}`] = el; }}
-                            type="number" 
-                            placeholder="0" 
-                            value={cantidadesInsumos[item.nombre] ?? ''} 
-                            onChange={(e) => handleItemGenericoChange(item.nombre, e.target.value, setCantidadesInsumos)} 
-                            onKeyDown={(e) => handleKeyDownPedido(e, idx, insumosFiltrados, 'pedido_ins')}
-                            onFocus={(e) => e.target.select()} 
-                            className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
-                          />
-                        </div>
-                      ))
+                      insumosFiltrados.map((item, idx) => {
+                        const stockActualItem = inventarioSedeStock[item.nombre] ?? 0;
+                        return (
+                          <div key={item.id} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2">
+                            <div className="truncate">
+                              <span className="text-xs font-bold text-white block truncate">{item.nombre}</span>
+                              <span className="text-[10px] font-semibold text-[#00ffff] block -mt-0.5">
+                                Stock: {stockActualItem}
+                              </span>
+                            </div>
+                            <input 
+                              ref={(el) => { inputsRef.current[`pedido_ins_${item.id}`] = el; }}
+                              type="number" 
+                              placeholder="0" 
+                              value={cantidadesInsumos[item.nombre] ?? ''} 
+                              onChange={(e) => handleItemGenericoChange(item.nombre, e.target.value, setCantidadesInsumos)} 
+                              onKeyDown={(e) => handleKeyDownPedido(e, idx, insumosFiltrados, 'pedido_ins')}
+                              onFocus={(e) => e.target.select()} 
+                              className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                            />
+                          </div>
+                        );
+                      })
                     )}
                   </div>
                 )}
@@ -1441,21 +1488,29 @@ export default function VivaPage() {
                     {aseoFiltrados.length === 0 ? (
                       <p className="text-xs text-amber-200 text-center py-4 font-semibold">No hay artículos de aseo guardados en la BD.</p>
                     ) : (
-                      aseoFiltrados.map((item, idx) => (
-                        <div key={item.id} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2">
-                          <span className="text-xs font-bold text-white truncate">{item.nombre}</span>
-                          <input 
-                            ref={(el) => { inputsRef.current[`pedido_aseo_${item.id}`] = el; }}
-                            type="number" 
-                            placeholder="0" 
-                            value={cantidadesAseo[item.nombre] ?? ''} 
-                            onChange={(e) => handleItemGenericoChange(item.nombre, e.target.value, setCantidadesAseo)} 
-                            onKeyDown={(e) => handleKeyDownPedido(e, idx, aseoFiltrados, 'pedido_aseo')}
-                            onFocus={(e) => e.target.select()} 
-                            className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
-                          />
-                        </div>
-                      ))
+                      aseoFiltrados.map((item, idx) => {
+                        const stockActualItem = inventarioSedeStock[item.nombre] ?? 0;
+                        return (
+                          <div key={item.id} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2">
+                            <div className="truncate">
+                              <span className="text-xs font-bold text-white block truncate">{item.nombre}</span>
+                              <span className="text-[10px] font-semibold text-[#00ffff] block -mt-0.5">
+                                Stock: {stockActualItem}
+                              </span>
+                            </div>
+                            <input 
+                              ref={(el) => { inputsRef.current[`pedido_aseo_${item.id}`] = el; }}
+                              type="number" 
+                              placeholder="0" 
+                              value={cantidadesAseo[item.nombre] ?? ''} 
+                              onChange={(e) => handleItemGenericoChange(item.nombre, e.target.value, setCantidadesAseo)} 
+                              onKeyDown={(e) => handleKeyDownPedido(e, idx, aseoFiltrados, 'pedido_aseo')}
+                              onFocus={(e) => e.target.select()} 
+                              className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                            />
+                          </div>
+                        );
+                      })
                     )}
                   </div>
                 )}
@@ -1585,170 +1640,172 @@ export default function VivaPage() {
             )}
           </div>
 
-          <div className="bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-4 shadow-md">
-            <h2 className="text-xs md:text-sm font-black text-white border-b border-[#0066b3]/50 pb-2 flex justify-between">
-              <span>{esTurnoCierre ? '🌙 Cierre de Jornada y Arqueo' : '👥 Cambio de Turno / Arqueo y Nómina'}</span>
-              <span className="text-[10px] text-sky-200 font-bold bg-[#003d6d] px-2 py-0.5 rounded-md border border-[#0066b3]">{esTurnoCierre ? 'Fin de Día' : 'Fin de Turno'}</span>
-            </h2>
+          <div className="bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-4 shadow-md flex-1 flex flex-col justify-between">
+            <div>
+              <h2 className="text-xs md:text-sm font-black text-white border-b border-[#0066b3]/50 pb-2 flex justify-between mb-3">
+                <span>{esTurnoCierre ? '🌙 Cierre de Jornada y Arqueo' : '👥 Cambio de Turno / Arqueo y Nómina'}</span>
+                <span className="text-[10px] text-sky-200 font-bold bg-[#003d6d] px-2 py-0.5 rounded-md border border-[#0066b3]">{esTurnoCierre ? 'Fin de Día' : 'Fin de Turno'}</span>
+              </h2>
 
-            <div className="space-y-2 bg-[#051829] p-3 rounded-xl border border-[#0066b3]">
-              <span className="text-[10px] font-black text-sky-300 uppercase block">1. Nómina del Operador:</span>
-              
-              <div>
-                <label className="text-[10px] text-sky-200 font-bold block mb-1">Tipo de Día:</label>
-                <select value={tipoDia} onChange={(e) => setTipoDia(e.target.value as any)} className="w-full bg-[#0e385e] border border-[#0066b3] text-white font-bold text-xs rounded-xl p-2 outline-none cursor-pointer focus:border-[#00a4ef]">
-                  <option value="entre_semana">Entre semana (lunes a sábado)</option>
-                  <option value="domingo_festivo">Domingo / Festivo</option>
-                </select>
+              <div className="space-y-2 bg-[#051829] p-3 rounded-xl border border-[#0066b3] mb-3">
+                <span className="text-[10px] font-black text-sky-300 uppercase block">1. Nómina del Operador:</span>
+                
+                <div>
+                  <label className="text-[10px] text-sky-200 font-bold block mb-1">Tipo de Día:</label>
+                  <select value={tipoDia} onChange={(e) => setTipoDia(e.target.value as any)} className="w-full bg-[#0e385e] border border-[#0066b3] text-white font-bold text-xs rounded-xl p-2 outline-none cursor-pointer focus:border-[#00a4ef]">
+                    <option value="entre_semana">Entre semana (lunes a sábado)</option>
+                    <option value="domingo_festivo">Domingo / Festivo</option>
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-[10px]">
+                  <div>
+                    <span className="text-sky-200 block mb-1 font-bold">Horas Día</span>
+                    <input 
+                      ref={(el) => { inputsRef.current['cierre_horas_dia'] = el; }}
+                      type="number" 
+                      placeholder="0" 
+                      value={horasDia} 
+                      onChange={(e) => setHorasDia(e.target.value === '' ? '' : Number(e.target.value))} 
+                      onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_horas_noche')}
+                      onFocus={(e) => e.target.select()} 
+                      className="w-full bg-[#0e385e] border border-[#0066b3] text-white font-bold text-center rounded-lg p-2 outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                    />
+                  </div>
+                  <div>
+                    <span className="text-sky-200 block mb-1 font-bold">Horas Noche</span>
+                    <input 
+                      ref={(el) => { inputsRef.current['cierre_horas_noche'] = el; }}
+                      type="number" 
+                      placeholder="0" 
+                      value={horasNoche} 
+                      onChange={(e) => setHorasNoche(e.target.value === '' ? '' : Number(e.target.value))} 
+                      onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_efectivo_sistema')}
+                      onFocus={(e) => e.target.select()} 
+                      className="w-full bg-[#0e385e] border border-[#0066b3] text-white font-bold text-center rounded-lg p-2 outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-between items-center bg-rose-950/60 p-2 rounded-lg border border-rose-500/50 text-xs font-bold text-rose-200">
+                  <span>Total Nómina Turno:</span>
+                  <span className="text-sm font-black text-rose-300">$ {totalNomina.toLocaleString('es-CO')}</span>
+                </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2 text-[10px]">
-                <div>
-                  <span className="text-sky-200 block mb-1 font-bold">Horas Día</span>
-                  <input 
-                    ref={(el) => { inputsRef.current['cierre_horas_dia'] = el; }}
-                    type="number" 
-                    placeholder="0" 
-                    value={horasDia} 
-                    onChange={(e) => setHorasDia(e.target.value === '' ? '' : Number(e.target.value))} 
-                    onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_horas_noche')}
-                    onFocus={(e) => e.target.select()} 
-                    className="w-full bg-[#0e385e] border border-[#0066b3] text-white font-bold text-center rounded-lg p-2 outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
-                  />
+              <div className="space-y-2 bg-[#051829] p-3 rounded-xl border border-[#0066b3] mb-3">
+                <span className="text-[10px] font-black text-emerald-300 uppercase block">
+                  2. DINERO EN CAJA / ARQUEO ({esTurnoCierre ? 'CIERRE DE DÍA' : 'ENTREGA DE TURNO'}):
+                </span>
+                
+                <div className="grid grid-cols-2 gap-2 text-[10px]">
+                  <div>
+                    <span className="text-sky-300 block mb-1 font-bold">💻 Efvo. según Sistema ($)</span>
+                    <input 
+                      ref={(el) => { inputsRef.current['cierre_efectivo_sistema'] = el; }}
+                      type="text" 
+                      placeholder="$ 0" 
+                      value={formatearMoneda(efectivoSistema)} 
+                      onChange={(e) => setEfectivoSistema(desformatearMoneda(e.target.value))} 
+                      onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_efectivo_fisico')}
+                      onFocus={(e) => e.target.select()} 
+                      className="w-full bg-[#0e385e] border border-[#0066b3] text-sky-200 font-bold text-center rounded-lg p-2 outline-none focus:border-sky-400" 
+                    />
+                  </div>
+                  <div>
+                    <span className="text-emerald-300 block mb-1 font-bold">💵 Efvo. Físico en Caja ($)</span>
+                    <input 
+                      ref={(el) => { inputsRef.current['cierre_efectivo_fisico'] = el; }}
+                      type="text" 
+                      placeholder="$ 0" 
+                      value={formatearMoneda(efectivoFisico)} 
+                      onChange={(e) => setEfectivoFisico(desformatearMoneda(e.target.value))} 
+                      onKeyDown={(e) => handleKeyDownCierre(e, esTurnoCierre ? 'cierre_nequi' : 'cierre_gastos')}
+                      onFocus={(e) => e.target.select()} 
+                      className="w-full bg-[#0e385e] border border-[#0066b3] text-emerald-300 font-bold text-center rounded-lg p-2 outline-none focus:border-emerald-400" 
+                    />
+                  </div>
                 </div>
-                <div>
-                  <span className="text-sky-200 block mb-1 font-bold">Horas Noche</span>
-                  <input 
-                    ref={(el) => { inputsRef.current['cierre_horas_noche'] = el; }}
-                    type="number" 
-                    placeholder="0" 
-                    value={horasNoche} 
-                    onChange={(e) => setHorasNoche(e.target.value === '' ? '' : Number(e.target.value))} 
-                    onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_efectivo_sistema')}
-                    onFocus={(e) => e.target.select()} 
-                    className="w-full bg-[#0e385e] border border-[#0066b3] text-white font-bold text-center rounded-lg p-2 outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
-                  />
-                </div>
-              </div>
 
-              <div className="flex justify-between items-center bg-rose-950/60 p-2 rounded-lg border border-rose-500/50 text-xs font-bold text-rose-200">
-                <span>Total Nómina Turno:</span>
-                <span className="text-sm font-black text-rose-300">$ {totalNomina.toLocaleString('es-CO')}</span>
+                <div className="grid grid-cols-2 gap-2 text-[10px] pt-1">
+                  <div>
+                    <span className={`block mb-1 font-bold ${esTurnoCierre ? 'text-sky-200' : 'text-slate-500'}`}>📲 Nequi ($)</span>
+                    <input 
+                      ref={(el) => { inputsRef.current['cierre_nequi'] = el; }}
+                      type="text" 
+                      placeholder={esTurnoCierre ? "$ 0" : "N/A (Cierre)"} 
+                      value={esTurnoCierre ? formatearMoneda(nequi) : ''} 
+                      onChange={(e) => setNequi(desformatearMoneda(e.target.value))} 
+                      disabled={!esTurnoCierre}
+                      onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_daviplata')}
+                      onFocus={(e) => e.target.select()} 
+                      className={`w-full border font-bold text-center rounded-lg p-2 outline-none ${
+                        esTurnoCierre 
+                          ? 'bg-[#0e385e] border-[#0066b3] text-sky-200 focus:border-[#00a4ef]' 
+                          : 'bg-[#051829] border-[#003d6d] text-slate-500 cursor-not-allowed'
+                      }`}
+                    />
+                  </div>
+                  <div>
+                    <span className={`block mb-1 font-bold ${esTurnoCierre ? 'text-fuchsia-300' : 'text-slate-500'}`}>📱 Daviplata ($)</span>
+                    <input 
+                      ref={(el) => { inputsRef.current['cierre_daviplata'] = el; }}
+                      type="text" 
+                      placeholder={esTurnoCierre ? "$ 0" : "N/A (Cierre)"} 
+                      value={esTurnoCierre ? formatearMoneda(daviplata) : ''} 
+                      onChange={(e) => setDaviplata(desformatearMoneda(e.target.value))} 
+                      disabled={!esTurnoCierre}
+                      onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_gastos')}
+                      onFocus={(e) => e.target.select()} 
+                      className={`w-full border font-bold text-center rounded-lg p-2 outline-none ${
+                        esTurnoCierre 
+                          ? 'bg-[#0e385e] border-[#0066b3] text-fuchsia-200 focus:border-fuchsia-400' 
+                          : 'bg-[#051829] border-[#003d6d] text-slate-500 cursor-not-allowed'
+                      }`}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[10px] pt-1">
+                  <div>
+                    <span className="text-amber-300 block mb-1 font-bold">🧾 Total Gastos ($)</span>
+                    <input 
+                      ref={(el) => { inputsRef.current['cierre_gastos'] = el; }}
+                      type="text" 
+                      placeholder="$ 0" 
+                      value={formatearMoneda(gastos)} 
+                      onChange={(e) => setGastos(desformatearMoneda(e.target.value))} 
+                      onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_motivo_gasto')}
+                      onFocus={(e) => e.target.select()} 
+                      className="w-full bg-[#0e385e] border border-[#0066b3] text-amber-300 font-bold text-center rounded-lg p-2 outline-none focus:border-amber-400" 
+                    />
+                  </div>
+                  <div>
+                    <span className="text-sky-200 block mb-1 font-bold">📝 Motivo del Gasto</span>
+                    <input 
+                      ref={(el) => { inputsRef.current['cierre_motivo_gasto'] = el; }}
+                      type="text" 
+                      placeholder="Ej. Compra de hielo, bolsas..." 
+                      value={motivoGasto} 
+                      onChange={(e) => setMotivoGasto(e.target.value)} 
+                      onFocus={(e) => e.target.select()} 
+                      className="w-full bg-[#0e385e] border border-[#0066b3] text-white text-xs rounded-lg p-2 outline-none focus:border-[#00a4ef]" 
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-between items-center bg-[#0e385e] p-2.5 rounded-xl border border-emerald-400/50 text-xs font-bold mt-2">
+                  <span className="text-emerald-300 uppercase font-black">
+                    {esTurnoCierre ? 'Total Recaudado (Ventas):' : 'Efectivo Físico a Dejar:'}
+                  </span>
+                  <span className="text-base font-black text-emerald-300 bg-[#051829] px-3 py-1 rounded-lg border border-emerald-500/50">
+                    $ {(esTurnoCierre ? totalVentasGlobal : Number(efectivoFisico) || 0).toLocaleString('es-CO')}
+                  </span>
+                </div>
               </div>
             </div>
 
-            <div className="space-y-2 bg-[#051829] p-3 rounded-xl border border-[#0066b3]">
-              <span className="text-[10px] font-black text-emerald-300 uppercase block">
-                2. DINERO EN CAJA / ARQUEO ({esTurnoCierre ? 'CIERRE DE DÍA' : 'ENTREGA DE TURNO'}):
-              </span>
-              
-              <div className="grid grid-cols-2 gap-2 text-[10px]">
-                <div>
-                  <span className="text-sky-300 block mb-1 font-bold">💻 Efvo. según Sistema ($)</span>
-                  <input 
-                    ref={(el) => { inputsRef.current['cierre_efectivo_sistema'] = el; }}
-                    type="text" 
-                    placeholder="$ 0" 
-                    value={formatearMoneda(efectivoSistema)} 
-                    onChange={(e) => setEfectivoSistema(desformatearMoneda(e.target.value))} 
-                    onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_efectivo_fisico')}
-                    onFocus={(e) => e.target.select()} 
-                    className="w-full bg-[#0e385e] border border-[#0066b3] text-sky-200 font-bold text-center rounded-lg p-2 outline-none focus:border-sky-400" 
-                  />
-                </div>
-                <div>
-                  <span className="text-emerald-300 block mb-1 font-bold">💵 Efvo. Físico en Caja ($)</span>
-                  <input 
-                    ref={(el) => { inputsRef.current['cierre_efectivo_fisico'] = el; }}
-                    type="text" 
-                    placeholder="$ 0" 
-                    value={formatearMoneda(efectivoFisico)} 
-                    onChange={(e) => setEfectivoFisico(desformatearMoneda(e.target.value))} 
-                    onKeyDown={(e) => handleKeyDownCierre(e, esTurnoCierre ? 'cierre_nequi' : 'cierre_gastos')}
-                    onFocus={(e) => e.target.select()} 
-                    className="w-full bg-[#0e385e] border border-[#0066b3] text-emerald-300 font-bold text-center rounded-lg p-2 outline-none focus:border-emerald-400" 
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 text-[10px] pt-1">
-                <div>
-                  <span className={`block mb-1 font-bold ${esTurnoCierre ? 'text-sky-200' : 'text-slate-500'}`}>📲 Nequi ($)</span>
-                  <input 
-                    ref={(el) => { inputsRef.current['cierre_nequi'] = el; }}
-                    type="text" 
-                    placeholder={esTurnoCierre ? "$ 0" : "N/A (Cierre)"} 
-                    value={esTurnoCierre ? formatearMoneda(nequi) : ''} 
-                    onChange={(e) => setNequi(desformatearMoneda(e.target.value))} 
-                    disabled={!esTurnoCierre}
-                    onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_daviplata')}
-                    onFocus={(e) => e.target.select()} 
-                    className={`w-full border font-bold text-center rounded-lg p-2 outline-none ${
-                      esTurnoCierre 
-                        ? 'bg-[#0e385e] border-[#0066b3] text-sky-200 focus:border-[#00a4ef]' 
-                        : 'bg-[#051829] border-[#003d6d] text-slate-500 cursor-not-allowed'
-                    }`}
-                  />
-                </div>
-                <div>
-                  <span className={`block mb-1 font-bold ${esTurnoCierre ? 'text-fuchsia-300' : 'text-slate-500'}`}>📱 Daviplata ($)</span>
-                  <input 
-                    ref={(el) => { inputsRef.current['cierre_daviplata'] = el; }}
-                    type="text" 
-                    placeholder={esTurnoCierre ? "$ 0" : "N/A (Cierre)"} 
-                    value={esTurnoCierre ? formatearMoneda(daviplata) : ''} 
-                    onChange={(e) => setDaviplata(desformatearMoneda(e.target.value))} 
-                    disabled={!esTurnoCierre}
-                    onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_gastos')}
-                    onFocus={(e) => e.target.select()} 
-                    className={`w-full border font-bold text-center rounded-lg p-2 outline-none ${
-                      esTurnoCierre 
-                        ? 'bg-[#0e385e] border-[#0066b3] text-fuchsia-200 focus:border-fuchsia-400' 
-                        : 'bg-[#051829] border-[#003d6d] text-slate-500 cursor-not-allowed'
-                    }`}
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[10px] pt-1">
-                <div>
-                  <span className="text-amber-300 block mb-1 font-bold">🧾 Total Gastos ($)</span>
-                  <input 
-                    ref={(el) => { inputsRef.current['cierre_gastos'] = el; }}
-                    type="text" 
-                    placeholder="$ 0" 
-                    value={formatearMoneda(gastos)} 
-                    onChange={(e) => setGastos(desformatearMoneda(e.target.value))} 
-                    onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_motivo_gasto')}
-                    onFocus={(e) => e.target.select()} 
-                    className="w-full bg-[#0e385e] border border-[#0066b3] text-amber-300 font-bold text-center rounded-lg p-2 outline-none focus:border-amber-400" 
-                  />
-                </div>
-                <div>
-                  <span className="text-sky-200 block mb-1 font-bold">📝 Motivo del Gasto</span>
-                  <input 
-                    ref={(el) => { inputsRef.current['cierre_motivo_gasto'] = el; }}
-                    type="text" 
-                    placeholder="Ej. Compra de hielo, bolsas..." 
-                    value={motivoGasto} 
-                    onChange={(e) => setMotivoGasto(e.target.value)} 
-                    onFocus={(e) => e.target.select()} 
-                    className="w-full bg-[#0e385e] border border-[#0066b3] text-white text-xs rounded-lg p-2 outline-none focus:border-[#00a4ef]" 
-                  />
-                </div>
-              </div>
-
-              <div className="flex justify-between items-center bg-[#0e385e] p-2.5 rounded-xl border border-emerald-400/50 text-xs font-bold mt-2">
-                <span className="text-emerald-300 uppercase font-black">
-                  {esTurnoCierre ? 'Total Recaudado (Ventas):' : 'Efectivo Físico a Dejar:'}
-                </span>
-                <span className="text-base font-black text-emerald-300 bg-[#051829] px-3 py-1 rounded-lg border border-emerald-500/50">
-                  $ {(esTurnoCierre ? totalVentasGlobal : Number(efectivoFisico) || 0).toLocaleString('es-CO')}
-                </span>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2">
               <button
                 type="button"
                 onClick={pagarNominaBD}
