@@ -2113,11 +2113,12 @@ export default function MartinetoPOSPage() {
 
   const totalNominaDia = listaNominasDia.reduce((acc, n) => acc + Number(n.monto || 0), 0);
 
-  // Mapeos directos sin operaciones adicionales (tal como se solicitó)
+  // --- CORRECCIÓN EN CÁLCULOS DE CAJA ---
   const totalEfectivoRecibido = totalEfectivoIngresado;
-  const efectivoEsperadoEnCaja = (Number(baseCaja) || 0) + totalEfectivoRecibido;
+  // Descontamos Gastos de Insumos y Nómina del dinero en efectivo que debería haber físicamente
+  const efectivoEsperadoEnCaja = Math.max(0, (Number(baseCaja) || 0) + totalEfectivoRecibido - sumaGastosTotal - totalNominaDia);
   const efectivoTotalNetoCierre = efectivoEsperadoEnCaja;
-  const cajaDisponibleCalculada = efectivoTotalNetoCierre;
+  const cajaDisponibleCalculada = efectivoEsperadoEnCaja;
 
   const listaAuditoriaInventario = LISTA_EMPAQUES_MARTINETO.map((nombreProd) => {
     let cantApertura = 0;
@@ -2378,12 +2379,13 @@ export default function MartinetoPOSPage() {
         .from('caja')
         .update({
           estado: 'cerrada',
-          efectivo_cierre: efectivoTotalNetoCierre,
+          efectivo_cierre: efectivoEsperadoEnCaja,
           efectivo_fisico: efectFisico,
           rappi: totalRappiRealizados,
           nequi: totalNequiIngresado,
           daviplata: totalDaviplataIngresado,
           monto_gasto: sumaGastosTotal,
+          monto_nomina: totalNominaDia,
           motivo_gasto: cadenaMotivosGastos || null,
           descuento: totalDescuentosDia,
           motivo_descuento: motivosAjustados,
@@ -3690,7 +3692,7 @@ export default function MartinetoPOSPage() {
                 <b className="text-purple-300">- $ {totalNominaDia.toLocaleString('es-CO')}</b>
               </div>
               <div className="flex justify-between pt-2 border-t border-[#0066b3]/50 text-sm font-black">
-                <span className="text-white">Efectivo Disponible en Caja:</span>
+                <span className="text-white">Efectivo Esperado en Caja (Sistema):</span>
                 <span className="text-emerald-400">$ {cajaDisponibleCalculada.toLocaleString('es-CO')}</span>
               </div>
             </div>
@@ -4050,7 +4052,7 @@ export default function MartinetoPOSPage() {
                   <b className="text-purple-300">- $ {totalNominaDia.toLocaleString('es-CO')}</b>
                 </div>
                 <div className="flex justify-between pt-1 border-t border-[#0066b3]/50 font-black">
-                  <span>Efectivo Esperado en Caja:</span>
+                  <span>Efectivo Esperado en Caja (Sistema):</span>
                   <span className="text-emerald-400">$ {efectivoEsperadoEnCaja.toLocaleString('es-CO')}</span>
                 </div>
 
@@ -4089,15 +4091,15 @@ export default function MartinetoPOSPage() {
 
                     let mensajeDiferencia = '';
                     if (dif > 0) {
-                      mensajeDiferencia = `⚠️ SOBRANTE DE CAJA: El efectivo físico en caja ($ ${efectFisico.toLocaleString('es-CO')}) es MAYOR al esperado ($ ${efectEsperado.toLocaleString('es-CO')}) por $ ${Math.abs(dif).toLocaleString('es-CO')}`;
+                      mensajeDiferencia = `⚠️ SOBRANTE DE CAJA: El efectivo contado ($ ${efectFisico.toLocaleString('es-CO')}) es MAYOR al del sistema ($ ${efectEsperado.toLocaleString('es-CO')}) por $ ${Math.abs(dif).toLocaleString('es-CO')}`;
                     } else if (dif < 0) {
-                      mensajeDiferencia = `⚠️ FALTANTE DE CAJA: El efectivo esperado ($ ${efectEsperado.toLocaleString('es-CO')}) es MAYOR al físico en caja ($ ${efectFisico.toLocaleString('es-CO')}) por $ ${Math.abs(dif).toLocaleString('es-CO')}`;
+                      mensajeDiferencia = `⚠️ FALTANTE DE CAJA: El efectivo contado ($ ${efectFisico.toLocaleString('es-CO')}) es MENOR al del sistema ($ ${efectEsperado.toLocaleString('es-CO')}) por $ ${Math.abs(dif).toLocaleString('es-CO')}`;
                     }
 
                     return (
                       <div className="space-y-2 pt-1">
-                        <p className={`text-xs font-black uppercase ${hayDescuadre ? 'text-rose-500' : 'text-emerald-300'}`}>
-                          {hayDescuadre ? mensajeDiferencia : `✓ CAJA CUADRADA EXCELENTE ($ 0)`}
+                        <p className={`text-xs font-black uppercase ${hayDescuadre ? 'text-rose-400' : 'text-emerald-300'}`}>
+                          {hayDescuadre ? mensajeDiferencia : `✓ CAJA CUADRADA EXCELENTE: El efectivo contado es IGUAL al del sistema ($ 0)`}
                         </p>
 
                         {hayDescuadre && (
