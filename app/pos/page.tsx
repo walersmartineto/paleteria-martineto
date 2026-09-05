@@ -94,8 +94,11 @@ export default function MartinetoPOSPage() {
 
   const [movimientosDiaBD, setMovimientosDiaBD] = useState<any[]>([]);
 
-  const [mesas, setMesas] = useState<any[]>([]);
-  const [mesaActivaId, setMesaActivaId] = useState<any | null>(null);
+  // --- PERSISTENCIA ANTICORTE DE LUZ PARA MESAS Y RAPPI ---
+  const [mesas, setMesas, limpiarMesasStorage] = useAutoSave<any[]>('martineto_mesas_persiste', []);
+  const [mesaActivaId, setMesaActivaId, limpiarMesaActivaStorage] = useAutoSave<any | null>('martineto_mesaActivaId_persiste', null);
+  const [pedidosRappi, setPedidosRappi, limpiarRappiStorage] = useAutoSave<any[]>('martineto_pedidosRappi_persiste', []);
+
   const [productosVenta, setProductosVenta] = useState<any[]>([]);
   const [listaCategoriasVenta, setListaCategoriasVenta] = useState<string[]>([]);
   const [categoriaVentaSel, setCategoriaVentaSel] = useState<string>('TODAS');
@@ -103,7 +106,6 @@ export default function MartinetoPOSPage() {
   const [errorLecturaBD, setErrorLecturaBD] = useState<string | null>(null);
 
   const [ventasDiaBD, setVentasDiaBD] = useState<any[]>([]);
-  const [pedidosRappi, setPedidosRappi] = useState<any[]>([]);
 
   const [mostrarModalConsultaCaja, setMostrarModalConsultaCaja] = useState(false);
 
@@ -648,6 +650,7 @@ export default function MartinetoPOSPage() {
         });
       }
 
+      // Solo cargamos de BD las mesas si no hay un estado previo guardado en localStorage (persistencia de luz)
       const mesasRes = await supabase
         .from('mesa')
         .select('*')
@@ -667,16 +670,27 @@ export default function MartinetoPOSPage() {
         ];
       }
 
-      setMesas(
-        listaMesas.map((m: any) => ({
-          ...m,
-          items: [],
-          total: 0,
-          totalAbonado: 0,
-          descuentoAcumulado: 0,
-          estado: (m.estado || 'libre').toLowerCase(),
-        })).sort((a: any, b: any) => (a.nombre || '').localeCompare(b.nombre || '', 'es', { sensitivity: 'base' }))
-      );
+      const mesasMapeadas = listaMesas.map((m: any) => ({
+        ...m,
+        items: [],
+        total: 0,
+        totalAbonado: 0,
+        descuentoAcumulado: 0,
+        estado: (m.estado || 'libre').toLowerCase(),
+      })).sort((a: any, b: any) => (a.nombre || '').localeCompare(b.nombre || '', 'es', { sensitivity: 'base' }));
+
+      if (!mesas || mesas.length === 0) {
+        setMesas(mesasMapeadas);
+      } else {
+        // Sincronizamos estados asegurando conservar items locales si los hubiera
+        setMesas((prevMesasBD) => {
+          if (!prevMesasBD || prevMesasBD.length === 0) return mesasMapeadas;
+          return mesasMapeadas.map((mBD) => {
+            const encontrado = prevMesasBD.find((p: any) => p.id === mBD.id);
+            return encontrado ? encontrado : mBD;
+          });
+        });
+      }
 
       const { data: prodsVentaBD, error: errVenta } = await supabase
         .from('produc_ven_martineto')
@@ -2113,9 +2127,7 @@ export default function MartinetoPOSPage() {
 
   const totalNominaDia = listaNominasDia.reduce((acc, n) => acc + Number(n.monto || 0), 0);
 
-  // --- CORRECCIÓN EN CÁLCULOS DE CAJA ---
   const totalEfectivoRecibido = totalEfectivoIngresado;
-  // Descontamos Gastos de Insumos y Nómina del dinero en efectivo que debería haber físicamente
   const efectivoEsperadoEnCaja = Math.max(0, (Number(baseCaja) || 0) + totalEfectivoRecibido - sumaGastosTotal - totalNominaDia);
   const efectivoTotalNetoCierre = efectivoEsperadoEnCaja;
   const cajaDisponibleCalculada = efectivoEsperadoEnCaja;
@@ -2479,6 +2491,9 @@ export default function MartinetoPOSPage() {
       limpiarObsPedido();
       limpiarConceptoGasto();
       limpiarMontoGasto();
+      limpiarMesasStorage();
+      limpiarMesaActivaStorage();
+      limpiarRappiStorage();
 
       localStorage.removeItem('martineto_session');
       router.push('/login');
@@ -3255,9 +3270,15 @@ export default function MartinetoPOSPage() {
 
           {itemActivoActual && itemActivoActual.items.length > 0 && (
             <div className="lg:col-span-4 bg-[#0b2b48] border border-[#0066b3] p-3.5 rounded-2xl flex flex-col shadow-md transition-all duration-300 h-full overflow-hidden">
-              <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2 shrink-0">
-                <h2 className="text-xs font-black text-white">🧾 Productos Pedidos</h2>
-                <span className="bg-[#051829] text-sky-300 text-[9px] px-2 py-0.5 rounded border border-[#0066b3] uppercase font-bold">
+              {/* --- SOLICITUD 2: MOSTRAR EL NÚMERO DE MESA EN LA FACTURA / VENTA --- */}
+              <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2 shrink-0 bg-[#051829] px-3 py-2 rounded-xl border border-sky-500/40">
+                <div>
+                  <span className="text-[10px] text-sky-300 uppercase font-bold block">Factura / Orden Activa:</span>
+                  <h2 className="text-xs md:text-sm font-black text-emerald-400">
+                    🏷️ {itemActivoActual.nombre}
+                  </h2>
+                </div>
+                <span className="bg-[#0b2b48] text-sky-200 text-[10px] px-2 py-1 rounded border border-[#0066b3] uppercase font-black">
                   {esRappiActivo ? rappiActivo?.estado : mesaActiva ? mesaActiva.estado : ''}
                 </span>
               </div>

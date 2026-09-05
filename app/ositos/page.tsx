@@ -154,8 +154,8 @@ export default function OsitosPOSPage() {
   const [sedesSeleccionadasProd, setSedesSeleccionadasProd] = useState<(number | string)[]>([]);
 
   const [tipoDia, setTipoDia] = useState<string>('entre_semana');
-  const [horasDia, setHorasDia] = useState<number | ''>('');
-  const [horasNoche, setHorasNoche] = useState<number | ''>('');
+  const [horasDia, setHorasDia] = useState<number | string>('');
+  const [horasNoche, setHorasNoche] = useState<number | string>('');
   const [nominaPagadaEnTurno, setNominaPagadaEnTurno] = useState(false);
   const [listaNominasDia, setListaNominasDia] = useState<RegistroNominaDia[]>([]);
 
@@ -3374,25 +3374,29 @@ export default function OsitosPOSPage() {
                 </select>
               </div>
               <div>
-                <label className="text-[10px] text-sky-300 block mb-1 font-bold">Horas Día Trabajadas:</label>
+                <label className="text-[10px] text-sky-300 block mb-1 font-bold">Horas Día Trabajadas (Permite decimales):</label>
                 <input
-                  type="text"
-                  inputMode="numeric"
-                  placeholder="0"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  inputMode="decimal"
+                  placeholder="Ej. 7.5"
                   value={horasDia}
-                  onChange={(e) => setHorasDia(e.target.value === '' ? '' : Number(e.target.value.replace(/\D/g, '')))}
+                  onChange={(e) => setHorasDia(e.target.value === '' ? '' : e.target.value)}
                   disabled={nominaPagadaEnTurno || procesandoNomina}
                   className="w-full bg-[#0e385e] border border-[#0066b3] text-white text-xs p-2.5 rounded-xl outline-none font-black text-center disabled:opacity-50"
                 />
               </div>
               <div>
-                <label className="text-[10px] text-sky-300 block mb-1 font-bold">Horas Noche Trabajadas:</label>
+                <label className="text-[10px] text-sky-300 block mb-1 font-bold">Horas Noche Trabajadas (Permite decimales):</label>
                 <input
-                  type="text"
-                  inputMode="numeric"
-                  placeholder="0"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  inputMode="decimal"
+                  placeholder="Ej. 2.5"
                   value={horasNoche}
-                  onChange={(e) => setHorasNoche(e.target.value === '' ? '' : Number(e.target.value.replace(/\D/g, '')))}
+                  onChange={(e) => setHorasNoche(e.target.value === '' ? '' : e.target.value)}
                   disabled={nominaPagadaEnTurno || procesandoNomina}
                   className="w-full bg-[#0e385e] border border-[#0066b3] text-white text-xs p-2.5 rounded-xl outline-none font-black text-center disabled:opacity-50"
                 />
@@ -3505,6 +3509,21 @@ export default function OsitosPOSPage() {
             </div>
 
             <div className="space-y-3 text-xs">
+              <div className="grid grid-cols-2 gap-2 bg-[#051829] p-3 rounded-xl border border-amber-500/40">
+                <div>
+                  <span className="text-[10px] text-sky-300 block font-bold">Total Nequi Hoy:</span>
+                  <b className="text-emerald-300 text-xs">$ {totalNequiIngresado.toLocaleString('es-CO')}</b>
+                </div>
+                <div>
+                  <span className="text-[10px] text-sky-300 block font-bold">Total Daviplata Hoy:</span>
+                  <b className="text-emerald-300 text-xs">$ {totalDaviplataIngresado.toLocaleString('es-CO')}</b>
+                </div>
+                <div className="col-span-2 pt-1 border-t border-[#0066b3]/40 flex justify-between">
+                  <span className="text-[10px] text-sky-300 font-bold">Total Rappi / Electrónico:</span>
+                  <b className="text-rose-300 text-xs">$ {totalRappiRealizados.toLocaleString('es-CO')}</b>
+                </div>
+              </div>
+
               <div>
                 <label className="text-amber-300 font-bold block mb-1">Efectivo Contado que Dejas en Caja ($):</label>
                 <input
