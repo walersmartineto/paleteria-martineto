@@ -1,273 +1,357 @@
 import { supabase } from './supabase';
 
-export interface TarifasOsitos {
-  subsidio: number;
-  transporte: number;
-  horaDiaEntreSemana: number;
-  horaNocheEntreSemana: number;
-  horaDiaFestivo: number;
-  horaNocheFestivo: number;
-}
+export const SEDE_OSITOS_ID = 3; // 12 Friendly Bears
 
-// 1. OBTENER TARIFAS DE NÓMINA DE 12 FRIENDLY BEARS (SEDE 4)
-export async function obtenerTarifasOsitos(): Promise<TarifasOsitos> {
-  const tarifasDefecto: TarifasOsitos = {
-    subsidio: 9600,
-    transporte: 8400,
-    horaDiaEntreSemana: 7200,
-    horaNocheEntreSemana: 10700,
-    horaDiaFestivo: 12700,
-    horaNocheFestivo: 15200,
-  };
+// ==========================================
+// 1. CARGA DE CATALOGOS Y MESAS DE OSITOS
+// ==========================================
+export const fetchProductosOsitos = async () => {
+  const { data, error } = await supabase
+    .from('produc_ven_ositos')
+    .select('*')
+    .eq('activo', true)
+    .order('categoria', { ascending: true });
 
-  try {
-    const { data, error } = await supabase
-      .from('configuracion_nomina')
-      .select('*')
-      .eq('sede_id', 4)
-      .single();
+  if (error) throw error;
+  return data || [];
+};
 
-    if (error || !data) return tarifasDefecto;
+export const fetchEmpaquesOsitos = async () => {
+  const { data, error } = await supabase
+    .from('empaques_ositos')
+    .select('*')
+    .order('nombre', { ascending: true });
 
-    return {
-      subsidio: data.subsidio ?? 9600,
-      transporte: data.transporte ?? 8400,
-      horaDiaEntreSemana: data.hora_dia_entre_semana ?? 7200,
-      horaNocheEntreSemana: data.hora_noche_entre_semana ?? 10700,
-      horaDiaFestivo: data.hora_dia_festivo ?? 12700,
-      horaNocheFestivo: data.hora_noche_festivo ?? 15200,
-    };
-  } catch (e) {
-    console.error('Error obteniendo tarifas de 12 Friendly Bears:', e);
-    return tarifasDefecto;
-  }
-}
+  if (error) throw error;
+  return data || [];
+};
 
-// 2. OBTENER LISTA DE SABORES DISPONIBLES PARA 12 FRIENDLY BEARS (ORDENADO ALFABÉTICAMENTE)
-export async function obtenerSaboresOsitos(): Promise<any[]> {
-  try {
-    const { data, error } = await supabase
-      .from('producto')
-      .select('id, nombre, activo, stock, categoria, grupo, es_comun, donde_comprar')
-      .eq('activo', true)
-      .order('nombre', { ascending: true }); // <--- Orden alfabético A-Z por nombre
+export const fetchMesasOsitos = async () => {
+  const { data, error } = await supabase
+    .from('mesa')
+    .select('*')
+    .eq('sede_id', SEDE_OSITOS_ID)
+    .order('id', { ascending: true });
 
-    if (error) {
-      console.error('Error cargando sabores para 12 Friendly Bears:', error);
-      return [];
-    }
-    return data || [];
-  } catch (err) {
-    console.error('Error en obtenerSaboresOsitos:', err);
-    return [];
-  }
-}
+  if (error) throw error;
+  return data || [];
+};
 
-// 3. OBTENER USUARIOS OPERARIOS (ORDENADO ALFABÉTICAMENTE)
-export async function obtenerUsuariosOperarios(): Promise<any[]> {
-  try {
-    const { data, error } = await supabase
-      .from('usuario')
-      .select('id, nombre_completo, codigo_acceso, tipo_usuario, activo')
-      .eq('activo', true)
-      .order('nombre_completo', { ascending: true }); // <--- Orden alfabético A-Z por nombre_completo
-
-    if (error) {
-      console.error('Error obteniendo usuarios:', error);
-      return [];
-    }
-
-    return (data || []).map((u) => ({
-      id: u.id,
-      nombre: u.nombre_completo,
-      pin: u.codigo_acceso,
-      rol: u.tipo_usuario,
-    }));
-  } catch (err) {
-    console.error('Error en obtenerUsuariosOperarios:', err);
-    return [];
-  }
-}
-
-// 4. REGISTRAR BASE INICIAL EN LA TABLA CAJA PARA 12 FRIENDLY BEARS
-export async function registrarBaseCajaOsitos(
-  sedeId: number,
-  usuarioId: number,
-  montoApertura: number,
-  turnoId?: number
-): Promise<boolean> {
-  try {
-    const { error } = await supabase.from('caja').insert([
+// ==========================================
+// 2. REGISTRO COMPLETO DE VENTAS
+// ==========================================
+export const registrarVentaOsitos = async ({
+  cajaId,
+  mesaId,
+  usuarioId,
+  items,
+  montoEfectivo,
+  montoNequi,
+  montoDaviplata,
+  montoTarjeta,
+  montoRappi,
+  montoTotal,
+  descuento = 0,
+  observaciones = ''
+}: {
+  cajaId: number;
+  mesaId?: number | null;
+  usuarioId: number;
+  items: Array<{ id: number; nombre: string; precio: number; cantidad: number }>;
+  montoEfectivo: number;
+  montoNequi: number;
+  montoDaviplata: number;
+  montoTarjeta: number;
+  montoRappi: number;
+  montoTotal: number;
+  descuento?: number;
+  observaciones?: string;
+}) => {
+  // A. Insertar Encabezado de Venta
+  const { data: venta, error: errorVenta } = await supabase
+    .from('venta')
+    .insert([
       {
-        sede_id: sedeId,
+        sede_id: SEDE_OSITOS_ID,
+        caja_id: cajaId,
+        mesa_id: mesaId || null,
         usuario_id: usuarioId,
-        turno_id: turnoId || null,
-        monto_apertura: montoApertura,
-        estado: 'abierta',
-        fecha: new Date().toISOString(),
-      },
+        total: montoTotal,
+        descuento: descuento,
+        monto_efectivo: montoEfectivo,
+        monto_nequi: montoNequi,
+        monto_daviplata: montoDaviplata,
+        monto_tarjeta: montoTarjeta,
+        monto_rappi: montoRappi,
+        observaciones,
+        fecha: new Date().toISOString()
+      }
+    ])
+    .select()
+    .single();
+
+  if (errorVenta) throw errorVenta;
+
+  // B. Insertar Detalle de Venta
+  const detalles = items.map((item) => ({
+    venta_id: venta.id,
+    producto_ositos_id: item.id,
+    nombre_producto: item.nombre,
+    precio_unitario: item.precio,
+    cantidad: item.cantidad,
+    subtotal: item.precio * item.cantidad
+  }));
+
+  const { error: errorDetalle } = await supabase
+    .from('venta_detalle')
+    .insert(detalles);
+
+  if (errorDetalle) {
+    // Si la tabla venta_detalle general no usa producto_ositos_id, se inserta con estructura basica
+    await supabase.from('venta_detalle').insert(
+      items.map((item) => ({
+        venta_id: venta.id,
+        nombre_producto: item.nombre,
+        precio_unitario: item.precio,
+        cantidad: item.cantidad,
+        subtotal: item.precio * item.cantidad
+      }))
+    );
+  }
+
+  // C. Liberar Mesa si aplica
+  if (mesaId) {
+    await supabase
+      .from('mesa')
+      .update({ estado: 'libre' })
+      .eq('id', mesaId);
+  }
+
+  return venta;
+};
+
+// ==========================================
+// 3. VALIDACION Y CAMBIO DE TURNO
+// ==========================================
+export const validarOperarioLibre = async (usuarioId: number) => {
+  const { data, error } = await supabase
+    .from('caja')
+    .select('id, sede_id, sede(nombre)')
+    .eq('usuario_id', usuarioId)
+    .eq('estado', 'abierta')
+    .neq('sede_id', SEDE_OSITOS_ID);
+
+  if (error) throw error;
+
+  if (data && data.length > 0) {
+    const sedeAbierta = (data[0] as any).sede?.nombre || `Sede #${data[0].sede_id}`;
+    return {
+      disponible: false,
+      mensaje: `El operario seleccionado ya tiene un turno abierto en la sede ${sedeAbierta}. Debe cerrar turno allí antes de ingresar a 12 Friendly Bears.`
+    };
+  }
+
+  return { disponible: true };
+};
+
+export const ejecutarCambioTurnoOsitos = async ({
+  cajaId,
+  usuarioEntranteId,
+  efectivoFisicoDejado
+}: {
+  cajaId: number;
+  usuarioEntranteId: number;
+  efectivoFisicoDejado: number;
+}) => {
+  const validacion = await validarOperarioLibre(usuarioEntranteId);
+  if (!validacion.disponible) {
+    throw new Error(validacion.mensaje);
+  }
+
+  const { data, error } = await supabase
+    .from('caja')
+    .update({
+      usuario_id: usuarioEntranteId,
+      ultimo_conteo_efectivo: efectivoFisicoDejado,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', cajaId)
+    .select();
+
+  if (error) throw error;
+  return data;
+};
+
+// ==========================================
+// 4. REGISTRO DE GASTOS Y LIQUIDACION DE NOMINA
+// ==========================================
+export const registrarGastoOsitos = async ({
+  usuarioId,
+  concepto,
+  monto
+}: {
+  usuarioId: number;
+  concepto: string;
+  monto: number;
+}) => {
+  const { data, error } = await supabase
+    .from('gastos')
+    .insert([
+      {
+        sede_id: SEDE_OSITOS_ID,
+        usuario_id: usuarioId,
+        descripcion: concepto,
+        monto: monto,
+        fecha: new Date().toISOString()
+      }
     ]);
 
-    if (error) {
-      console.error('Error insertando base en caja 12 Friendly Bears:', error);
-      return false;
-    }
-    return true;
-  } catch (err) {
-    console.error('Error en registrarBaseCajaOsitos:', err);
-    return false;
-  }
-}
+  if (error) throw error;
+  return data;
+};
 
-// 5. REGISTRAR MOVIMIENTO DE INVENTARIO PARA 12 FRIENDLY BEARS
-export async function registrarMovimientoOsitos(
-  sedeId: number,
-  usuarioId: number,
-  tipoMovimiento: string,
-  totalPaletas: number,
-  detallePaletas: { [key: string]: number },
-  detalleEmpaques: { [key: string]: number },
-  observaciones: string,
-  turnoId?: number
-): Promise<boolean> {
-  try {
-    const payload: any = {
-      sede_id: sedeId,
-      usuario_id: usuarioId,
-      tipo_movimiento: tipoMovimiento,
-      total_paletas: totalPaletas,
-      detalle_paletas: detallePaletas,
-      detalle_empaques: detalleEmpaques,
-      observacion: observaciones || '',
-      fecha_registro: new Date().toISOString(),
-    };
-
-    if (turnoId) payload.turno_id = turnoId;
-
-    const { error } = await supabase.from('inventario_diario').insert([payload]);
-
-    if (error) {
-      console.error('Error guardando movimiento de inventario en 12 Friendly Bears:', JSON.stringify(error, null, 2));
-      return false;
-    }
-    return true;
-  } catch (err) {
-    console.error('Error en registrarMovimientoOsitos:', err);
-    return false;
-  }
-}
-
-// 6. CREAR PEDIDO DE INSUMOS Y REQUISICIONES DE 12 FRIENDLY BEARS
-export async function crearPedidoInsumosOsitos(datos: {
-  sedeId: number;
+export const calcularYRegistrarNominaOsitos = async ({
+  usuarioId,
+  horasDia,
+  horasNoche,
+  esFestivo
+}: {
   usuarioId: number;
-  paletas: { [key: string]: number };
-  richi: { [key: string]: number };
-  produccion: { [key: string]: number };
-  insumos: { [key: string]: number };
-  aseo: { [key: string]: number };
-  observaciones: string;
-}): Promise<boolean> {
-  try {
-    const payload = {
-      sede_id: datos.sedeId,
-      usuario_id: datos.usuarioId,
-      pedidos_paletas: datos.paletas,
-      pedidos_richi: datos.richi,
-      pedidos_produccion: datos.produccion,
-      pedidos_insumos: datos.insumos,
-      pedidos_aseo: datos.aseo,
-      observaciones: datos.observaciones || '',
-      estado: 'pendiente',
-      fecha: new Date().toISOString(),
-    };
-
-    const { error } = await supabase.from('pedidos_insumos').insert([payload]);
-
-    if (error) {
-      console.error('Error creando pedido de insumos en 12 Friendly Bears:', error);
-      return false;
-    }
-    return true;
-  } catch (err) {
-    console.error('Error en crearPedidoInsumosOsitos:', err);
-    return false;
-  }
-}
-
-// 7. REGISTRAR NÓMINA Y ACTUALIZAR ARQUEO COMPLETO EN TABLA CAJA PARA 12 FRIENDLY BEARS
-export async function registrarNominaYCambioTurnoOsitos(data: {
-  sedeId: number;
-  usuarioId: number;
-  tipoDia: string;
   horasDia: number;
   horasNoche: number;
-  subsidio: number;
-  transporte: number;
-  totalPagado: number;
-  efectivoCaja: number;
-  nequi: number;
-  daviplata: number;
-  gastos: number;
-  motivoGasto: string;
-}): Promise<boolean> {
-  try {
-    const fechaHoy = new Date().toISOString().split('T')[0];
+  esFestivo: boolean;
+}) => {
+  const { data: tarifa, error: errorTarifa } = await supabase
+    .from('configuracion_tarifa')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single();
 
-    // A. Registrar pago de nómina
-    const { error: errorNomina } = await supabase.from('nomina').insert([
-      {
-        sede_id: data.sedeId,
-        usuario_id: data.usuarioId,
-        tipo_dia: data.tipoDia,
-        horas_dia: data.horasDia,
-        horas_noche: data.horasNoche,
-        subsidio_transporte: data.subsidio + data.transporte,
-        monto: data.totalPagado,
-        concepto: 'Pago de turno',
-        fecha_pago: fechaHoy,
-      },
-    ]);
-
-    if (errorNomina) {
-      console.error('Error guardando nómina en 12 Friendly Bears:', errorNomina);
-      return false;
-    }
-
-    // B. Si es cierre de caja, actualizar la caja abierta más reciente
-    if (data.efectivoCaja > 0 || data.nequi > 0 || data.daviplata > 0) {
-      const { data: cajaAbierta } = await supabase
-        .from('caja')
-        .select('id')
-        .eq('sede_id', data.sedeId)
-        .eq('estado', 'abierta')
-        .order('id', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (cajaAbierta) {
-        const { error: errCaja } = await supabase
-          .from('caja')
-          .update({
-            efectivo_cierre: data.efectivoCaja,
-            nequi: data.nequi,
-            daviplata: data.daviplata,
-            monto_gasto: data.gastos,
-            motivo_gasto: data.motivoGasto,
-            estado: 'cerrada',
-          })
-          .eq('id', cajaAbierta.id);
-
-        if (errCaja) {
-          console.error('Error actualizando la caja en 12 Friendly Bears:', errCaja);
-          return false;
-        }
-      }
-    }
-
-    return true;
-  } catch (err) {
-    console.error('Error en registrarNominaYCambioTurnoOsitos:', err);
-    return false;
+  if (errorTarifa || !tarifa) {
+    throw new Error('No se pudo obtener la configuración de tarifas/salario.');
   }
-}
+
+  const valorHoraDia = esFestivo ? Number(tarifa.hora_festiva_dia) : Number(tarifa.hora_ordinaria_dia);
+  const valorHoraNoche = esFestivo ? Number(tarifa.hora_festiva_noche) : Number(tarifa.hora_ordinaria_noche);
+
+  const subtotalHorasDia = horasDia * valorHoraDia;
+  const subtotalHorasNoche = horasNoche * valorHoraNoche;
+
+  const totalHoras = horasDia + horasNoche;
+  const subsidioTransporte = totalHoras > 0 ? Number(tarifa.subsidio_transporte || 0) : 0;
+  const subsidioAlimentacion = totalHoras > 0 ? Number(tarifa.subsidio_alimentacion || 0) : 0;
+
+  const montoTotal = subtotalHorasDia + subtotalHorasNoche + subsidioTransporte + subsidioAlimentacion;
+
+  const { data: nominaRegistrada, error: errorNomina } = await supabase
+    .from('nomina')
+    .insert([
+      {
+        sede_id: SEDE_OSITOS_ID,
+        usuario_id: usuarioId,
+        monto: montoTotal,
+        horas_dia: horasDia,
+        horas_noche: horasNoche,
+        tipo_dia: esFestivo ? 'Festivo/Dominical' : 'Ordinario',
+        subsidio_transporte: subsidioTransporte,
+        subsidio_alimentacion: subsidioAlimentacion,
+        fecha: new Date().toISOString()
+      }
+    ])
+    .select();
+
+  if (errorNomina) throw errorNomina;
+
+  return {
+    montoTotal,
+    desglose: {
+      valorHoraDia,
+      valorHoraNoche,
+      subtotalHorasDia,
+      subtotalHorasNoche,
+      subsidioTransporte,
+      subsidioAlimentacion
+    },
+    nominaRegistrada
+  };
+};
+
+// ==========================================
+// 5. CIERRE DEFINITIVO DE CAJA (MARTINETO APPLIED)
+// ==========================================
+export const calcularYEjecutarCierreCajaOsitos = async ({
+  cajaId,
+  efectivoDeclarado
+}: {
+  cajaId: number;
+  efectivoDeclarado: number;
+}) => {
+  const { data: caja, error: errorCaja } = await supabase
+    .from('caja')
+    .select('*')
+    .eq('id', cajaId)
+    .single();
+
+  if (errorCaja) throw errorCaja;
+
+  const { data: ventas, error: errorVentas } = await supabase
+    .from('venta')
+    .select('monto_efectivo')
+    .eq('caja_id', cajaId);
+
+  if (errorVentas) throw errorVentas;
+  const totalVentasEfectivo = (ventas || []).reduce((acc, v) => acc + (Number(v.monto_efectivo) || 0), 0);
+
+  const { data: gastos, error: errorGastos } = await supabase
+    .from('gastos')
+    .select('monto')
+    .eq('sede_id', SEDE_OSITOS_ID)
+    .gte('fecha', caja.fecha_apertura);
+
+  if (errorGastos) throw errorGastos;
+  const totalGastos = (gastos || []).reduce((acc, g) => acc + (Number(g.monto) || 0), 0);
+
+  const { data: nomina, error: errorNomina } = await supabase
+    .from('nomina')
+    .select('monto')
+    .eq('sede_id', SEDE_OSITOS_ID)
+    .gte('fecha', caja.fecha_apertura);
+
+  if (errorNomina) throw errorNomina;
+  const totalNomina = (nomina || []).reduce((acc, n) => acc + (Number(n.monto) || 0), 0);
+
+  const baseInicial = Number(caja.base_inicial) || 0;
+  const efectivoEsperado = baseInicial + totalVentasEfectivo - totalGastos - totalNomina;
+  const descuadre = efectivoDeclarado - efectivoEsperado;
+
+  const { data: cajaCerrada, error: errorCierre } = await supabase
+    .from('caja')
+    .update({
+      estado: 'cerrada',
+      fecha_cierre: new Date().toISOString(),
+      total_ventas_efectivo: totalVentasEfectivo,
+      total_gastos: totalGastos,
+      total_nomina: totalNomina,
+      efectivo_esperado: efectivoEsperado,
+      efectivo_declarado: efectivoDeclarado,
+      descuadre: descuadre
+    })
+    .eq('id', cajaId)
+    .select();
+
+  if (errorCierre) throw errorCierre;
+
+  return {
+    resumen: {
+      baseInicial,
+      totalVentasEfectivo,
+      totalGastos,
+      totalNomina,
+      efectivoEsperado,
+      efectivoDeclarado,
+      descuadre
+    },
+    cajaCerrada
+  };
+};
