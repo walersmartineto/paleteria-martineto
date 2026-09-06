@@ -135,6 +135,14 @@ export default function CentroPage() {
     )
   ).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
 
+  const lugaresCompraUnicos = Array.from(
+    new Set(
+      productosInsumosBD
+        .map((p) => (p.donde_comprar || '').trim())
+        .filter((l) => l !== '')
+    )
+  ).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+
   useEffect(() => {
     if (categoriasDinamicas.length > 0 && (!categoriaPedido || !categoriasDinamicas.includes(categoriaPedido))) {
       setCategoriaPedido(categoriasDinamicas[0]);
@@ -400,17 +408,6 @@ export default function CentroPage() {
       if (index < inventarioSedeItems.length - 1) {
         const siguienteItem = inventarioSedeItems[index + 1];
         inputsRef.current[`inv_item_${siguienteItem.nombre}`]?.focus();
-      }
-    }
-  }
-
-  function handleKeyDownPedido(e: React.KeyboardEvent<HTMLInputElement>, index: number, lista: any[], prefijo: string) {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      if (index < lista.length - 1) {
-        const siguienteItem = lista[index + 1];
-        const key = typeof siguienteItem === 'object' ? siguienteItem.id : siguienteItem;
-        inputsRef.current[`${prefijo}_${key}`]?.focus();
       }
     }
   }
@@ -751,7 +748,6 @@ export default function CentroPage() {
     alert(`💸 Pago de Nómina de $ ${totalNomina.toLocaleString('es-CO')} registrado con éxito.`);
   }
 
-  // AL CAMBIAR DE TURNO: SOLO GUARDA VISUALMENTE Y ABRE MODAL DE ENTRANTE
   async function handleEjecutarCambioTurno() {
     if (efecFisicoInput <= 0) {
       alert('⚠️ Ingresa el efectivo físico contado que queda en caja para el turno siguiente.');
@@ -856,7 +852,6 @@ export default function CentroPage() {
         }
       }
 
-      // CIERRE DEFINITIVO DEL DÍA EN BD
       let queryCaja = supabase
         .from('caja')
         .update({
@@ -1233,30 +1228,43 @@ export default function CentroPage() {
                   )}
                 </div>
 
-                <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 border border-[#0066b3]/50 p-2.5 rounded-xl bg-[#051829]">
+                <div className="space-y-3 max-h-[260px] overflow-y-auto pr-1 border border-[#0066b3]/50 p-2.5 rounded-xl bg-[#051829]">
                   <span className="text-[10px] text-sky-300 font-bold uppercase block">
                     Productos en {categoriaPedido.toUpperCase()} (Sede 2):
                   </span>
+                  
                   {productosCategoriaFiltrados.length === 0 ? (
                     <p className="text-xs text-amber-200 text-center py-4 font-semibold">
                       No hay productos guardados para esta categoría en la Sede 2.
                     </p>
                   ) : (
-                    productosCategoriaFiltrados.map((item, idx) => (
-                      <div key={item.id} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2">
-                        <span className="text-xs font-bold text-white truncate">{item.nombre}</span>
-                        <input 
-                          ref={(el) => { inputsRef.current[`pedido_prod_${item.id}`] = el; }}
-                          type="number" 
-                          placeholder="0" 
-                          value={cantidadesPedido[item.nombre] ?? ''} 
-                          onChange={(e) => handleItemPedidoChange(item.nombre, e.target.value)} 
-                          onKeyDown={(e) => handleKeyDownPedido(e, idx, productosCategoriaFiltrados, 'pedido_prod')}
-                          onFocus={(e) => e.target.select()} 
-                          className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
-                        />
-                      </div>
-                    ))
+                    Array.from(new Set(productosCategoriaFiltrados.map((p) => p.donde_comprar || 'General'))).map((dondeComprarGroup) => {
+                      const prodsDelLugar = productosCategoriaFiltrados.filter(
+                        (p) => (p.donde_comprar || 'General') === dondeComprarGroup
+                      );
+
+                      return (
+                        <div key={dondeComprarGroup} className="space-y-1.5 pt-1">
+                          <div className="bg-[#003d6d] px-2.5 py-1 rounded-lg border border-[#0066b3] text-[11px] font-black text-amber-300 uppercase tracking-wider">
+                            🛒 {dondeComprarGroup}
+                          </div>
+
+                          {prodsDelLugar.map((item) => (
+                            <div key={item.id} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2">
+                              <span className="text-xs font-bold text-white truncate">{item.nombre}</span>
+                              <input 
+                                type="number" 
+                                placeholder="0" 
+                                value={cantidadesPedido[item.nombre] ?? ''} 
+                                onChange={(e) => handleItemPedidoChange(item.nombre, e.target.value)} 
+                                onFocus={(e) => e.target.select()} 
+                                className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })
                   )}
                 </div>
 
@@ -1718,10 +1726,16 @@ export default function CentroPage() {
                   onChange={(e) => setNuevoProdDondeComprar(e.target.value)}
                   className="w-full bg-[#051829] border border-[#0066b3] text-white text-xs p-2.5 rounded-xl outline-none cursor-pointer"
                 >
+                  <option value="">-- Seleccionar lugar de compra --</option>
+                  {lugaresCompraUnicos.map((lugar) => (
+                    <option key={lugar} value={lugar}>
+                      🛒 {lugar}
+                    </option>
+                  ))}
                   <option value="Otro">✏️ Escribir nuevo lugar...</option>
                 </select>
 
-                {nuevoProdDondeComprar === 'Otro' && (
+                {(nuevoProdDondeComprar === 'Otro' || lugaresCompraUnicos.length === 0) && (
                   <input
                     type="text"
                     placeholder="Escribe el nuevo lugar de compra..."
