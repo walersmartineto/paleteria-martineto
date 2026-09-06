@@ -183,12 +183,23 @@ export default function OsitosPOSPage() {
 
   const esTurnoManana = (() => {
     const nombreTurno = String(sesion?.turno_nombre || sesion?.turnoNombre || '').toLowerCase();
-    const idTurno = String(sesion?.turno_id || sesion?.turnoId || '');
+
+    if (
+      nombreTurno.includes('completo') ||
+      nombreTurno.includes('dia completo') ||
+      nombreTurno.includes('día completo') ||
+      nombreTurno.includes('unico') ||
+      nombreTurno.includes('único') ||
+      nombreTurno.includes('cierre') ||
+      nombreTurno.includes('tarde')
+    ) {
+      return false;
+    }
+
     return (
       nombreTurno.includes('mañana') ||
       nombreTurno.includes('manana') ||
-      nombreTurno.includes('apertura') ||
-      idTurno === '1'
+      nombreTurno.includes('apertura')
     );
   })();
 
@@ -251,7 +262,6 @@ export default function OsitosPOSPage() {
     }
 
     const ses = JSON.parse(sesionLocal);
-    localStorage.setItem('ositos_session', JSON.stringify(ses));
     setSesion(ses);
 
     cargarInicial(ses);
@@ -501,11 +511,26 @@ export default function OsitosPOSPage() {
     setErrorLecturaBD(null);
 
     try {
-      const turnoIdActual = sesionActual?.turno_id || sesionActual?.turnoId || 1;
-      const turnoNombreActual = sesionActual?.turno_nombre || sesionActual?.turnoNombre || 'Mañana / Apertura';
+      const { data: turnosBD } = await supabase
+        .from('turno_trabajo')
+        .select('*')
+        .eq('sede_id', SEDE_ID_OSITOS);
+
+      let turnoIdActual = sesionActual?.turno_id || sesionActual?.turnoId;
+      let turnoNombreActual = sesionActual?.turno_nombre || sesionActual?.turnoNombre;
+
+      if (!turnoNombreActual && turnosBD && turnosBD.length > 0) {
+        const turnoCoincidente = turnosBD.find((t: any) => t.id === turnoIdActual) || turnosBD[0];
+        turnoIdActual = turnoCoincidente.id;
+        turnoNombreActual = turnoCoincidente.nombre;
+      } else if (!turnoNombreActual) {
+        turnoIdActual = 1;
+        turnoNombreActual = 'Día Completo';
+      }
 
       sesionActual.turno_id = turnoIdActual;
       sesionActual.turno_nombre = turnoNombreActual;
+      localStorage.setItem('ositos_session', JSON.stringify(sesionActual));
       setSesion({ ...sesionActual });
 
       const { data: listaOpBD } = await supabase
@@ -728,7 +753,6 @@ export default function OsitosPOSPage() {
         }
       }
 
-      // CORREGIDO: Usar 'fecha_hora' en lugar de 'fecha'
       const { data: ventasHoyBD } = await supabase
         .from('venta')
         .select('*')
@@ -852,7 +876,6 @@ export default function OsitosPOSPage() {
     }
   }
 
-  // CORREGIDO: Bloque finally sintácticamente correcto
   async function handleConfirmarEntranteYCambiarTurno() {
     if (validandoEntrante) return;
 
@@ -912,15 +935,18 @@ export default function OsitosPOSPage() {
       const { data: turnosBD } = await supabase
         .from('turno_trabajo')
         .select('*')
-        .or(`sede_id.eq.${SEDE_ID_OSITOS},sede_id.is.null`);
+        .eq('sede_id', SEDE_ID_OSITOS);
 
-      if (turnosBD) {
+      if (turnosBD && turnosBD.length > 0) {
         const turnoTardeObj = turnosBD.find((t: any) =>
           String(t.nombre || '').toLowerCase().includes('tarde') || String(t.nombre || '').toLowerCase().includes('cierre')
         );
         if (turnoTardeObj) {
           nuevoTurnoId = turnoTardeObj.id;
           nuevoTurnoNombre = turnoTardeObj.nombre;
+        } else {
+          nuevoTurnoId = turnosBD[0].id;
+          nuevoTurnoNombre = turnosBD[0].nombre;
         }
       }
 
@@ -1525,7 +1551,7 @@ export default function OsitosPOSPage() {
           const existeIndex = r.items.findIndex((i: any) => i.nombre === nombreFinalItem);
 
           let nuevosItems = [...r.items];
-          if (existeIndex >= 0) {
+          if (existeIndex >=0) {
             nuevosItems[existeIndex] = {
               ...nuevosItems[existeIndex],
               cantidad: nuevosItems[existeIndex].cantidad + 1,
@@ -2265,7 +2291,6 @@ export default function OsitosPOSPage() {
     try {
       const inicioDia = obtenerInicioDiaColombia();
 
-      // CORREGIDO: Usar 'fecha_hora' en lugar de 'fecha'
       const { data: ventasHoy, error: errorVentas } = await supabase
         .from('venta')
         .select('pago_efectivo, pago_nequi, pago_daviplata, rappi, monto_total, estado, descuento, motivo_descuento')
@@ -2441,7 +2466,7 @@ export default function OsitosPOSPage() {
             🐻 Ositos POS
           </h1>
           <p className="text-xs text-sky-200 mt-1">
-            Operador en Turno: <b className="text-white">{sesion?.nombre || sesion?.nombre_completo || 'Iris'}</b> ({sesion?.turno_nombre || sesion?.turnoNombre || 'Mañana / Apertura'})
+            Operador en Turno: <b className="text-white">{sesion?.nombre || sesion?.nombre_completo || 'Iris'}</b> ({sesion?.turno_nombre || sesion?.turnoNombre || 'Día Completo'})
           </p>
         </div>
       </header>
