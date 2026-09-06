@@ -221,6 +221,18 @@ export default function CentroPage() {
         setTipoMovimiento('apertura');
       }
 
+      const { data: invCierreBD } = await supabase
+        .from('inventario_diario')
+        .select('id')
+        .eq('sede_id', SEDE_ID_CENTRO)
+        .gte('fecha_registro', hoyInicio.toISOString())
+        .ilike('tipo_movimiento', 'cierre')
+        .maybeSingle();
+
+      if (invCierreBD) {
+        setCierreRealizado(true);
+      }
+
       const { data: movsBD } = await supabase
         .from('inventario_diario')
         .select('*')
@@ -720,11 +732,10 @@ export default function CentroPage() {
     }
 
     setGuardandoNomina(true);
-    const usuarioId = sesion?.usuario_id || sesion?.id || null;
 
     const payloadNomina = {
       sede_id: SEDE_ID_CENTRO,
-      usuario_id: usuarioId ? Number(usuarioId) : null,
+      usuario_id: usuarioIdActual ? Number(usuarioIdActual) : null,
       monto: totalNomina,
       horas_dia: Number(horasDia) || 0,
       horas_noche: Number(horasNoche) || 0,
@@ -1153,7 +1164,8 @@ export default function CentroPage() {
                       onChange={(e) => handleInventarioItemChange(item.nombre, e.target.value)}
                       onKeyDown={(e) => handleKeyDownInventarioItem(e, idx)}
                       onFocus={(e) => e.target.select()}
-                      className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      disabled={tipoMovimiento === 'cierre' && cierreRealizado}
+                      className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none disabled:opacity-50"
                     />
                   </div>
                 ))
@@ -1164,20 +1176,25 @@ export default function CentroPage() {
               placeholder="Observaciones de inventario..."
               value={observaciones}
               onChange={(e) => setObservaciones(e.target.value)}
-              className="w-full bg-[#051829] border border-[#0066b3] rounded-xl p-2.5 text-xs text-white outline-none h-20 resize-none focus:border-[#00a4ef]"
+              disabled={tipoMovimiento === 'cierre' && cierreRealizado}
+              className="w-full bg-[#051829] border border-[#0066b3] rounded-xl p-2.5 text-xs text-white outline-none h-20 resize-none focus:border-[#00a4ef] disabled:opacity-50"
             />
           </div>
 
           <button
             onClick={handleGuardarInventario}
-            disabled={!baseGuardada || guardando}
+            disabled={!baseGuardada || guardando || (tipoMovimiento === 'cierre' && cierreRealizado)}
             className={`w-full font-black py-3 rounded-xl text-xs md:text-sm transition-all uppercase shadow-md mt-4 ${
-              baseGuardada && !guardando
+              baseGuardada && !guardando && !(tipoMovimiento === 'cierre' && cierreRealizado)
                 ? 'bg-[#0078d4] hover:bg-[#0086e6] text-white shadow-[#003d6d] cursor-pointer opacity-100'
                 : 'bg-[#051829] text-sky-400/40 cursor-not-allowed opacity-50 border border-[#003d6d]'
             }`}
           >
-            {guardando ? 'Guardando Inventario...' : `💾 Guardar ${tipoMovimiento}`}
+            {guardando 
+              ? 'Guardando Inventario...' 
+              : (tipoMovimiento === 'cierre' && cierreRealizado)
+              ? '✓ Conteo de Cierre Guardado'
+              : `💾 Guardar ${tipoMovimiento}`}
           </button>
         </div>
 
