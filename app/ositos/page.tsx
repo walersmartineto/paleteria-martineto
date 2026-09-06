@@ -186,12 +186,10 @@ export default function OsitosPOSPage() {
 
     if (
       nombreTurno.includes('completo') ||
-      nombreTurno.includes('dia completo') ||
-      nombreTurno.includes('día completo') ||
-      nombreTurno.includes('unico') ||
-      nombreTurno.includes('único') ||
+      nombreTurno.includes('dia_completo') ||
       nombreTurno.includes('cierre') ||
-      nombreTurno.includes('tarde')
+      nombreTurno.includes('tarde') ||
+      nombreTurno.includes('tarde_cierre')
     ) {
       return false;
     }
@@ -199,6 +197,7 @@ export default function OsitosPOSPage() {
     return (
       nombreTurno.includes('mañana') ||
       nombreTurno.includes('manana') ||
+      nombreTurno.includes('manana_apertura') ||
       nombreTurno.includes('apertura')
     );
   })();
@@ -511,21 +510,49 @@ export default function OsitosPOSPage() {
     setErrorLecturaBD(null);
 
     try {
-      const { data: turnosBD } = await supabase
-        .from('turno_trabajo')
-        .select('*')
-        .eq('sede_id', SEDE_ID_OSITOS);
+      const usuarioIdActual = sesionActual?.usuario_id || sesionActual?.id;
 
       let turnoIdActual = sesionActual?.turno_id || sesionActual?.turnoId;
       let turnoNombreActual = sesionActual?.turno_nombre || sesionActual?.turnoNombre;
 
-      if (!turnoNombreActual && turnosBD && turnosBD.length > 0) {
-        const turnoCoincidente = turnosBD.find((t: any) => t.id === turnoIdActual) || turnosBD[0];
-        turnoIdActual = turnoCoincidente.id;
-        turnoNombreActual = turnoCoincidente.nombre;
+      const { data: turnoActivoBD } = await supabase
+        .from('turno_trabajo')
+        .select('*')
+        .eq('sede_id', SEDE_ID_OSITOS)
+        .eq('usuario_id', usuarioIdActual)
+        .is('hora_salida', null)
+        .order('id', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const formatearNombreTipoTurno = (tipo: string) => {
+        if (!tipo) return 'Día Completo';
+        const str = String(tipo).toLowerCase();
+        if (str.includes('manana') || str.includes('apertura')) return 'Mañana / Apertura';
+        if (str.includes('tarde') || str.includes('cierre')) return 'Tarde / Cierre';
+        if (str.includes('completo')) return 'Día Completo';
+        return tipo;
+      };
+
+      if (turnoActivoBD) {
+        turnoIdActual = turnoActivoBD.id;
+        turnoNombreActual = formatearNombreTipoTurno(turnoActivoBD.tipo_turno || turnoActivoBD.nombre);
       } else if (!turnoNombreActual) {
-        turnoIdActual = 1;
-        turnoNombreActual = 'Día Completo';
+        const { data: ultimoTurnoBD } = await supabase
+          .from('turno_trabajo')
+          .select('*')
+          .eq('sede_id', SEDE_ID_OSITOS)
+          .order('id', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (ultimoTurnoBD) {
+          turnoIdActual = ultimoTurnoBD.id;
+          turnoNombreActual = formatearNombreTipoTurno(ultimoTurnoBD.tipo_turno || ultimoTurnoBD.nombre);
+        } else {
+          turnoIdActual = 1;
+          turnoNombreActual = 'Día Completo';
+        }
       }
 
       sesionActual.turno_id = turnoIdActual;
@@ -939,11 +966,12 @@ export default function OsitosPOSPage() {
 
       if (turnosBD && turnosBD.length > 0) {
         const turnoTardeObj = turnosBD.find((t: any) =>
-          String(t.nombre || '').toLowerCase().includes('tarde') || String(t.nombre || '').toLowerCase().includes('cierre')
+          String(t.tipo_turno || t.nombre || '').toLowerCase().includes('tarde') ||
+          String(t.tipo_turno || t.nombre || '').toLowerCase().includes('cierre')
         );
         if (turnoTardeObj) {
           nuevoTurnoId = turnoTardeObj.id;
-          nuevoTurnoNombre = turnoTardeObj.nombre;
+          nuevoTurnoNombre = turnoTardeObj.nombre || 'Tarde / Cierre';
         } else {
           nuevoTurnoId = turnosBD[0].id;
           nuevoTurnoNombre = turnosBD[0].nombre;
@@ -1551,7 +1579,7 @@ export default function OsitosPOSPage() {
           const existeIndex = r.items.findIndex((i: any) => i.nombre === nombreFinalItem);
 
           let nuevosItems = [...r.items];
-          if (existeIndex >=0) {
+          if (existeIndex >= 0) {
             nuevosItems[existeIndex] = {
               ...nuevosItems[existeIndex],
               cantidad: nuevosItems[existeIndex].cantidad + 1,
