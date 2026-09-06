@@ -30,7 +30,7 @@ const obtenerInicioDiaColombia = () => {
   });
   const [datePart] = fechaHoraLocal.split(', ');
   const [month, day, year] = datePart.split('/');
-  return `${year}-${month}-${day}T00:00:00`;
+  return `${year}-${month}-${day} 00:00:00`;
 };
 
 const formatearMoneda = (val: number | string): string => {
@@ -728,11 +728,12 @@ export default function OsitosPOSPage() {
         }
       }
 
+      // CORREGIDO: Usar 'fecha_hora' en lugar de 'fecha'
       const { data: ventasHoyBD } = await supabase
         .from('venta')
         .select('*')
         .eq('sede_id', SEDE_ID_OSITOS)
-        .gte('fecha', inicioDia);
+        .gte('fecha_hora', inicioDia);
 
       if (ventasHoyBD) {
         setVentasDiaBD(ventasHoyBD);
@@ -851,6 +852,7 @@ export default function OsitosPOSPage() {
     }
   }
 
+  // CORREGIDO: Bloque finally sintácticamente correcto
   async function handleConfirmarEntranteYCambiarTurno() {
     if (validandoEntrante) return;
 
@@ -2040,13 +2042,6 @@ export default function OsitosPOSPage() {
   const totalDaviplataIngresado = ventasDiaBD.reduce((acc, v) => acc + Number(v.pago_daviplata || 0), 0);
 
   const totalDescuentosDia = ventasDiaBD.reduce((acc, v) => acc + Number(v.descuento || 0), 0);
-  const listaMotivosUnicosDescuento = Array.from(
-    new Set(
-      ventasDiaBD
-        .map((v) => v.motivo_descuento)
-        .filter((m): m is string => Boolean(m && m.trim() !== ''))
-    )
-  ).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
 
   const totalRappiRealizados = ventasDiaBD
     .filter((v) => v.estado === 'rappi' || Number(v.rappi || 0) > 0)
@@ -2263,15 +2258,6 @@ export default function OsitosPOSPage() {
       return;
     }
 
-    const efectFisico = Number(efectivoContadoCierre);
-    const efectEsperado = efectivoEsperadoEnCaja;
-    const difCaja = efectFisico - efectEsperado;
-
-    if (difCaja !== 0 && !motivoDescuadre.trim()) {
-      alert('⚠️ Existe un DESCUADRE DE CAJA. Debes ingresar obligatoriamente el motivo / explicación del descuadre.');
-      return;
-    }
-
     setGuardandoCierre(true);
     const usuarioId = sesion?.usuario_id || sesion?.id;
     const turnoId = sesion?.turno_id ? Number(sesion.turno_id) : null;
@@ -2279,7 +2265,46 @@ export default function OsitosPOSPage() {
     try {
       const inicioDia = obtenerInicioDiaColombia();
 
-      let motivosAjustados = [...listaMotivosUnicosDescuento];
+      // CORREGIDO: Usar 'fecha_hora' en lugar de 'fecha'
+      const { data: ventasHoy, error: errorVentas } = await supabase
+        .from('venta')
+        .select('pago_efectivo, pago_nequi, pago_daviplata, rappi, monto_total, estado, descuento, motivo_descuento')
+        .eq('sede_id', SEDE_ID_OSITOS)
+        .gte('fecha_hora', inicioDia);
+
+      if (errorVentas) {
+        throw new Error('Error al consultar las ventas del día: ' + errorVentas.message);
+      }
+
+      const sumaEfectivo = (ventasHoy || []).reduce((acc, v) => acc + Number(v.pago_efectivo || 0), 0);
+      const sumaNequi = (ventasHoy || []).reduce((acc, v) => acc + Number(v.pago_nequi || 0), 0);
+      const sumaDaviplata = (ventasHoy || []).reduce((acc, v) => acc + Number(v.pago_daviplata || 0), 0);
+      const sumaRappi = (ventasHoy || []).reduce((acc, v) => {
+        const valorRappi = Number(v.rappi || 0);
+        if (valorRappi > 0) return acc + valorRappi;
+        return v.estado === 'rappi' ? acc + Number(v.monto_total || 0) : acc;
+      }, 0);
+
+      const sumaDescuentos = (ventasHoy || []).reduce((acc, v) => acc + Number(v.descuento || 0), 0);
+
+      const efectEsperado = Math.max(0, (Number(baseCaja) || 0) + sumaEfectivo - sumaGastosTotal - totalNominaDia);
+      const efectFisico = Number(efectivoContadoCierre);
+      const difCaja = efectFisico - efectEsperado;
+
+      if (difCaja !== 0 && !motivoDescuadre.trim()) {
+        alert('⚠️ Existe un DESCUADRE DE CAJA. Debes ingresar obligatoriamente el motivo / explicación del descuadre.');
+        setGuardandoCierre(false);
+        return;
+      }
+
+      let motivosAjustados = Array.from(
+        new Set(
+          (ventasHoy || [])
+            .map((v) => v.motivo_descuento)
+            .filter((m): m is string => Boolean(m && m.trim() !== ''))
+        )
+      );
+
       if (difCaja !== 0 && motivoDescuadre.trim()) {
         motivosAjustados.push(`[DESCUADRE CAJA: $${difCaja.toLocaleString('es-CO')}]: ${motivoDescuadre.trim()}`);
       }
@@ -2288,14 +2313,14 @@ export default function OsitosPOSPage() {
         .from('caja')
         .update({
           estado: 'cerrada',
-          efectivo_cierre: efectivoEsperadoEnCaja,
+          efectivo_cierre: efectEsperado,
           efectivo_fisico: efectFisico,
-          rappi: totalRappiRealizados,
-          nequi: totalNequiIngresado,
-          daviplata: totalDaviplataIngresado,
+          nequi: sumaNequi,
+          daviplata: sumaDaviplata,
+          rappi: sumaRappi,
           monto_gasto: sumaGastosTotal,
           motivo_gasto: cadenaMotivosGastos || null,
-          descuento: totalDescuentosDia,
+          descuento: sumaDescuentos,
           motivo_descuento: motivosAjustados,
           diferencia: difCaja,
         });
@@ -2366,7 +2391,7 @@ export default function OsitosPOSPage() {
           (e) => e.nombre.toLowerCase().trim() === nombreProd.toLowerCase().trim()
         );
         if (empReg) {
-           await supabase
+          await supabase
             .from('empaques_ositos')
             .update({ stock: cantFinal })
             .eq('id', empReg.id);
@@ -3612,8 +3637,12 @@ export default function OsitosPOSPage() {
                 <b className="text-emerald-300">$ {totalEfectivoIngresado.toLocaleString('es-CO')}</b>
               </div>
               <div className="flex justify-between">
-                <span className="text-sky-300">Total Nequi / Daviplata:</span>
-                <b className="text-sky-300">$ {(totalNequiIngresado + totalDaviplataIngresado).toLocaleString('es-CO')}</b>
+                <span className="text-sky-300">Total Nequi:</span>
+                <b className="text-sky-300">$ {totalNequiIngresado.toLocaleString('es-CO')}</b>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-sky-300">Total Daviplata:</span>
+                <b className="text-sky-300">$ {totalDaviplataIngresado.toLocaleString('es-CO')}</b>
               </div>
               <div className="flex justify-between">
                 <span className="text-sky-300">Total Rappi (Electrónico):</span>
@@ -4063,15 +4092,19 @@ export default function OsitosPOSPage() {
                   💳 Ingresos Electrónicos y Ventas Globales
                 </span>
                 <div className="flex justify-between">
-                  <span>Total Nequi / Daviplata:</span>
-                  <b>$ {(totalNequiIngresado + totalDaviplataIngresado).toLocaleString('es-CO')}</b>
+                  <span className="text-sky-300">Total Nequi:</span>
+                  <b className="text-white">$ {totalNequiIngresado.toLocaleString('es-CO')}</b>
                 </div>
                 <div className="flex justify-between">
-                  <span>Total Rappi:</span>
+                  <span className="text-sky-300">Total Daviplata:</span>
+                  <b className="text-white">$ {totalDaviplataIngresado.toLocaleString('es-CO')}</b>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-sky-300">Total Rappi:</span>
                   <b>$ {totalRappiRealizados.toLocaleString('es-CO')}</b>
                 </div>
                 <div className="flex justify-between">
-                  <span>Total Descuentos Aplicados:</span>
+                  <span className="text-amber-300">Total Descuentos Aplicados:</span>
                   <b className="text-amber-300">$ {totalDescuentosDia.toLocaleString('es-CO')}</b>
                 </div>
                 <div className="flex justify-between pt-1 border-t border-[#0066b3]/50 font-black text-sm">
