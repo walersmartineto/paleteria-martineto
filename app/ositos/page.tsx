@@ -45,6 +45,21 @@ const desformatearMoneda = (val: string): number | '' => {
   return soloNumeros === '' ? '' : Number(soloNumeros);
 };
 
+const formatearFechaFactura = (fechaStr: string) => {
+  if (!fechaStr) return 'Sin Fecha';
+  const d = new Date(fechaStr);
+  if (isNaN(d.getTime())) return 'Fecha Inválida';
+  return d.toLocaleString('es-CO', {
+    timeZone: 'America/Bogota',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true
+  });
+};
+
 type CategoriaTab = 'richi' | 'produccion' | 'insumos' | 'aseo';
 type ModuloPrincipal = 'movimientos' | 'pedidos' | 'gastos' | 'ventas' | 'cierre';
 
@@ -87,7 +102,12 @@ export default function OsitosPOSPage() {
   const [ventasDiaBD, setVentasDiaBD] = useState<any[]>([]);
   const [pedidosRappi, setPedidosRappi] = useState<any[]>([]);
 
+  // Modales
   const [mostrarModalConsultaCaja, setMostrarModalConsultaCaja] = useState(false);
+  const [mostrarModalFacturas, setMostrarModalFacturas] = useState(false);
+  const [busquedaFactura, setBusquedaFactura] = useState('');
+  const [mostrarModalCambioMesa, setMostrarModalCambioMesa] = useState(false);
+  const [mesaDestinoId, setMesaDestinoId] = useState<number | ''>('');
 
   const [mostrarModalCobro, setMostrarModalCobro] = useState(false);
   const [pagoEfectivo, setPagoEfectivo] = useState<number | ''>('');
@@ -183,7 +203,6 @@ export default function OsitosPOSPage() {
 
   const esTurnoManana = (() => {
     const nombreTurno = String(sesion?.turno_nombre || sesion?.turnoNombre || '').toLowerCase();
-
     if (
       nombreTurno.includes('completo') ||
       nombreTurno.includes('dia_completo') ||
@@ -193,7 +212,6 @@ export default function OsitosPOSPage() {
     ) {
       return false;
     }
-
     return (
       nombreTurno.includes('mañana') ||
       nombreTurno.includes('manana') ||
@@ -215,7 +233,6 @@ export default function OsitosPOSPage() {
   const insumosFiltrados = productosInsumosBD
     .filter((prod) => {
       const cat = String(prod?.categoriaLimpia || '');
-
       let coincideCat = true;
       if (tabPedido === 'richi') coincideCat = cat.includes('richi') || cat.includes('empaque') || cat.includes('plástico');
       else if (tabPedido === 'produccion') coincideCat = cat.includes('produccion') || cat.includes('prod');
@@ -262,7 +279,6 @@ export default function OsitosPOSPage() {
 
     const ses = JSON.parse(sesionLocal);
     setSesion(ses);
-
     cargarInicial(ses);
   }, [router]);
 
@@ -323,7 +339,6 @@ export default function OsitosPOSPage() {
 
   async function cargarHistorialPedidos() {
     const inicioDia = obtenerInicioDiaColombia();
-
     const { data, error } = await supabase
       .from('pedidos_insumos')
       .select('*')
@@ -391,7 +406,6 @@ export default function OsitosPOSPage() {
 
           if (empEncontrado) {
             const nuevoStock = Math.max(0, Number(empEncontrado.stock || 0) - emp.cantidad);
-
             await supabase
               .from('empaques_ositos')
               .update({ stock: nuevoStock })
@@ -423,7 +437,6 @@ export default function OsitosPOSPage() {
         .maybeSingle();
 
       const jsonCierreEmpaques: { [key: string]: number } = ultimoCierre?.detalle_empaques || {};
-
       const difEmpaquesObj: { [nombre: string]: number } = {};
       let totalDiferenciaGlobal = 0;
 
@@ -511,7 +524,6 @@ export default function OsitosPOSPage() {
 
     try {
       const usuarioIdActual = sesionActual?.usuario_id || sesionActual?.id;
-
       let turnoIdActual = sesionActual?.turno_id || sesionActual?.turnoId;
       let turnoNombreActual = sesionActual?.turno_nombre || sesionActual?.turnoNombre;
 
@@ -833,14 +845,11 @@ export default function OsitosPOSPage() {
   const calcularTotalNomina = () => {
     const hDia = Number(horasDia) || 0;
     const hNoche = Number(horasNoche) || 0;
-
     const vDia = tipoDia === 'entre_semana' ? tarifasNominaBD.valDiaOrd : tarifasNominaBD.valDiaFest;
     const vNoche = tipoDia === 'entre_semana' ? tarifasNominaBD.valNocheOrd : tarifasNominaBD.valNocheFest;
-
     const aplicanSubsidios = hDia > 0 || hNoche > 0;
     const sub = aplicanSubsidios ? tarifasNominaBD.subsidio : 0;
     const trans = aplicanSubsidios ? tarifasNominaBD.transporte : 0;
-
     return sub + trans + hDia * vDia + hNoche * vNoche;
   };
 
@@ -852,7 +861,6 @@ export default function OsitosPOSPage() {
     }
 
     const totalPago = calcularTotalNomina();
-
     if (totalPago <= 0) {
       alert('⚠️ El valor a pagar de nómina debe ser mayor a 0 (ingresa las horas trabajadas).');
       return;
@@ -893,9 +901,7 @@ export default function OsitosPOSPage() {
       };
 
       setListaNominasDia((prev) => [...prev, nuevoRegistroNomina]);
-
       alert(`💸 Pago de Nómina de $ ${totalPago.toLocaleString('es-CO')} registrado con éxito.`);
-
       setHorasDia('');
       setHorasNoche('');
     } finally {
@@ -1011,7 +1017,6 @@ export default function OsitosPOSPage() {
   async function crearNuevoProductoBD() {
     if (guardandoProducto) return;
     const nombreLimpio = nuevoProdNombre.trim();
-
     const dondeComprarFinal =
       nuevoProdDondeComprar === 'Otro'
         ? dondeComprarPersonalizado.trim()
@@ -1282,7 +1287,6 @@ export default function OsitosPOSPage() {
       ]);
 
       alert(`✅ ¡${tipoMovimiento.toUpperCase()} registrada con éxito! El inventario fue actualizado.`);
-
       limpiarCantidadesInv();
       limpiarObsInv();
 
@@ -1317,7 +1321,6 @@ export default function OsitosPOSPage() {
     setGuardandoGasto(true);
     try {
       const fechaHoraHora = new Date().toLocaleTimeString('es-CO', { timeZone: 'America/Bogota', hour: '2-digit', minute: '2-digit' });
-
       const nuevoGastoObj = {
         id: Date.now().toString(),
         concepto: textoConcepto,
@@ -1419,7 +1422,6 @@ export default function OsitosPOSPage() {
 
   const calcularDisponibilidadActual = (nombreEmpaque: string) => {
     const stockEnBD = obtenerStockActualBD(nombreEmpaque);
-
     let ocupadasEnMesas = 0;
     const todasLasMesasYPedidos = [
       ...mesas.flatMap((m) => m.items || []),
@@ -1577,7 +1579,6 @@ export default function OsitosPOSPage() {
           if (r.id !== mesaActivaId) return r;
 
           const existeIndex = r.items.findIndex((i: any) => i.nombre === nombreFinalItem);
-
           let nuevosItems = [...r.items];
           if (existeIndex >= 0) {
             nuevosItems[existeIndex] = {
@@ -1709,6 +1710,74 @@ export default function OsitosPOSPage() {
 
     setNombreAdicionManual('');
     setValorAdicionManual('');
+  }
+
+  // --- LÓGICA DE CAMBIO DE MESA ---
+  function ejecutarCambioMesa() {
+    if (!mesaActiva || esRappiActivo) {
+      alert('⚠️ No se puede cambiar de mesa en un pedido Rappi.');
+      return;
+    }
+
+    if (!mesaDestinoId) {
+      alert('⚠️ Selecciona una mesa de destino.');
+      return;
+    }
+
+    const idDest = Number(mesaDestinoId);
+    if (idDest === mesaActiva.id) {
+      alert('⚠️ La mesa de destino debe ser diferente a la mesa origen.');
+      return;
+    }
+
+    const targetMesa = mesas.find((m) => m.id === idDest);
+    if (!targetMesa) return;
+
+    // Fusionar o transferir items
+    const nuevosItemsOrigen: any[] = [];
+    const nuevosItemsDestino = [...targetMesa.items, ...mesaActiva.items];
+
+    const nuevoTotalDestino = nuevosItemsDestino.reduce(
+      (acc: number, i: any) => acc + Number(i.precio || 0) * Number(i.cantidad || 0),
+      0
+    );
+    const nuevoTotalAbonadoDestino = (targetMesa.totalAbonado || 0) + (mesaActiva.totalAbonado || 0);
+    const nuevoDescuentoDestino = (targetMesa.descuentoAcumulado || 0) + (mesaActiva.descuentoAcumulado || 0);
+
+    // Actualizar BD
+    actualizarEstadoMesaBD(mesaActiva.id, 'libre');
+    actualizarEstadoMesaBD(targetMesa.id, 'ocupada');
+
+    setMesas((prev) =>
+      prev.map((m) => {
+        if (m.id === mesaActiva.id) {
+          return {
+            ...m,
+            items: [],
+            total: 0,
+            totalAbonado: 0,
+            descuentoAcumulado: 0,
+            estado: 'libre',
+          };
+        }
+        if (m.id === targetMesa.id) {
+          return {
+            ...m,
+            items: nuevosItemsDestino,
+            total: nuevoTotalDestino,
+            totalAbonado: nuevoTotalAbonadoDestino,
+            descuentoAcumulado: nuevoDescuentoDestino,
+            estado: 'ocupada',
+          };
+        }
+        return m;
+      })
+    );
+
+    setMesaActivaId(targetMesa.id);
+    setMostrarModalCambioMesa(false);
+    setMesaDestinoId('');
+    alert(`🔄 Productos transferidos exitosamente a ${targetMesa.nombre}.`);
   }
 
   function marcarItemEntregado(nombreTarget: string, estadoTarget: string) {
@@ -1957,7 +2026,6 @@ export default function OsitosPOSPage() {
     setProcesandoPago(true);
     try {
       const usuarioId = sesion?.usuario_id || sesion?.id;
-
       const montoTotalVentaAjustado = Math.max(0, mesaActiva.total - desc);
 
       const payloadVenta = {
@@ -2055,7 +2123,6 @@ export default function OsitosPOSPage() {
 
   const obtenerItemsAgrupados = (items: any[]) => {
     if (!items || items.length === 0) return [];
-
     const mapa = new Map<string, any>();
 
     items.forEach((item) => {
@@ -2101,8 +2168,8 @@ export default function OsitosPOSPage() {
     .filter((v) => v.estado === 'rappi' || Number(v.rappi || 0) > 0)
     .reduce((acc, v) => acc + Number(v.rappi || v.monto_total || 0), 0);
 
-  const totalVentasElectronicas = totalRappiRealizados + totalNequiIngresado + totalDaviplataIngresado;
-  const totalVentasGlobal = totalEfectivoIngresado + totalVentasElectronicas;
+  // Acumulado exacto
+  const totalVentasGlobal = totalEfectivoIngresado + totalNequiIngresado + totalDaviplataIngresado + totalRappiRealizados;
 
   const totalNominaDia = listaNominasDia.reduce((acc, n) => acc + Number(n.monto || 0), 0);
 
@@ -2110,9 +2177,22 @@ export default function OsitosPOSPage() {
   const efectivoEsperadoEnCaja = Math.max(0, (Number(baseCaja) || 0) + totalEfectivoRecibido - sumaGastosTotal - totalNominaDia);
   const cajaDisponibleCalculada = efectivoEsperadoEnCaja;
 
+  // Filtrado rápido de facturas
+  const ventasFiltradasResumen = ventasDiaBD.filter((v) => {
+    if (!busquedaFactura.trim()) return true;
+    const query = busquedaFactura.toLowerCase().trim();
+
+    const idCoincide = String(v.id || '').toLowerCase().includes(query);
+    const mesaCoincide = String(v.mesa_id || '').toLowerCase().includes(query);
+    const itemsCoinciden = (v.items || []).some((i: any) =>
+      (i.nombre || '').toLowerCase().includes(query)
+    );
+
+    return idCoincide || mesaCoincide || itemsCoinciden;
+  });
+
   const listaAuditoriaInventario = listaEmpaquesCompleta.map((nombreProd) => {
     let cantApertura = 0;
-
     const movimientoApertura = movimientosDiaBD.find((m) => m.tipo === 'apertura');
     if (movimientoApertura) {
       cantApertura = Number(movimientoApertura.detalle?.[nombreProd]) || 0;
@@ -2134,11 +2214,7 @@ export default function OsitosPOSPage() {
       cantVendidas = ventasDiaBD.reduce((accV, v) => {
         const items = v.items || [];
         const vasosEnVenta = items.reduce((accI: number, i: any) => {
-          const n = (i.nombre || '')
-            .toLowerCase()
-            .normalize("NFD")
-            .replace(/[\u0300-\u036f]/g, "");
-
+          const n = (i.nombre || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
           if (
             n.includes('granizado') ||
             n.includes('malteada') ||
@@ -3046,12 +3122,18 @@ export default function OsitosPOSPage() {
           <div className={`${!mesaActivaId ? 'lg:col-span-12' : itemActivoActual && itemActivoActual.items.length > 0 ? 'lg:col-span-2' : 'lg:col-span-3'} bg-[#0b2b48] border border-[#0066b3] p-3 rounded-2xl flex flex-col shadow-md transition-all duration-300 h-full overflow-hidden`}>
             <div className="flex flex-col gap-2 border-b border-[#0066b3]/50 pb-2 shrink-0">
               <h2 className="text-xs font-black text-white text-center">🪑 Mesas</h2>
-              <div className="flex gap-1 justify-center">
+              <div className="flex gap-1 justify-center flex-wrap">
                 <button
                   onClick={() => setMostrarModalConsultaCaja(true)}
                   className="bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[9px] px-2 py-1 rounded-lg uppercase cursor-pointer shadow border border-emerald-400"
                 >
                   💵 Caja
+                </button>
+                <button
+                  onClick={() => setMostrarModalFacturas(true)}
+                  className="bg-[#0078d4] hover:bg-[#0086e6] text-white font-black text-[9px] px-2 py-1 rounded-lg uppercase cursor-pointer shadow border border-sky-400"
+                >
+                  📄 Facturas
                 </button>
                 <button
                   onClick={agregarNuevoRappi}
@@ -3233,15 +3315,29 @@ export default function OsitosPOSPage() {
                 <h2 className="text-xs font-black text-white flex items-center gap-1.5">
                   🧾 Productos Pedidos <span className="text-emerald-300">({itemActivoActual.nombre})</span>
                 </h2>
-                <span className="bg-[#051829] text-sky-300 text-[9px] px-2 py-0.5 rounded border border-[#0066b3] uppercase font-bold">
-                  {esRappiActivo ? rappiActivo?.estado : mesaActiva ? mesaActiva.estado : ''}
-                </span>
+                <div className="flex items-center gap-1">
+                  {!esRappiActivo && mesaActiva && (
+                    <button
+                      onClick={() => {
+                        const primeraMesaValida = mesas.find((m) => m.id !== mesaActiva.id);
+                        if (primeraMesaValida) setMesaDestinoId(primeraMesaValida.id);
+                        setMostrarModalCambioMesa(true);
+                      }}
+                      className="bg-amber-600 hover:bg-amber-500 text-white font-black text-[9px] px-2 py-0.5 rounded border border-amber-400 cursor-pointer uppercase shadow"
+                      title="Transferir consumos a otra mesa"
+                    >
+                      🔄 Mover Mesa
+                    </button>
+                  )}
+                  <span className="bg-[#051829] text-sky-300 text-[9px] px-2 py-0.5 rounded border border-[#0066b3] uppercase font-bold">
+                    {esRappiActivo ? rappiActivo?.estado : mesaActiva ? mesaActiva.estado : ''}
+                  </span>
+                </div>
               </div>
 
               <div className="overflow-y-auto space-y-2 pr-1 pt-2 flex-1">
                 {itemsVisualesAgrupados.map((i: any, idx: number) => {
                   const estado = i.estadoItem || 'pedido';
-
                   let badgeBg = 'bg-emerald-800 text-emerald-200 border-emerald-500';
                   if (estado === 'entregado') badgeBg = 'bg-amber-700 text-amber-200 border-amber-400';
 
@@ -3572,101 +3668,7 @@ export default function OsitosPOSPage() {
         </div>
       )}
 
-      {mostrarModalCambioTurno && (
-        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
-          <div className="bg-[#0b2b48] border border-amber-500/60 p-5 rounded-2xl w-full max-w-md space-y-4 shadow-2xl">
-            <div className="flex justify-between items-center border-b border-amber-500/40 pb-2">
-              <h3 className="text-sm font-black text-amber-300 uppercase">🔄 Entregar Turno de Mañana</h3>
-              <button
-                onClick={() => setMostrarModalCambioTurno(false)}
-                disabled={validandoEntrante}
-                className="text-sky-300 hover:text-white font-black text-sm cursor-pointer disabled:opacity-50"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="space-y-3 text-xs">
-              <div className="grid grid-cols-2 gap-2 bg-[#051829] p-3 rounded-xl border border-amber-500/40">
-                <div>
-                  <span className="text-[10px] text-sky-300 block font-bold">Total Nequi Hoy:</span>
-                  <b className="text-emerald-300 text-xs">$ {totalNequiIngresado.toLocaleString('es-CO')}</b>
-                </div>
-                <div>
-                  <span className="text-[10px] text-sky-300 block font-bold">Total Daviplata Hoy:</span>
-                  <b className="text-emerald-300 text-xs">$ {totalDaviplataIngresado.toLocaleString('es-CO')}</b>
-                </div>
-                <div className="col-span-2 pt-1 border-t border-[#0066b3]/40 flex justify-between">
-                  <span className="text-[10px] text-sky-300 font-bold">Total Rappi / Electrónico:</span>
-                  <b className="text-rose-300 text-xs">$ {totalRappiRealizados.toLocaleString('es-CO')}</b>
-                </div>
-              </div>
-
-              <div>
-                <label className="text-amber-300 font-bold block mb-1">Efectivo Contado que Dejas en Caja ($):</label>
-                <input
-                  type="text"
-                  placeholder="Monto en efectivo..."
-                  value={formatearMoneda(efectivoDejadoTurno)}
-                  onChange={(e) => setEfectivoDejadoTurno(desformatearMoneda(e.target.value))}
-                  disabled={validandoEntrante}
-                  className="w-full bg-[#051829] border border-amber-500/50 text-amber-300 font-black p-2.5 rounded-xl outline-none text-sm"
-                />
-              </div>
-
-              <div>
-                <label className="text-sky-300 font-bold block mb-1">Operario Entrante (Turno Tarde):</label>
-                <select
-                  value={operarioEntranteId}
-                  onChange={(e) => setOperarioEntranteId(e.target.value)}
-                  disabled={validandoEntrante}
-                  className="w-full bg-[#051829] border border-[#0066b3] text-white font-bold p-2.5 rounded-xl outline-none cursor-pointer"
-                >
-                  {listaOperarios.map((op) => (
-                    <option key={op.id} value={op.id}>
-                      {op.nombre_completo || op.nombre}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-sky-300 font-bold block mb-1">Clave / PIN del Operario Entrante:</label>
-                <input
-                  type="password"
-                  placeholder="PIN o clave..."
-                  value={claveOperarioEntrante}
-                  onChange={(e) => setClaveOperarioEntrante(e.target.value)}
-                  disabled={validandoEntrante}
-                  className="w-full bg-[#051829] border border-[#0066b3] text-white font-bold p-2.5 rounded-xl outline-none"
-                />
-              </div>
-            </div>
-
-            <div className="flex gap-2 pt-2">
-              <button
-                onClick={() => setMostrarModalCambioTurno(false)}
-                disabled={validandoEntrante}
-                className="w-1/2 bg-[#051829] hover:bg-[#0e385e] border border-[#0066b3] text-white font-bold py-2.5 rounded-xl text-xs uppercase cursor-pointer disabled:opacity-50"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleConfirmarEntranteYCambiarTurno}
-                disabled={validandoEntrante}
-                className={`w-1/2 font-black py-2.5 rounded-xl text-xs uppercase shadow-md transition-all ${
-                  validandoEntrante
-                    ? 'bg-amber-800 text-white cursor-not-allowed opacity-75'
-                    : 'bg-amber-600 hover:bg-amber-500 text-white cursor-pointer'
-                }`}
-              >
-                {validandoEntrante ? '⏳ Confirmando...' : 'Confirmar y Entregar'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
+      {/* MODAL DE CONSULTA RÁPIDA DE CAJA */}
       {mostrarModalConsultaCaja && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
           <div className="bg-[#0b2b48] border border-[#0066b3] p-5 rounded-2xl w-full max-w-md space-y-4 shadow-2xl">
@@ -3680,38 +3682,36 @@ export default function OsitosPOSPage() {
               </button>
             </div>
 
-            <div className="space-y-2 text-xs bg-[#051829] p-3 rounded-xl border border-[#0066b3]">
+            <div className="space-y-2 text-xs bg-[#051829] p-3.5 rounded-xl border border-[#0066b3]">
               <div className="flex justify-between">
                 <span className="text-sky-300">Base Inicial:</span>
                 <b className="text-white">$ {(Number(baseCaja) || 0).toLocaleString('es-CO')}</b>
               </div>
               <div className="flex justify-between">
-                <span className="text-sky-300">Total Efectivo Ingresado (Ventas):</span>
+                <span className="text-sky-300">Efectivo (Ventas):</span>
                 <b className="text-emerald-300">$ {totalEfectivoIngresado.toLocaleString('es-CO')}</b>
               </div>
-              <div className="flex justify-between">
-                <span className="text-sky-300">Total Nequi:</span>
-                <b className="text-sky-300">$ {totalNequiIngresado.toLocaleString('es-CO')}</b>
+              <div className="flex justify-between text-purple-300 font-bold border-t border-[#0066b3]/30 pt-1.5">
+                <span>Nequi:</span>
+                <b>$ {totalNequiIngresado.toLocaleString('es-CO')}</b>
               </div>
-              <div className="flex justify-between">
-                <span className="text-sky-300">Total Daviplata:</span>
-                <b className="text-sky-300">$ {totalDaviplataIngresado.toLocaleString('es-CO')}</b>
+              <div className="flex justify-between text-yellow-300 font-bold">
+                <span>Daviplata:</span>
+                <b>$ {totalDaviplataIngresado.toLocaleString('es-CO')}</b>
               </div>
-              <div className="flex justify-between">
-                <span className="text-sky-300">Total Rappi (Electrónico):</span>
-                <b className="text-rose-300">$ {totalRappiRealizados.toLocaleString('es-CO')}</b>
+              <div className="flex justify-between text-rose-300 font-bold">
+                <span>Rappi / Tarjeta:</span>
+                <b>$ {totalRappiRealizados.toLocaleString('es-CO')}</b>
               </div>
-              <div className="flex justify-between">
-                <span className="text-amber-300">Gastos Directos de Insumos:</span>
-                <b className="text-amber-300">- $ {sumaGastosTotal.toLocaleString('es-CO')}</b>
+
+              <div className="flex justify-between text-amber-300 border-t border-[#0066b3]/30 pt-1.5">
+                <span>Gastos Insumos:</span>
+                <b>- $ {sumaGastosTotal.toLocaleString('es-CO')}</b>
               </div>
-              <div className="flex justify-between">
-                <span className="text-purple-300">Total Nómina Pagada:</span>
-                <b className="text-purple-300">- $ {totalNominaDia.toLocaleString('es-CO')}</b>
-              </div>
+
               <div className="flex justify-between pt-2 border-t border-[#0066b3]/50 text-sm font-black">
-                <span className="text-white">Efectivo Esperado en Caja (Sistema):</span>
-                <span className="text-emerald-400">$ {cajaDisponibleCalculada.toLocaleString('es-CO')}</span>
+                <span className="text-white">Acumulado Ventas Día:</span>
+                <span className="text-emerald-400">$ {totalVentasGlobal.toLocaleString('es-CO')}</span>
               </div>
             </div>
 
@@ -3725,6 +3725,146 @@ export default function OsitosPOSPage() {
         </div>
       )}
 
+      {/* MODAL DE FACTURAS Y VENTAS DEL DÍA */}
+      {mostrarModalFacturas && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+          <div className="bg-[#0b2b48] border border-sky-500/60 p-5 rounded-2xl w-full max-w-2xl space-y-4 shadow-2xl max-h-[85vh] flex flex-col">
+            <div className="flex justify-between items-center border-b border-sky-500/40 pb-2 shrink-0">
+              <h3 className="text-sm font-black text-sky-200 uppercase">📄 Resumen de Comprobantes y Facturas Hoy</h3>
+              <button
+                onClick={() => setMostrarModalFacturas(false)}
+                className="text-sky-300 hover:text-white font-black text-sm cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="shrink-0">
+              <input
+                type="text"
+                placeholder="🔍 Buscar por ID factura, N° mesa o producto..."
+                value={busquedaFactura}
+                onChange={(e) => setBusquedaFactura(e.target.value)}
+                className="w-full bg-[#051829] border border-[#0066b3] text-white text-xs font-bold rounded-xl p-2.5 outline-none shadow-inner"
+              />
+            </div>
+
+            <div className="overflow-y-auto space-y-2.5 pr-1 flex-1">
+              {ventasFiltradasResumen.length === 0 ? (
+                <p className="text-xs text-sky-400 italic text-center py-8">
+                  No hay comprobantes o facturas que coincidan con la búsqueda.
+                </p>
+              ) : (
+                ventasFiltradasResumen.map((v) => {
+                  const metodosUsados: string[] = [];
+                  if (Number(v.pago_efectivo) > 0) metodosUsados.push(`Efectivo: $${Number(v.pago_efectivo).toLocaleString('es-CO')}`);
+                  if (Number(v.pago_nequi) > 0) metodosUsados.push(`Nequi: $${Number(v.pago_nequi).toLocaleString('es-CO')}`);
+                  if (Number(v.pago_daviplata) > 0) metodosUsados.push(`Daviplata: $${Number(v.pago_daviplata).toLocaleString('es-CO')}`);
+                  if (v.estado === 'rappi' || Number(v.rappi) > 0) metodosUsados.push(`Rappi/Tarjeta: $${Number(v.rappi || v.monto_total).toLocaleString('es-CO')}`);
+
+                  return (
+                    <div key={v.id} className="bg-[#051829] border border-[#0066b3] p-3 rounded-xl space-y-2 text-xs">
+                      <div className="flex justify-between items-center border-b border-[#0066b3]/40 pb-1.5">
+                        <div className="flex items-center gap-2">
+                          <span className="font-black text-white">Factura #{v.id}</span>
+                          <span className="bg-[#0e385e] text-sky-300 px-2 py-0.5 rounded text-[10px] font-bold border border-[#0066b3]">
+                            {v.mesa_id ? `Mesa ${v.mesa_id}` : 'Llevar / Rappi'}
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-sky-300 font-bold">
+                          {formatearFechaFactura(v.fecha_hora)}
+                        </span>
+                      </div>
+
+                      <div className="space-y-1 bg-[#0e385e] p-2 rounded-lg border border-[#0066b3]/50">
+                        <span className="text-[10px] text-sky-300 font-bold uppercase block">Ítems Consumidos:</span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {(v.items || []).map((item: any, idx: number) => (
+                            <span key={idx} className="bg-[#051829] text-white text-[10px] px-2 py-0.5 rounded font-bold border border-[#0066b3]">
+                              {item.cantidad || 1}x {item.nombre}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="flex justify-between items-center pt-1 text-[11px]">
+                        <div className="flex flex-wrap gap-1 text-[10px] text-amber-300 font-bold">
+                          {metodosUsados.length > 0 ? metodosUsados.join(' | ') : 'Sin desglose registrado'}
+                        </div>
+                        <span className="font-black text-emerald-300 text-xs">
+                          Total: $ {Number(v.monto_total || 0).toLocaleString('es-CO')}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <button
+              onClick={() => setMostrarModalFacturas(false)}
+              className="w-full bg-[#0066b3] hover:bg-[#0078d4] text-white font-black py-2.5 rounded-xl text-xs uppercase cursor-pointer shrink-0"
+            >
+              Cerrar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE CAMBIO DE MESA */}
+      {mostrarModalCambioMesa && mesaActiva && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+          <div className="bg-[#0b2b48] border border-amber-500/60 p-5 rounded-2xl w-full max-w-sm space-y-4 shadow-2xl">
+            <div className="flex justify-between items-center border-b border-amber-500/40 pb-2">
+              <h3 className="text-sm font-black text-amber-300 uppercase">🔄 Transferir / Mover Mesa</h3>
+              <button
+                onClick={() => setMostrarModalCambioMesa(false)}
+                className="text-sky-300 hover:text-white font-black text-sm cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-xs text-sky-200">
+              Selecciona la mesa de destino para pasar los consumos de <b>{mesaActiva.nombre}</b>:
+            </p>
+
+            <div>
+              <label className="text-xs text-sky-300 font-bold block mb-1">Mesa Destino:</label>
+              <select
+                value={mesaDestinoId}
+                onChange={(e) => setMesaDestinoId(Number(e.target.value))}
+                className="w-full bg-[#051829] border border-[#0066b3] text-white font-bold text-xs p-2.5 rounded-xl outline-none cursor-pointer"
+              >
+                {mesas
+                  .filter((m) => m.id !== mesaActiva.id)
+                  .map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.nombre} ({m.estado === 'libre' ? 'Vacía' : `Ocupada - $${m.total.toLocaleString('es-CO')}`})
+                    </option>
+                  ))}
+              </select>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={() => setMostrarModalCambioMesa(false)}
+                className="w-1/2 bg-[#051829] hover:bg-[#0e385e] border border-[#0066b3] text-white font-bold py-2.5 rounded-xl text-xs uppercase cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={ejecutarCambioMesa}
+                className="w-1/2 bg-amber-600 hover:bg-amber-500 text-white font-black py-2.5 rounded-xl text-xs uppercase cursor-pointer shadow"
+              >
+                Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE COBRO */}
       {mostrarModalCobro && mesaActiva && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
           <div className="bg-[#0b2b48] border border-[#0066b3] p-5 rounded-2xl w-full max-w-md space-y-4 shadow-2xl">
@@ -3866,6 +4006,7 @@ export default function OsitosPOSPage() {
         </div>
       )}
 
+      {/* MODAL DE NUEVO PRODUCTO */}
       {mostrarModalNuevoProd && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
           <div className="bg-[#0b2b48] border border-[#0066b3] p-5 rounded-2xl w-full max-w-lg space-y-4 shadow-2xl">
@@ -4033,6 +4174,7 @@ export default function OsitosPOSPage() {
         </div>
       )}
 
+      {/* MODAL RESUMEN CIERRE TOTAL */}
       {mostrarModalResumen && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
           <div className="bg-[#0b2b48] border border-purple-500/60 p-5 rounded-2xl w-full max-w-4xl space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
@@ -4153,7 +4295,7 @@ export default function OsitosPOSPage() {
                   <b className="text-white">$ {totalDaviplataIngresado.toLocaleString('es-CO')}</b>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-sky-300">Total Rappi:</span>
+                  <span className="text-sky-300">Total Rappi / Tarjeta:</span>
                   <b>$ {totalRappiRealizados.toLocaleString('es-CO')}</b>
                 </div>
                 <div className="flex justify-between">
