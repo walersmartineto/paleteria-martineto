@@ -48,18 +48,20 @@ export default function VivaPage() {
   const [cajaIdActual, setCajaIdActual] = useState<number | null>(null);
   const [aperturaRealizada, setAperturaRealizada] = useState(false);
   const [cierreRealizado, setCierreRealizado] = useState(false);
-  
+
   // EFECTIVO ENTREGADO EN CAMBIO DE TURNO (VISUAL)
   const [efectivoTurnoManana, setEfectivoTurnoManana] = useState<number | null>(null);
 
-  // AUTO-SAVE: Inventario por Sabores y Caja Mostac
+  // AUTO-SAVE: Inventario (TODAS LAS ACCIONES SON TOTAL DE PALETAS)
   const [tipoMovimiento, setTipoMovimiento] = useState<string>('apertura');
-  const [saboresViva, setSaboresViva] = useState<any[]>([]);
-  const [cantidadesSabores, setCantidadesSabores, limpiarCantidadesSabores] = useAutoSave<{ [saborId: number]: number | '' }>('viva_cantidadesSabores', {});
+  const [cantidadPaletasMov, setCantidadPaletasMov, limpiarCantidadPaletasMov] = useAutoSave<number | ''>('viva_cantidadPaletasMov', '');
   const [cajasMostrador, setCajasMostrador, limpiarCajasMostrador] = useAutoSave<number | ''>('viva_cajasMostrador', '');
   const [observaciones, setObservaciones, limpiarObsInv] = useAutoSave<string>('viva_observacionesInv', '');
 
-  // ESTADO DE STOCK ACTUAL EN SEDE (PARA MOSTRAR DEBAJO DEL NOMBRE)
+  // SABORES PARA PEDIDOS
+  const [saboresViva, setSaboresViva] = useState<any[]>([]);
+
+  // ESTADO DE STOCK ACTUAL EN SEDE
   const [inventarioSedeStock, setInventarioSedeStock] = useState<{ [nombreSabor: string]: number }>({});
 
   // AUDITORÍA / HISTORIAL DE MOVIMIENTOS Y VENTAS
@@ -67,7 +69,7 @@ export default function VivaPage() {
   const [ventasDiaBD, setVentasDiaBD] = useState<any[]>([]);
   const [registrosNominaDia, setRegistrosNominaDia] = useState<any[]>([]);
 
-  // AUTO-SAVE: Requisición de Pedidos
+  // AUTO-SAVE: Requisición de Pedidos (AQUÍ SÍ SE MANTIENEN SABORES)
   const [mostrarModuloPedidos, setMostrarModuloPedidos] = useState(false);
   const [categoriaPedido, setCategoriaPedido] = useState<'paletas' | 'richi' | 'insumos' | 'aseo'>('paletas');
   const [cantidadesPedidoPaletas, setCantidadesPedidoPaletas, limpiarPedPaletas] = useAutoSave<{ [saborId: number]: number | '' }>('viva_pedPaletas', {});
@@ -87,7 +89,7 @@ export default function VivaPage() {
   const [dondeComprarPersonalizado, setDondeComprarPersonalizado] = useState('');
   const [guardandoProducto, setGuardandoProducto] = useState(false);
 
-  // NUEVOS ESTADOS PARA SEDES DESDE LA TABLA 'sede'
+  // SEDES
   const [, setListaSedesBD] = useState<any[]>([]);
   const [sedesSeleccionadasProd, setSedesSeleccionadasProd] = useState<(number | string)[]>([]);
 
@@ -95,17 +97,17 @@ export default function VivaPage() {
   const [tipoDia, setTipoDia] = useState<'entre_semana' | 'domingo_festivo'>('entre_semana');
   const [horasDia, setHorasDia, limpiarHorasDia] = useAutoSave<number | ''>('viva_horasDia', '');
   const [horasNoche, setHorasNoche, limpiarHorasNoche] = useAutoSave<number | ''>('viva_horasNoche', '');
-  
+
   // CAMPOS DE EFECTIVO
   const [efectivoSistema, setEfectivoSistema, limpiarEfSistema] = useAutoSave<number | ''>('viva_efectivoSistema', '');
   const [efectivoFisico, setEfectivoFisico, limpiarEfFisico] = useAutoSave<number | ''>('viva_efectivoFisico', '');
-  
+
   const [nequi, setNequi, limpiarNequi] = useAutoSave<number | ''>('viva_nequi', '');
   const [daviplata, setDaviplata, limpiarDaviplata] = useAutoSave<number | ''>('viva_daviplata', '');
   const [gastos, setGastos, limpiarGastos] = useAutoSave<number | ''>('viva_gastos', '');
   const [motivoGasto, setMotivoGasto, limpiarMotivoGasto] = useAutoSave<string>('viva_motivoGasto', '');
 
-  // MODAL RESUMEN Y AUDITORÍA DE CIERRE TOTAL
+  // MODALES Y PROCESOS
   const [mostrarModalResumen, setMostrarModalResumen] = useState(false);
   const [guardandoCierre, setGuardandoCierre] = useState(false);
   const [guardandoNomina, setGuardandoNomina] = useState(false);
@@ -172,10 +174,7 @@ export default function VivaPage() {
     })
     .sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'es', { sensitivity: 'base' }));
 
-  const totalPaletasSuma = Object.values(cantidadesSabores).reduce(
-    (acc: number, val) => acc + (Number(val) || 0),
-    0
-  );
+  const numPaletasIngresadas = Number(cantidadPaletasMov) || 0;
 
   const esTurnoCierre = (() => {
     if (!sesion) return false;
@@ -443,23 +442,6 @@ export default function VivaPage() {
     setGuardandoProducto(false);
   }
 
-  function handleSaborCantidadChange(saborId: number, rawVal: string) {
-    const val = rawVal === '' ? '' : Math.max(0, Number(rawVal));
-    setCantidadesSabores((prev) => ({ ...prev, [saborId]: val }));
-  }
-
-  function handleKeyDownSabor(e: React.KeyboardEvent<HTMLInputElement>, index: number) {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      if (index < paletasFiltradas.length - 1) {
-        const siguienteSabor = paletasFiltradas[index + 1];
-        inputsRef.current[`sabor_${siguienteSabor.id}`]?.focus();
-      } else {
-        inputsRef.current['caja_mostac']?.focus();
-      }
-    }
-  }
-
   function handleKeyDownPedido(e: React.KeyboardEvent<HTMLInputElement>, index: number, lista: any[], prefijo: string) {
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -534,6 +516,7 @@ export default function VivaPage() {
     }
   }
 
+  // PROCESAR MOVIMIENTOS DE INVENTARIO (TODAS LAS ACCIONES MANEJAN TOTAL PALETAS)
   async function handleGuardarInventario() {
     if (!sesion) {
       alert('⚠️ No hay sesión activa.');
@@ -545,145 +528,99 @@ export default function VivaPage() {
       return;
     }
 
+    const cantidadInput = Number(cantidadPaletasMov) || 0;
+    if (cantidadInput <= 0 && tipoMovimiento !== 'cierre') {
+      alert(`⚠️ Ingresa una cantidad válida de paletas para registrar ${tipoMovimiento.toUpperCase()}.`);
+      return;
+    }
+
     const usuarioId = sesion?.usuario_id || sesion?.id || 1;
     const sedeId = SEDE_ID_VIVA;
 
     setGuardando(true);
     try {
-      let diferenciaPaletasJson: { [key: string]: number } = {};
-      let diferenciaEmpaquesJson: { [key: string]: number } = {};
-      let sumaTotalDiferencia = 0;
+      // Consultar stock actual de 'Total Paletas' para la Sede Viva
+      const { data: regAnteriorViva } = await supabase
+        .from('inventario_empaques_sedes')
+        .select('stock')
+        .eq('sede_id', sedeId)
+        .eq('nombre', 'Total Paletas')
+        .maybeSingle();
 
-      const itemsPaletas = Object.entries(cantidadesSabores);
-      for (const [saborIdStr, cantidadFisicaRaw] of itemsPaletas) {
-        const cantidadIngresada = Number(cantidadFisicaRaw) || 0;
-        if (cantidadIngresada <= 0 && tipoMovimiento !== 'apertura' && tipoMovimiento !== 'cierre') continue;
+      const stockViejo = regAnteriorViva ? Number(regAnteriorViva.stock) : 0;
+      let nuevoStock = stockViejo;
+      let vendidasCalculadas = 0;
 
-        const saborObj = saboresViva.find((s) => s.id === Number(saborIdStr));
-        if (!saborObj) continue;
-
-        const { data: regAnterior } = await supabase
-          .from('inventario_empaques_sedes')
-          .select('stock')
-          .eq('sede_id', sedeId)
-          .eq('nombre', saborObj.nombre)
-          .maybeSingle();
-
-        const stockViejo = regAnterior ? Number(regAnterior.stock) : 0;
-        let nuevoStock = stockViejo;
-
-        if (tipoMovimiento === 'apertura') {
-          nuevoStock = cantidadIngresada;
-          const difCalculada = cantidadIngresada - stockViejo;
-          diferenciaPaletasJson[saborObj.nombre] = difCalculada;
-          sumaTotalDiferencia += Math.abs(difCalculada);
-
-          await supabase
-            .from('inventario_empaques_sedes')
-            .update({ stock: nuevoStock, diferencia: difCalculada, fecha_actualizacion: new Date().toISOString() })
-            .eq('sede_id', sedeId)
-            .eq('nombre', saborObj.nombre);
-
-        } else if (tipoMovimiento === 'nuevas' || tipoMovimiento === 'compras') {
-          nuevoStock = stockViejo + cantidadIngresada;
-          await supabase
-            .from('inventario_empaques_sedes')
-            .update({ stock: nuevoStock, fecha_actualizacion: new Date().toISOString() })
-            .eq('sede_id', sedeId)
-            .eq('nombre', saborObj.nombre);
-
-        } else if (tipoMovimiento === 'debaja') {
-          nuevoStock = Math.max(0, stockViejo - cantidadIngresada);
-          await supabase
-            .from('inventario_empaques_sedes')
-            .update({ stock: nuevoStock, fecha_actualizacion: new Date().toISOString() })
-            .eq('sede_id', sedeId)
-            .eq('nombre', saborObj.nombre);
-
-        } else if (tipoMovimiento === 'cierre') {
-          nuevoStock = cantidadIngresada;
-          const vendidasCalculadas = Math.max(0, stockViejo - cantidadIngresada);
-          await supabase
-            .from('inventario_empaques_sedes')
-            .update({ stock: nuevoStock, vendidas: vendidasCalculadas, fecha_actualizacion: new Date().toISOString() })
-            .eq('sede_id', sedeId)
-            .eq('nombre', saborObj.nombre);
-        }
+      if (tipoMovimiento === 'apertura') {
+        nuevoStock = cantidadInput;
+      } else if (tipoMovimiento === 'nuevas' || tipoMovimiento === 'compras') {
+        nuevoStock = stockViejo + cantidadInput;
+      } else if (tipoMovimiento === 'debaja') {
+        nuevoStock = Math.max(0, stockViejo - cantidadInput);
+      } else if (tipoMovimiento === 'cierre') {
+        nuevoStock = cantidadInput;
+        vendidasCalculadas = Math.max(0, stockViejo - cantidadInput);
       }
 
+      const difCalculada = nuevoStock - stockViejo;
+
+      if (regAnteriorViva) {
+        await supabase
+          .from('inventario_empaques_sedes')
+          .update({
+            stock: nuevoStock,
+            vendidas: tipoMovimiento === 'cierre' ? vendidasCalculadas : 0,
+            diferencia: difCalculada,
+            fecha_actualizacion: new Date().toISOString(),
+          })
+          .eq('sede_id', sedeId)
+          .eq('nombre', 'Total Paletas');
+      } else {
+        await supabase.from('inventario_empaques_sedes').insert([
+          {
+            sede_id: sedeId,
+            nombre: 'Total Paletas',
+            stock: nuevoStock,
+            vendidas: tipoMovimiento === 'cierre' ? vendidasCalculadas : 0,
+            diferencia: difCalculada,
+            fecha_actualizacion: new Date().toISOString(),
+          },
+        ]);
+      }
+
+      // Registro de empaques si se modificó 'Caja Mostac'
       if (cajasMostrador !== '') {
         const cantMostac = Number(cajasMostrador) || 0;
-        const { data: regAnterior } = await supabase
+        const { data: regAnteriorMostac } = await supabase
           .from('inventario_empaques_sedes')
           .select('stock')
           .eq('sede_id', sedeId)
           .eq('nombre', 'Caja Mostac')
           .maybeSingle();
 
-        const stockViejo = regAnterior ? Number(regAnterior.stock) : 0;
-        let nuevoStockMostac = stockViejo;
+        const stockViejoMostac = regAnteriorMostac ? Number(regAnteriorMostac.stock) : 0;
+        let nuevoStockMostac = stockViejoMostac;
 
-        if (tipoMovimiento === 'apertura') {
+        if (tipoMovimiento === 'apertura' || tipoMovimiento === 'cierre') {
           nuevoStockMostac = cantMostac;
-          const difCalculada = cantMostac - stockViejo;
-          diferenciaEmpaquesJson['Caja Mostac'] = difCalculada;
-          sumaTotalDiferencia += Math.abs(difCalculada);
-
-          await supabase
-            .from('inventario_empaques_sedes')
-            .update({ stock: nuevoStockMostac, diferencia: difCalculada, fecha_actualizacion: new Date().toISOString() })
-            .eq('sede_id', sedeId)
-            .eq('nombre', 'Caja Mostac');
-
         } else if (tipoMovimiento === 'nuevas' || tipoMovimiento === 'compras') {
-          nuevoStockMostac = stockViejo + cantMostac;
-          await supabase
-            .from('inventario_empaques_sedes')
-            .update({ stock: nuevoStockMostac, fecha_actualizacion: new Date().toISOString() })
-            .eq('sede_id', sedeId)
-            .eq('nombre', 'Caja Mostac');
-
+          nuevoStockMostac = stockViejoMostac + cantMostac;
         } else if (tipoMovimiento === 'debaja') {
-          nuevoStockMostac = Math.max(0, stockViejo - cantMostac);
+          nuevoStockMostac = Math.max(0, stockViejoMostac - cantMostac);
+        }
+
+        if (regAnteriorMostac) {
           await supabase
             .from('inventario_empaques_sedes')
             .update({ stock: nuevoStockMostac, fecha_actualizacion: new Date().toISOString() })
             .eq('sede_id', sedeId)
             .eq('nombre', 'Caja Mostac');
-
-        } else if (tipoMovimiento === 'cierre') {
-          nuevoStockMostac = cantMostac;
-          const vendidasCalculadas = Math.max(0, stockViejo - cantMostac);
-
-          await supabase
-            .from('inventario_empaques_sedes')
-            .update({ stock: nuevoStockMostac, vendidas: vendidasCalculadas, fecha_actualizacion: new Date().toISOString() })
-            .eq('sede_id', sedeId)
-            .eq('nombre', 'Caja Mostac');
+        } else {
+          await supabase.from('inventario_empaques_sedes').insert([
+            { sede_id: sedeId, nombre: 'Caja Mostac', stock: nuevoStockMostac, fecha_actualizacion: new Date().toISOString() },
+          ]);
         }
       }
-
-      if (tipoMovimiento === 'apertura') {
-        await supabase.from('diferencia_inventario').insert([
-          {
-            sede_id: sedeId,
-            usuario_id: usuarioId,
-            diferencia_paletas: diferenciaPaletasJson,
-            diferencia_empaques: diferenciaEmpaquesJson,
-            total_diferencia: sumaTotalDiferencia,
-            fecha_registro: new Date().toISOString(),
-          },
-        ]);
-      }
-
-      const detallePaletasObj: { [saborNombre: string]: number } = {};
-      itemsPaletas.forEach(([saborId, cant]) => {
-        const num = Number(cant) || 0;
-        if (num > 0) {
-          const saborObj = saboresViva.find((s) => s.id === Number(saborId));
-          if (saborObj) detallePaletasObj[saborObj.nombre] = num;
-        }
-      });
 
       const detalleEmpaquesObj: { [itemNombre: string]: number } = {};
       if (Number(cajasMostrador) > 0) {
@@ -694,8 +631,8 @@ export default function VivaPage() {
         sede_id: sedeId,
         usuario_id: usuarioId,
         tipo_movimiento: tipoMovimiento,
-        total_paletas: totalPaletasSuma,
-        detalle_paletas: detallePaletasObj,
+        total_paletas: cantidadInput,
+        detalle_paletas: { 'Total Paletas': cantidadInput },
         detalle_empaques: detalleEmpaquesObj,
         observacion: observaciones || null,
       };
@@ -704,7 +641,11 @@ export default function VivaPage() {
         payloadInventario.turno_id = Number(sesion.turno_id);
       }
 
-      if (tipoMovimiento === 'cierre') {
+      if (tipoMovimiento === 'apertura') {
+        await supabase.from('inventario_diario').insert([payloadInventario]);
+        setAperturaRealizada(true);
+        setTipoMovimiento('nuevas');
+      } else if (tipoMovimiento === 'cierre') {
         const hoyInicioInv = new Date();
         hoyInicioInv.setHours(0, 0, 0, 0);
 
@@ -720,8 +661,8 @@ export default function VivaPage() {
           await supabase
             .from('inventario_diario')
             .update({
-              total_paletas: totalPaletasSuma,
-              detalle_paletas: detallePaletasObj,
+              total_paletas: cantidadInput,
+              detalle_paletas: { 'Total Paletas': cantidadInput },
               detalle_empaques: detalleEmpaquesObj,
               observacion: observaciones || null,
             })
@@ -732,10 +673,6 @@ export default function VivaPage() {
         setCierreRealizado(true);
       } else {
         await supabase.from('inventario_diario').insert([payloadInventario]);
-        if (tipoMovimiento === 'apertura') {
-          setAperturaRealizada(true);
-          setTipoMovimiento('nuevas');
-        }
       }
 
       await cargarStockSede();
@@ -743,7 +680,7 @@ export default function VivaPage() {
       setGuardando(false);
       alert(`✅ ¡Inventario (${tipoMovimiento.toUpperCase()}) guardado con éxito!`);
 
-      limpiarCantidadesSabores();
+      limpiarCantidadPaletasMov();
       limpiarCajasMostrador();
       limpiarObsInv();
 
@@ -843,7 +780,7 @@ export default function VivaPage() {
   const gast = Number(gastos) || 0;
   const sumaNominaTotalDia = registrosNominaDia.reduce((acc, n) => acc + Number(n.monto || 0), 0);
 
-  // FUNCIÓN PARA PAGAR NÓMINA (GARANTIZA QUE QUEDE REGISTRADA)
+  // PAGAR NÓMINA
   async function pagarNominaBD() {
     if (nominaYaPagadaHoy) {
       alert('⚠️ Ya se ha registrado el pago de nómina para este usuario en el día de hoy.');
@@ -988,7 +925,6 @@ export default function VivaPage() {
         }
       }
 
-      // CORRECCIÓN DE NOMBRES DE COLUMNA EN LA TABLA CAJA
       let queryCaja = supabase
         .from('caja')
         .update({
@@ -1022,7 +958,7 @@ export default function VivaPage() {
       setMostrarModalResumen(false);
 
       limpiarBaseCaja();
-      limpiarCantidadesSabores();
+      limpiarCantidadPaletasMov();
       limpiarCajasMostrador();
       limpiarObsInv();
       limpiarPedPaletas();
@@ -1247,7 +1183,7 @@ export default function VivaPage() {
         <div className="bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-4 shadow-md h-full flex flex-col justify-between">
           <div>
             <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2 mb-3">
-              <h2 className="text-xs md:text-sm font-black text-white">🍦 Conteo de Paletas por Sabor</h2>
+              <h2 className="text-xs md:text-sm font-black text-white">🍦 Movimientos de Inventario (Viva)</h2>
               <span className="text-[11px] text-sky-200 font-bold uppercase bg-[#003d6d] px-2 py-0.5 rounded-md border border-[#0066b3]">{tipoMovimiento}</span>
             </div>
 
@@ -1262,7 +1198,7 @@ export default function VivaPage() {
                 {!aperturaRealizada && <option value="apertura">🌅 1. Conteo de Apertura (Obligatorio)</option>}
                 {aperturaRealizada && (
                   <>
-                    <option value="nuevas">📦 Paletas Nuevas (Ingreso)</option>
+                    <option value="nuevas">📦 Ingreso de Paletas Nuevas</option>
                     <option value="compras">🛒 Compras Directas</option>
                     <option value="debaja">⚠️ De Baja / Mermas</option>
                     <option value="cierre">🌙 Conteo de Cierre</option>
@@ -1271,45 +1207,39 @@ export default function VivaPage() {
               </select>
             </div>
 
-            <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1 border border-[#0066b3]/50 p-2.5 rounded-xl bg-[#051829] mb-3">
-              <span className="text-[10px] text-sky-300 font-bold uppercase block mb-1">Ingresar Cantidad por Sabor:</span>
-              {paletasFiltradas.length === 0 ? (
-                <p className="text-xs text-amber-200 text-center py-4 font-semibold">
-                  ⚠️ No se encontraron paletas registradas.
-                </p>
-              ) : (
-                paletasFiltradas.map((s, idx) => {
-                  const stockActualSabor = inventarioSedeStock[s.nombre] ?? 0;
-                  return (
-                    <div key={s.id} className="bg-[#0e385e] border border-[#0066b3]/60 p-2 rounded-xl flex justify-between items-center gap-2 shadow-sm">
-                      <div className="truncate">
-                        <p className="font-bold text-xs text-white truncate">{s.nombre}</p>
-                        <span className="text-[10px] font-semibold text-[#00ffff] block -mt-0.5">
-                          Stock: {stockActualSabor}
-                        </span>
-                      </div>
-                      <input
-                        ref={(el) => { inputsRef.current[`sabor_${s.id}`] = el; }}
-                        type="number"
-                        placeholder="0"
-                        value={cantidadesSabores[s.id] ?? ''}
-                        onChange={(e) => handleSaborCantidadChange(s.id, e.target.value)}
-                        onKeyDown={(e) => handleKeyDownSabor(e, idx)}
-                        onFocus={(e) => e.target.select()}
-                        className="w-24 bg-[#051829] border border-[#00a4ef]/60 text-sky-200 font-black text-center rounded-lg p-2 text-sm outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                      />
-                    </div>
-                  );
-                })
-              )}
+            {/* SECCIÓN ÚNICA DE ENTRADA TOTAL DE PALETAS PARA TODAS LAS ACCIONES */}
+            <div className="bg-[#051829] border border-[#0066b3] p-4 rounded-2xl space-y-3 mb-3 shadow-inner">
+              <div className="flex justify-between items-center">
+                <span className="text-xs font-black text-amber-300 uppercase block">
+                  CANTIDAD TOTAL DE PALETAS ({tipoMovimiento.toUpperCase()}):
+                </span>
+                <span className="text-[10px] text-sky-300 font-bold bg-[#0e385e] px-2 py-0.5 rounded border border-[#0066b3]">
+                  Stock Actual: {inventarioSedeStock['Total Paletas'] ?? 0}
+                </span>
+              </div>
+              
+              <p className="text-[11px] text-sky-200 italic">
+                Ingresa la cantidad total de paletas para esta acción.
+              </p>
+              
+              <div>
+                <input
+                  type="number"
+                  placeholder="Ej. 250"
+                  value={cantidadPaletasMov}
+                  onChange={(e) => setCantidadPaletasMov(e.target.value === '' ? '' : Math.max(0, Number(e.target.value)))}
+                  onFocus={(e) => e.target.select()}
+                  className="w-full bg-[#0e385e] border border-amber-400 text-amber-300 font-black text-center text-xl rounded-xl p-3 outline-none focus:border-amber-300 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                />
+              </div>
             </div>
 
             <div className="bg-[#0e385e] p-3 rounded-2xl border border-[#0066b3] flex justify-between items-center shadow-inner mb-3">
               <span className="text-xs font-black text-sky-200 uppercase">
-                Total Paletas ({tipoMovimiento.toUpperCase()}):
+                Total Ingresado:
               </span>
               <span className="text-xl font-black text-white bg-[#051829] px-4 py-1.5 rounded-xl border border-[#0066b3] shadow">
-                {totalPaletasSuma}
+                {numPaletasIngresadas}
               </span>
             </div>
 
