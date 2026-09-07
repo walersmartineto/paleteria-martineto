@@ -44,7 +44,8 @@ const obtenerInicioDiaColombia = () => {
     month: "2-digit",
     day: "2-digit"
   });
-  const [month, day, year] = fechaHoraLocal.split('/');
+  const [datePart] = fechaHoraLocal.split(', ');
+  const [month, day, year] = datePart.split('/');
   return `${year}-${month}-${day}T00:00:00`;
 };
 
@@ -108,6 +109,12 @@ export default function MartinetoPOSPage() {
   const [ventasDiaBD, setVentasDiaBD] = useState<any[]>([]);
 
   const [mostrarModalConsultaCaja, setMostrarModalConsultaCaja] = useState(false);
+
+  // --- ESTADOS PARA MODALES DE CAMBIO DE MESA Y FACTURAS PAGAS ---
+  const [mostrarModalCambioMesa, setMostrarModalCambioMesa] = useState(false);
+  const [mesaDestinoId, setMesaDestinoId] = useState<number | null>(null);
+  const [mostrarModalFacturasPagas, setMostrarModalFacturasPagas] = useState(false);
+  const [busquedaFacturaPaga, setBusquedaFacturaPaga] = useState('');
 
   const [mostrarModalCobro, setMostrarModalCobro] = useState(false);
   const [pagoEfectivo, setPagoEfectivo] = useState<number | ''>('');
@@ -253,6 +260,93 @@ export default function MartinetoPOSPage() {
     }
   }
 
+  async function procesarCambioMesa() {
+    if (!mesaActivaId || typeof mesaActivaId !== 'number') {
+      alert('⚠️ Solo se pueden cambiar de mesa las mesas físicas.');
+      return;
+    }
+
+    if (!mesaDestinoId) {
+      alert('⚠️ Selecciona la mesa de destino.');
+      return;
+    }
+
+    if (mesaDestinoId === mesaActivaId) {
+      alert('⚠️ La mesa de destino debe ser diferente a la mesa origen.');
+      return;
+    }
+
+    const mesaOrigen = mesas.find((m) => m.id === mesaActivaId);
+    const mesaDestino = mesas.find((m) => m.id === mesaDestinoId);
+
+    if (!mesaOrigen || !mesaOrigen.items || mesaOrigen.items.length === 0) {
+      alert('⚠️ La mesa origen no tiene productos para trasladar.');
+      return;
+    }
+
+    if (mesaDestino && mesaDestino.estado !== 'libre' && mesaDestino.items && mesaDestino.items.length > 0) {
+      if (!confirm(`⚠️ La ${mesaDestino.nombre} ya tiene un pedido activo. ¿Deseas unificar la cuenta de la ${mesaOrigen.nombre} con la ${mesaDestino.nombre}?`)) {
+        return;
+      }
+    }
+
+    try {
+      const itemsOrigen = [...mesaOrigen.items];
+      const totalOrigen = mesaOrigen.total || 0;
+      const abonadoOrigen = mesaOrigen.totalAbonado || 0;
+      const descuentoOrigen = mesaOrigen.descuentoAcumulado || 0;
+
+      const itemsDestinoPrev = mesaDestino ? [...(mesaDestino.items || [])] : [];
+      const totalDestinoPrev = mesaDestino ? (mesaDestino.total || 0) : 0;
+      const abonadoDestinoPrev = mesaDestino ? (mesaDestino.totalAbonado || 0) : 0;
+      const descuentoDestinoPrev = mesaDestino ? (mesaDestino.descuentoAcumulado || 0) : 0;
+
+      const itemsUnificados = [...itemsDestinoPrev, ...itemsOrigen];
+      const nuevoTotalDestino = totalDestinoPrev + totalOrigen;
+      const nuevoAbonadoDestino = abonadoDestinoPrev + abonadoOrigen;
+      const nuevoDescuentoDestino = descuentoDestinoPrev + descuentoOrigen;
+
+      const algunPendiente = itemsUnificados.some((i: any) => (i.estadoItem || 'pedido') === 'pedido');
+      const estaTotalmentePagado = (nuevoAbonadoDestino + nuevoDescuentoDestino) >= nuevoTotalDestino && nuevoTotalDestino > 0;
+
+      let nuevoEstadoDestino = 'ocupada';
+      if (estaTotalmentePagado) {
+        nuevoEstadoDestino = algunPendiente ? 'ocupada' : 'pagada';
+      } else if (!algunPendiente && itemsUnificados.length > 0) {
+        nuevoEstadoDestino = 'entregado';
+      }
+
+      await actualizarEstadoMesaBD(mesaActivaId, 'libre');
+      await actualizarEstadoMesaBD(mesaDestinoId, nuevoEstadoDestino);
+
+      setMesas((prev) =>
+        prev.map((m) => {
+          if (m.id === mesaActivaId) {
+            return { ...m, items: [], total: 0, totalAbonado: 0, descuentoAcumulado: 0, estado: 'libre' };
+          }
+          if (m.id === mesaDestinoId) {
+            return {
+              ...m,
+              items: itemsUnificados,
+              total: nuevoTotalDestino,
+              totalAbonado: nuevoAbonadoDestino,
+              descuentoAcumulado: nuevoDescuentoDestino,
+              estado: nuevoEstadoDestino,
+            };
+          }
+          return m;
+        })
+      );
+
+      setMesaActivaId(mesaDestinoId);
+      setMostrarModalCambioMesa(false);
+      setMesaDestinoId(null);
+      alert(`✅ ¡Cuenta trasladada con éxito a la ${mesaDestino?.nombre || 'nueva mesa'}!`);
+    } catch (e: any) {
+      alert('❌ Error realizando el cambio de mesa: ' + e.message);
+    }
+  }
+
   useEffect(() => {
     const sesionLocal = localStorage.getItem('martineto_session');
     if (!sesionLocal) {
@@ -265,12 +359,6 @@ export default function MartinetoPOSPage() {
     const efectivoMananaGuardado = localStorage.getItem('martineto_efectivo_manana_principal');
     if (efectivoMananaGuardado) {
       setEfectivoTurnoManana(Number(efectivoMananaGuardado));
-    }
-
-    const valorActualCaja = localStorage.getItem('martineto_baseCaja');
-    if (valorActualCaja === '1' || valorActualCaja === 'ús') {
-      localStorage.removeItem('martineto_baseCaja');
-      setBaseCaja('');
     }
 
     cargarInicial(ses);
@@ -602,6 +690,7 @@ export default function MartinetoPOSPage() {
         }
       }
 
+      // 🟢 CONTROL DE CAJA EN CEROS / VACÍA AL INICIAR JORNADA:
       const { data: cajaHoyBD } = await supabase
         .from('caja')
         .select('*')
@@ -616,6 +705,11 @@ export default function MartinetoPOSPage() {
         setBaseCaja(Number(cajaHoyBD.monto_apertura) || 0);
         setBaseGuardada(true);
         setCajaIdActual(cajaHoyBD.id);
+      } else {
+        limpiarBaseCaja();
+        setBaseCaja('');
+        setBaseGuardada(false);
+        setCajaIdActual(null);
       }
 
       const { data: invHoyBD } = await supabase
@@ -650,7 +744,6 @@ export default function MartinetoPOSPage() {
         });
       }
 
-      // Solo cargamos de BD las mesas si no hay un estado previo guardado en localStorage (persistencia de luz)
       const mesasRes = await supabase
         .from('mesa')
         .select('*')
@@ -682,7 +775,6 @@ export default function MartinetoPOSPage() {
       if (!mesas || mesas.length === 0) {
         setMesas(mesasMapeadas);
       } else {
-        // Sincronizamos estados asegurando conservar items locales si los hubiera
         setMesas((prevMesasBD) => {
           if (!prevMesasBD || prevMesasBD.length === 0) return mesasMapeadas;
           return mesasMapeadas.map((mBD) => {
@@ -756,7 +848,8 @@ export default function MartinetoPOSPage() {
         .from('venta')
         .select('*')
         .eq('sede_id', SEDE_ID_MARTINETO)
-        .gte('fecha', inicioDia);
+        .gte('fecha', inicioDia)
+        .order('id', { ascending: false });
 
       if (ventasHoyBD) {
         setVentasDiaBD(ventasHoyBD);
@@ -1884,7 +1977,7 @@ export default function MartinetoPOSPage() {
       }
 
       if (data && data.length > 0) {
-        setVentasDiaBD((prev) => [...prev, data[0]]);
+        setVentasDiaBD((prev) => [data[0], ...prev]);
         await descontarStockEmpaquesPorVentaBD(rappiActivo.items);
       }
 
@@ -1998,7 +2091,7 @@ export default function MartinetoPOSPage() {
       }
 
       if (data && data.length > 0) {
-        setVentasDiaBD((prev) => [...prev, data[0]]);
+        setVentasDiaBD((prev) => [data[0], ...prev]);
         await descontarStockEmpaquesPorVentaBD(mesaActiva.items);
       }
 
@@ -2129,8 +2222,7 @@ export default function MartinetoPOSPage() {
 
   const totalEfectivoRecibido = totalEfectivoIngresado;
   const efectivoEsperadoEnCaja = Math.max(0, (Number(baseCaja) || 0) + totalEfectivoRecibido - sumaGastosTotal - totalNominaDia);
-  const efectivoTotalNetoCierre = efectivoEsperadoEnCaja;
-  const cajaDisponibleCalculada = efectivoEsperadoEnCaja;
+  const cajaDisponibleCalculadaConsulta = Math.max(0, (Number(baseCaja) || 0) + totalEfectivoRecibido - sumaGastosTotal);
 
   const listaAuditoriaInventario = LISTA_EMPAQUES_MARTINETO.map((nombreProd) => {
     let cantApertura = 0;
@@ -2508,6 +2600,15 @@ export default function MartinetoPOSPage() {
   const totalDescuentoDigitado = Number(descuentoVenta) || 0;
   const saldoCobroRequerido = Math.max(0, saldoPendienteActual - totalDescuentoDigitado);
   const diferenciaCobro = totalPagoDigitado - saldoCobroRequerido;
+
+  const facturasPagasFiltradas = ventasDiaBD.filter((v) => {
+    if (!busquedaFacturaPaga.trim()) return true;
+    const busq = busquedaFacturaPaga.toLowerCase().trim();
+    const idStr = String(v.id || '');
+    const mesaStr = v.mesa_id ? `mesa ${v.mesa_id}` : 'rappi';
+    const itemsStr = JSON.stringify(v.items || '').toLowerCase();
+    return idStr.includes(busq) || mesaStr.includes(busq) || itemsStr.includes(busq);
+  });
 
   if (cargando) {
     return (
@@ -3088,12 +3189,18 @@ export default function MartinetoPOSPage() {
           <div className={`${!mesaActivaId ? 'lg:col-span-12' : itemActivoActual && itemActivoActual.items.length > 0 ? 'lg:col-span-2' : 'lg:col-span-3'} bg-[#0b2b48] border border-[#0066b3] p-3 rounded-2xl flex flex-col shadow-md transition-all duration-300 h-full overflow-hidden`}>
             <div className="flex flex-col gap-2 border-b border-[#0066b3]/50 pb-2 shrink-0">
               <h2 className="text-xs font-black text-white text-center">🪑 Mesas</h2>
-              <div className="flex gap-1 justify-center">
+              <div className="flex gap-1 justify-center flex-wrap">
                 <button
                   onClick={() => setMostrarModalConsultaCaja(true)}
                   className="bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[9px] px-2 py-1 rounded-lg uppercase cursor-pointer shadow border border-emerald-400"
                 >
                   💵 Caja
+                </button>
+                <button
+                  onClick={() => setMostrarModalFacturasPagas(true)}
+                  className="bg-sky-600 hover:bg-sky-500 text-white font-black text-[9px] px-2 py-1 rounded-lg uppercase cursor-pointer shadow border border-sky-400"
+                >
+                  📜 Facturas Pagas
                 </button>
                 <button
                   onClick={agregarNuevoRappi}
@@ -3231,7 +3338,7 @@ export default function MartinetoPOSPage() {
                       >
                         <div>
                           <p className="font-black text-white text-xs leading-snug">{prod.nombre}</p>
-                          <p className="text-[10px] text-sky-300 uppercase mt-0.5">{prod.categoriaMostrar}</p>
+                          <p className="text-[10px] text-[#00a4ef] uppercase mt-0.5">{prod.categoriaMostrar}</p>
                           <p className="text-xs text-emerald-300 font-black mt-1">
                             $ {Number(prod.precio || 0).toLocaleString('es-CO')}
                           </p>
@@ -3270,7 +3377,6 @@ export default function MartinetoPOSPage() {
 
           {itemActivoActual && itemActivoActual.items.length > 0 && (
             <div className="lg:col-span-4 bg-[#0b2b48] border border-[#0066b3] p-3.5 rounded-2xl flex flex-col shadow-md transition-all duration-300 h-full overflow-hidden">
-              {/* --- SOLICITUD 2: MOSTRAR EL NÚMERO DE MESA EN LA FACTURA / VENTA --- */}
               <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2 shrink-0 bg-[#051829] px-3 py-2 rounded-xl border border-sky-500/40">
                 <div>
                   <span className="text-[10px] text-sky-300 uppercase font-bold block">Factura / Orden Activa:</span>
@@ -3278,9 +3384,23 @@ export default function MartinetoPOSPage() {
                     🏷️ {itemActivoActual.nombre}
                   </h2>
                 </div>
-                <span className="bg-[#0b2b48] text-sky-200 text-[10px] px-2 py-1 rounded border border-[#0066b3] uppercase font-black">
-                  {esRappiActivo ? rappiActivo?.estado : mesaActiva ? mesaActiva.estado : ''}
-                </span>
+                <div className="flex items-center gap-1.5">
+                  {!esRappiActivo && (
+                    <button
+                      onClick={() => {
+                        setMesaDestinoId(null);
+                        setMostrarModalCambioMesa(true);
+                      }}
+                      className="bg-amber-600 hover:bg-amber-500 text-white text-[10px] font-black px-2 py-1 rounded-lg uppercase cursor-pointer border border-amber-400 transition-colors"
+                      title="Cambiar este pedido a otra mesa"
+                    >
+                      🔁 Cambiar Mesa
+                    </button>
+                  )}
+                  <span className="bg-[#0b2b48] text-sky-200 text-[10px] px-2 py-1 rounded border border-[#0066b3] uppercase font-black">
+                    {esRappiActivo ? rappiActivo?.estado : mesaActiva ? mesaActiva.estado : ''}
+                  </span>
+                </div>
               </div>
 
               <div className="overflow-y-auto space-y-2 pr-1 pt-2 flex-1">
@@ -3600,6 +3720,160 @@ export default function MartinetoPOSPage() {
         </div>
       )}
 
+      {/* --- MODAL DE CAMBIO DE MESA --- */}
+      {mostrarModalCambioMesa && mesaActiva && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+          <div className="bg-[#0b2b48] border border-amber-500/60 p-5 rounded-2xl w-full max-w-md space-y-4 shadow-2xl">
+            <div className="flex justify-between items-center border-b border-amber-500/40 pb-2">
+              <h3 className="text-sm font-black text-amber-300 uppercase">🔁 Cambiar {mesaActiva.nombre} a otra mesa</h3>
+              <button
+                onClick={() => setMostrarModalCambioMesa(false)}
+                className="text-sky-300 hover:text-white font-black text-sm cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <p className="text-sky-200">
+                Selecciona la mesa a la cual deseas mover el pedido activo de <b className="text-white">{mesaActiva.nombre}</b>:
+              </p>
+
+              <div>
+                <label className="text-sky-300 font-bold block mb-1">Mesa Destino:</label>
+                <select
+                  value={mesaDestinoId || ''}
+                  onChange={(e) => setMesaDestinoId(Number(e.target.value))}
+                  className="w-full bg-[#051829] border border-[#0066b3] text-white font-bold p-2.5 rounded-xl outline-none cursor-pointer"
+                >
+                  <option value="">-- Seleccionar Mesa Destino --</option>
+                  {mesas
+                    .filter((m) => m.id !== mesaActiva.id)
+                    .map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.nombre} ({m.estado.toUpperCase()})
+                      </option>
+                    ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={() => setMostrarModalCambioMesa(false)}
+                className="w-1/2 bg-[#051829] hover:bg-[#0e385e] border border-[#0066b3] text-white font-bold py-2.5 rounded-xl text-xs uppercase cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={procesarCambioMesa}
+                className="w-1/2 bg-amber-600 hover:bg-amber-500 text-white font-black py-2.5 rounded-xl text-xs uppercase shadow-md cursor-pointer"
+              >
+                Confirmar Cambio
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL DE RESUMEN DE FACTURAS PAGAS DEL DÍA --- */}
+      {mostrarModalFacturasPagas && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+          <div className="bg-[#0b2b48] border border-sky-500/60 p-5 rounded-2xl w-full max-w-3xl space-y-4 shadow-2xl max-h-[85vh] flex flex-col">
+            <div className="flex justify-between items-center border-b border-sky-500/40 pb-2 shrink-0">
+              <h3 className="text-sm font-black text-sky-200 uppercase">📜 Resumen de Facturas Pagas del Día</h3>
+              <button
+                onClick={() => setMostrarModalFacturasPagas(false)}
+                className="text-sky-300 hover:text-white font-black text-sm cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="shrink-0 space-y-2">
+              <div className="flex justify-between items-center text-xs bg-[#051829] p-2.5 rounded-xl border border-[#0066b3]">
+                <span className="text-sky-300">Total Facturas / Ventas Cobradas Hoy:</span>
+                <b className="text-emerald-300 font-black">{ventasDiaBD.length} facturas</b>
+              </div>
+
+              <input
+                type="text"
+                placeholder="🔍 Buscar factura por ID, mesa o producto..."
+                value={busquedaFacturaPaga}
+                onChange={(e) => setBusquedaFacturaPaga(e.target.value)}
+                className="w-full bg-[#051829] border border-[#0066b3] text-white text-xs font-bold rounded-xl p-2.5 outline-none shadow-inner"
+              />
+            </div>
+
+            <div className="overflow-y-auto space-y-2.5 pr-1 flex-1">
+              {facturasPagasFiltradas.length === 0 ? (
+                <p className="text-xs text-sky-400 italic text-center py-8">
+                  No hay facturas pagadas registradas que coincidan con la búsqueda.
+                </p>
+              ) : (
+                facturasPagasFiltradas.map((factura) => {
+                  const efec = Number(factura.pago_efectivo || 0);
+                  const neq = Number(factura.pago_nequi || 0);
+                  const dav = Number(factura.pago_daviplata || 0);
+                  const rap = Number(factura.rappi || 0);
+                  const desc = Number(factura.descuento || 0);
+                  const horaFmt = new Date(factura.fecha).toLocaleTimeString('es-CO', {
+                    timeZone: 'America/Bogota',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  });
+
+                  return (
+                    <div key={factura.id} className="bg-[#051829] border border-[#0066b3] p-3 rounded-xl space-y-2 text-xs">
+                      <div className="flex justify-between items-center border-b border-[#0066b3]/40 pb-1.5">
+                        <div>
+                          <span className="font-black text-emerald-400 text-xs">
+                            🧾 Factura #{factura.id} ({factura.mesa_id ? `Mesa ${factura.mesa_id}` : 'Rappi'})
+                          </span>
+                          <span className="text-[10px] text-sky-300 ml-2">Hora: {horaFmt}</span>
+                        </div>
+                        <span className="font-black text-white bg-[#0e385e] px-2 py-0.5 rounded border border-[#0066b3]">
+                          Total: $ {Number(factura.monto_total || 0).toLocaleString('es-CO')}
+                        </span>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2 text-[11px] font-bold">
+                        <span className="text-sky-200">Forma(s) de Pago:</span>
+                        {efec > 0 && <span className="bg-emerald-950 text-emerald-300 px-2 py-0.5 rounded border border-emerald-500">💵 Efectivo: ${efec.toLocaleString('es-CO')}</span>}
+                        {neq > 0 && <span className="bg-sky-950 text-sky-300 px-2 py-0.5 rounded border border-sky-500">📱 Nequi: ${neq.toLocaleString('es-CO')}</span>}
+                        {dav > 0 && <span className="bg-rose-950 text-rose-300 px-2 py-0.5 rounded border border-rose-500">💳 Daviplata: ${dav.toLocaleString('es-CO')}</span>}
+                        {rap > 0 && <span className="bg-amber-950 text-amber-300 px-2 py-0.5 rounded border border-amber-500">🛵 Rappi: ${rap.toLocaleString('es-CO')}</span>}
+                        {desc > 0 && <span className="bg-purple-950 text-purple-300 px-2 py-0.5 rounded border border-purple-500">🏷️ Descuento: -${desc.toLocaleString('es-CO')} ({factura.motivo_descuento || 'Sin motivo'})</span>}
+                      </div>
+
+                      {factura.items && Array.isArray(factura.items) && factura.items.length > 0 && (
+                        <div className="pt-1 border-t border-[#0066b3]/30">
+                          <span className="text-[10px] text-sky-300 font-bold block mb-1">Ítems comprados:</span>
+                          <div className="flex flex-wrap gap-1">
+                            {factura.items.map((it: any, idxIt: number) => (
+                              <span key={idxIt} className="bg-[#0e385e] text-sky-200 text-[10px] px-2 py-0.5 rounded border border-[#0066b3]">
+                                {it.cantidad || 1}x {it.nombre}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <button
+              onClick={() => setMostrarModalFacturasPagas(false)}
+              className="w-full bg-[#0066b3] hover:bg-[#0078d4] text-white font-black py-2.5 rounded-xl text-xs uppercase cursor-pointer shrink-0"
+            >
+              Cerrar
+            </button>
+          </div>
+        </div>
+      )}
+
       {mostrarModalCambioTurno && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
           <div className="bg-[#0b2b48] border border-amber-500/60 p-5 rounded-2xl w-full max-w-md space-y-4 shadow-2xl">
@@ -3696,25 +3970,34 @@ export default function MartinetoPOSPage() {
                 <span className="text-sky-300">Total Efectivo Ingresado (Ventas):</span>
                 <b className="text-emerald-300">$ {totalEfectivoIngresado.toLocaleString('es-CO')}</b>
               </div>
-              <div className="flex justify-between">
-                <span className="text-sky-300">Total Nequi / Daviplata:</span>
-                <b className="text-sky-300">$ {(totalNequiIngresado + totalDaviplataIngresado).toLocaleString('es-CO')}</b>
+
+              <div className="flex justify-between border-t border-[#0066b3]/30 pt-1">
+                <span className="text-sky-300">Total Nequi:</span>
+                <b className="text-sky-300">$ {totalNequiIngresado.toLocaleString('es-CO')}</b>
               </div>
+              <div className="flex justify-between">
+                <span className="text-sky-300">Total Daviplata:</span>
+                <b className="text-sky-300">$ {totalDaviplataIngresado.toLocaleString('es-CO')}</b>
+              </div>
+
               <div className="flex justify-between">
                 <span className="text-sky-300">Total Rappi (Electrónico):</span>
                 <b className="text-rose-300">$ {totalRappiRealizados.toLocaleString('es-CO')}</b>
               </div>
-              <div className="flex justify-between">
+              
+              <div className="flex justify-between border-t border-[#0066b3]/30 pt-1 text-emerald-300 font-bold">
+                <span>Total Ventas del Día (Global):</span>
+                <b>$ {totalVentasGlobal.toLocaleString('es-CO')}</b>
+              </div>
+
+              <div className="flex justify-between border-t border-[#0066b3]/30 pt-1">
                 <span className="text-amber-300">Gastos Directos de Insumos:</span>
                 <b className="text-amber-300">- $ {sumaGastosTotal.toLocaleString('es-CO')}</b>
               </div>
-              <div className="flex justify-between">
-                <span className="text-purple-300">Total Nómina Pagada:</span>
-                <b className="text-purple-300">- $ {totalNominaDia.toLocaleString('es-CO')}</b>
-              </div>
+
               <div className="flex justify-between pt-2 border-t border-[#0066b3]/50 text-sm font-black">
                 <span className="text-white">Efectivo Esperado en Caja (Sistema):</span>
-                <span className="text-emerald-400">$ {cajaDisponibleCalculada.toLocaleString('es-CO')}</span>
+                <span className="text-emerald-400">$ {cajaDisponibleCalculadaConsulta.toLocaleString('es-CO')}</span>
               </div>
             </div>
 
