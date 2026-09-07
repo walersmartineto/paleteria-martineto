@@ -77,11 +77,18 @@ export default function CentroPage() {
   const [, setListaSedesBD] = useState<any[]>([]);
   const [sedesSeleccionadasProd, setSedesSeleccionadasProd] = useState<(number | string)[]>([]);
 
-  // NÓMINA Y ARQUEO DE CAJA EN CENTRO
+  // NÓMINA Y ARQUEO DE CAJA EN CENTRO (OPERADOR PRINCIPAL)
   const [tipoDia, setTipoDia] = useState<'entre_semana' | 'domingo_festivo'>('entre_semana');
   const [horasDia, setHorasDia, limpiarHorasDia] = useAutoSave<number | ''>('centro_horasDia', '');
   const [horasNoche, setHorasNoche, limpiarHorasNoche] = useAutoSave<number | ''>('centro_horasNoche', '');
-  
+
+  // NÓMINA OPERADOR DE APOYO / REFUERZO (OPCIÓN 1)
+  const [mostrarBloqueApoyo, setMostrarBloqueApoyo] = useState(false);
+  const [operadorApoyoId, setOperadorApoyoId] = useState<string>('');
+  const [horasDiaApoyo, setHorasDiaApoyo, limpiarHorasDiaApoyo] = useAutoSave<number | ''>('centro_horasDiaApoyo', '');
+  const [horasNocheApoyo, setHorasNocheApoyo, limpiarHorasNocheApoyo] = useAutoSave<number | ''>('centro_horasNocheApoyo', '');
+  const [guardandoNominaApoyo, setGuardandoNominaApoyo] = useState(false);
+
   // CAMPOS DE EFECTIVO
   const [efectivoSistema, setEfectivoSistema, limpiarEfSistema] = useAutoSave<number | ''>('centro_efectivoSistema', '');
   const [efectivoFisico, setEfectivoFisico, limpiarEfFisico] = useAutoSave<number | ''>('centro_efectivoFisico', '');
@@ -115,10 +122,19 @@ export default function CentroPage() {
   const valorHoraNoche = tipoDia === 'domingo_festivo' ? tarifas.horaNocheFestivo : tarifas.horaNocheEntreSemana;
   const totalNomina = (hDia > 0 || hNoche > 0 ? tarifas.subsidio + tarifas.transporte : 0) + hDia * valorHoraDia + hNoche * valorHoraNoche;
 
+  // CÁLCULO NÓMINA OPERADOR DE APOYO
+  const hDiaAp = Number(horasDiaApoyo) || 0;
+  const hNocheAp = Number(horasNocheApoyo) || 0;
+  const totalNominaApoyo = (hDiaAp > 0 || hNocheAp > 0 ? tarifas.subsidio + tarifas.transporte : 0) + hDiaAp * valorHoraDia + hNocheAp * valorHoraNoche;
+
   const usuarioIdActual = sesion?.usuario_id || sesion?.id || null;
   const nominaYaPagadaHoy = registrosNominaDia.some(
     (n) => String(n.usuario_id) === String(usuarioIdActual)
   );
+
+  const nominaApoyoYaPagadaHoy = operadorApoyoId
+    ? registrosNominaDia.some((n) => String(n.usuario_id) === String(operadorApoyoId))
+    : false;
 
   const tienePedidoSinEnviar = (() => {
     const cantidadesCount = Object.values(cantidadesPedido).reduce((acc: number, c) => acc + (Number(c) || 0), 0);
@@ -720,9 +736,10 @@ export default function CentroPage() {
   const gast = Number(gastos) || 0;
   const sumaNominaTotalDia = registrosNominaDia.reduce((acc, n) => acc + Number(n.monto || 0), 0);
 
+  // PAGAR NÓMINA OPERADOR PRINCIPAL
   async function pagarNominaBD() {
     if (nominaYaPagadaHoy) {
-      alert('⚠️ Ya se ha registrado el pago de nómina para este usuario en el día de hoy.');
+      alert('⚠️ Ya se ha registrado el pago de nómina para el operador principal en el día de hoy.');
       return;
     }
 
@@ -756,7 +773,52 @@ export default function CentroPage() {
       setRegistrosNominaDia(prev => [...prev, data[0]]);
     }
 
-    alert(`💸 Pago de Nómina de $ ${totalNomina.toLocaleString('es-CO')} registrado con éxito.`);
+    alert(`💸 Pago de Nómina Principal ($ ${totalNomina.toLocaleString('es-CO')}) registrado con éxito.`);
+  }
+
+  // PAGAR NÓMINA OPERADOR DE APOYO (DOMINGOS / REFUERZO - OPCIÓN 1)
+  async function pagarNominaApoyoBD() {
+    if (!operadorApoyoId) {
+      alert('⚠️ Selecciona al operador de apoyo.');
+      return;
+    }
+
+    if (nominaApoyoYaPagadaHoy) {
+      alert('⚠️ Ya se ha registrado la nómina de hoy para este operador de apoyo.');
+      return;
+    }
+
+    if (totalNominaApoyo <= 0) {
+      alert('⚠️ Ingresa las horas trabajadas del operador de apoyo.');
+      return;
+    }
+
+    setGuardandoNominaApoyo(true);
+
+    const payloadNominaApoyo = {
+      sede_id: SEDE_ID_CENTRO,
+      usuario_id: Number(operadorApoyoId),
+      monto: totalNominaApoyo,
+      horas_dia: Number(horasDiaApoyo) || 0,
+      horas_noche: Number(horasNocheApoyo) || 0,
+      tipo_dia: tipoDia,
+      fecha: new Date().toISOString(),
+    };
+
+    const { data, error } = await supabase.from('nomina').insert([payloadNominaApoyo]).select();
+
+    setGuardandoNominaApoyo(false);
+
+    if (error) {
+      alert('❌ Error al guardar nómina de apoyo: ' + error.message);
+      return;
+    }
+
+    if (data && data.length > 0) {
+      setRegistrosNominaDia(prev => [...prev, data[0]]);
+    }
+
+    alert(`💸 Pago de Nómina Apoyo ($ ${totalNominaApoyo.toLocaleString('es-CO')}) registrado con éxito.`);
   }
 
   async function handleEjecutarCambioTurno() {
@@ -903,6 +965,8 @@ export default function CentroPage() {
       limpiarObsPedido();
       limpiarHorasDia();
       limpiarHorasNoche();
+      limpiarHorasDiaApoyo();
+      limpiarHorasNocheApoyo();
       limpiarEfSistema();
       limpiarEfFisico();
       limpiarNequi();
@@ -1348,7 +1412,16 @@ export default function CentroPage() {
               </h2>
 
               <div className="space-y-2 bg-[#051829] p-3 rounded-xl border border-[#0066b3] mt-3">
-                <span className="text-[10px] font-black text-sky-300 uppercase block">1. Nómina del Operador:</span>
+                <div className="flex justify-between items-center">
+                  <span className="text-[10px] font-black text-sky-300 uppercase block">1. Nómina Operador Principal ({sesion?.nombre || 'Operador'}):</span>
+                  <button
+                    type="button"
+                    onClick={() => setMostrarBloqueApoyo(!mostrarBloqueApoyo)}
+                    className="text-[10px] bg-[#0e385e] hover:bg-[#003d6d] text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded-lg font-bold cursor-pointer"
+                  >
+                    {mostrarBloqueApoyo ? '✕ Quitar Refuerzo' : '➕ Agregar Refuerzo/Apoyo'}
+                  </button>
+                </div>
                 
                 <div>
                   <label className="text-[10px] text-sky-200 font-bold block mb-1">Tipo de Día:</label>
@@ -1388,9 +1461,83 @@ export default function CentroPage() {
                 </div>
 
                 <div className="flex justify-between items-center bg-rose-950/60 p-2 rounded-lg border border-rose-500/50 text-xs font-bold text-rose-200">
-                  <span>Total Nómina Turno:</span>
+                  <span>Total Nómina Principal:</span>
                   <span className="text-sm font-black text-rose-300">$ {totalNomina.toLocaleString('es-CO')}</span>
                 </div>
+
+                {/* SECCIÓN OPCIONAL: NÓMINA OPERADOR DE APOYO / REFUERZO (DOMINGOS - OPCIÓN 1) */}
+                {mostrarBloqueApoyo && (
+                  <div className="bg-[#0e385e]/80 border border-amber-500/50 p-2.5 rounded-xl space-y-2 mt-2">
+                    <span className="text-[10px] font-black text-amber-300 uppercase block">
+                      🤝 Operador de Apoyo / Refuerzo (Domingos/Festivos):
+                    </span>
+
+                    <div>
+                      <label className="text-[10px] text-sky-200 font-bold block mb-1">Seleccionar Operador:</label>
+                      <select
+                        value={operadorApoyoId}
+                        onChange={(e) => setOperadorApoyoId(e.target.value)}
+                        className="w-full bg-[#051829] border border-[#0066b3] text-white font-bold text-xs rounded-xl p-2 outline-none cursor-pointer focus:border-[#00a4ef]"
+                      >
+                        <option value="">-- Seleccionar Operador de Apoyo --</option>
+                        {listaOperarios
+                          .filter((op) => String(op.id) !== String(usuarioIdActual))
+                          .map((op) => (
+                            <option key={op.id} value={op.id}>
+                              👤 {op.nombre_completo || op.nombre}
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-[10px]">
+                      <div>
+                        <span className="text-sky-200 block mb-1 font-bold">Horas Día Apoyo</span>
+                        <input
+                          type="number"
+                          placeholder="0"
+                          value={horasDiaApoyo}
+                          onChange={(e) => setHorasDiaApoyo(e.target.value === '' ? '' : Number(e.target.value))}
+                          onFocus={(e) => e.target.select()}
+                          className="w-full bg-[#051829] border border-[#0066b3] text-white font-bold text-center rounded-lg p-2 outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
+                      </div>
+                      <div>
+                        <span className="text-sky-200 block mb-1 font-bold">Horas Noche Apoyo</span>
+                        <input
+                          type="number"
+                          placeholder="0"
+                          value={horasNocheApoyo}
+                          onChange={(e) => setHorasNocheApoyo(e.target.value === '' ? '' : Number(e.target.value))}
+                          onFocus={(e) => e.target.select()}
+                          className="w-full bg-[#051829] border border-[#0066b3] text-white font-bold text-center rounded-lg p-2 outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex justify-between items-center bg-amber-950/60 p-2 rounded-lg border border-amber-500/50 text-xs font-bold text-amber-200">
+                      <span>Total Nómina Apoyo:</span>
+                      <span className="text-sm font-black text-amber-300">$ {totalNominaApoyo.toLocaleString('es-CO')}</span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={pagarNominaApoyoBD}
+                      disabled={guardandoNominaApoyo || nominaApoyoYaPagadaHoy}
+                      className={`w-full font-black py-2 rounded-lg text-xs uppercase shadow transition-all ${
+                        guardandoNominaApoyo || nominaApoyoYaPagadaHoy
+                          ? 'bg-amber-950 text-amber-300/60 cursor-not-allowed border border-amber-800'
+                          : 'bg-amber-600 hover:bg-amber-500 text-white cursor-pointer'
+                      }`}
+                    >
+                      {guardandoNominaApoyo
+                        ? 'Registrando Apoyo...'
+                        : nominaApoyoYaPagadaHoy
+                        ? '✓ Nómina Apoyo Pagada Hoy'
+                        : '💸 Pagar Nómina de Apoyo'}
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-2 bg-[#051829] p-3 rounded-xl border border-[#0066b3] mt-3">
@@ -1534,8 +1681,8 @@ export default function CentroPage() {
                 {guardandoNomina 
                   ? 'Registrando Nómina...' 
                   : nominaYaPagadaHoy 
-                  ? '✓ Nómina Pagada Hoy' 
-                  : "💸 Pagar Nómina (Tabla 'nomina')"}
+                  ? '✓ Nómina Principal Pagada' 
+                  : "💸 Pagar Nómina Principal"}
               </button>
 
               <button
