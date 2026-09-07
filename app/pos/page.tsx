@@ -95,7 +95,6 @@ export default function MartinetoPOSPage() {
 
   const [movimientosDiaBD, setMovimientosDiaBD] = useState<any[]>([]);
 
-  // --- PERSISTENCIA ANTICORTE DE LUZ PARA MESAS Y RAPPI ---
   const [mesas, setMesas, limpiarMesasStorage] = useAutoSave<any[]>('martineto_mesas_persiste', []);
   const [mesaActivaId, setMesaActivaId, limpiarMesaActivaStorage] = useAutoSave<any | null>('martineto_mesaActivaId_persiste', null);
   const [pedidosRappi, setPedidosRappi, limpiarRappiStorage] = useAutoSave<any[]>('martineto_pedidosRappi_persiste', []);
@@ -110,7 +109,6 @@ export default function MartinetoPOSPage() {
 
   const [mostrarModalConsultaCaja, setMostrarModalConsultaCaja] = useState(false);
 
-  // --- ESTADOS PARA MODALES DE CAMBIO DE MESA Y FACTURAS PAGAS ---
   const [mostrarModalCambioMesa, setMostrarModalCambioMesa] = useState(false);
   const [mesaDestinoId, setMesaDestinoId] = useState<number | null>(null);
   const [mostrarModalFacturasPagas, setMostrarModalFacturasPagas] = useState(false);
@@ -690,7 +688,6 @@ export default function MartinetoPOSPage() {
         }
       }
 
-      // 🟢 CONTROL DE CAJA EN CEROS / VACÍA AL INICIAR JORNADA:
       const { data: cajaHoyBD } = await supabase
         .from('caja')
         .select('*')
@@ -2211,9 +2208,15 @@ export default function MartinetoPOSPage() {
     )
   ).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
 
-  const totalRappiRealizados = ventasDiaBD
-    .filter((v) => v.estado === 'rappi' || Number(v.rappi || 0) > 0)
-    .reduce((acc, v) => acc + Number(v.rappi || v.monto_total || 0), 0);
+  const totalRappiRealizados = ventasDiaBD.reduce((acc, v) => {
+    const montoRappi = Number(v.rappi || 0);
+    const esEstadoRappi = String(v.estado || '').toLowerCase() === 'rappi';
+    const esMesaRappi = String(v.mesa_id || '').toLowerCase().includes('rappi');
+    
+    if (montoRappi > 0) return acc + montoRappi;
+    if (esEstadoRappi || esMesaRappi) return acc + Number(v.monto_total || 0);
+    return acc;
+  }, 0);
 
   const totalVentasElectronicas = totalRappiRealizados + totalNequiIngresado + totalDaviplataIngresado;
   const totalVentasGlobal = totalEfectivoIngresado + totalVentasElectronicas;
@@ -2479,21 +2482,22 @@ export default function MartinetoPOSPage() {
         motivosAjustados.push(`[DESCUADRE CAJA: $${difCaja.toLocaleString('es-CO')}]: ${motivoDescuadre.trim()}`);
       }
 
+      // 🟢 MAPEO DE CAMPOS CORREGIDO DE LA TABLA CAJA
       let queryCaja = supabase
         .from('caja')
         .update({
           estado: 'cerrada',
-          efectivo_cierre: efectivoEsperadoEnCaja,
-          efectivo_fisico: efectFisico,
-          rappi: totalRappiRealizados,
-          nequi: totalNequiIngresado,
-          daviplata: totalDaviplataIngresado,
-          monto_gasto: sumaGastosTotal,
-          monto_nomina: totalNominaDia,
+          efectivo_cierre: efectivoEsperadoEnCaja, // 👈 Plata esperada por el sistema
+          efectivo_fisico: efectFisico,            // 👈 Plata física contada por el operario
+          rappi: totalRappiRealizados,             // 👈 Total ventas Rappi
+          nequi: totalNequiIngresado,              // 👈 Total ventas Nequi
+          daviplata: totalDaviplataIngresado,      // 👈 Total ventas Daviplata
+          monto_gasto: sumaGastosTotal,            // 👈 Total gastos
+          monto_nomina: totalNominaDia,            // 👈 Total nómina
           motivo_gasto: cadenaMotivosGastos || null,
           descuento: totalDescuentosDia,
           motivo_descuento: motivosAjustados,
-          diferencia: difCaja,
+          diferencia: difCaja,                     // 👈 Diferencia física vs sistema
         });
 
       if (cajaIdActual) {
@@ -3720,7 +3724,6 @@ export default function MartinetoPOSPage() {
         </div>
       )}
 
-      {/* --- MODAL DE CAMBIO DE MESA --- */}
       {mostrarModalCambioMesa && mesaActiva && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
           <div className="bg-[#0b2b48] border border-amber-500/60 p-5 rounded-2xl w-full max-w-md space-y-4 shadow-2xl">
@@ -3776,7 +3779,6 @@ export default function MartinetoPOSPage() {
         </div>
       )}
 
-      {/* --- MODAL DE RESUMEN DE FACTURAS PAGAS DEL DÍA --- */}
       {mostrarModalFacturasPagas && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
           <div className="bg-[#0b2b48] border border-sky-500/60 p-5 rounded-2xl w-full max-w-3xl space-y-4 shadow-2xl max-h-[85vh] flex flex-col">
@@ -4437,7 +4439,7 @@ export default function MartinetoPOSPage() {
                 </div>
                 <div className="flex justify-between">
                   <span>Total Rappi:</span>
-                  <b>$ {totalRappiRealizados.toLocaleString('es-CO')}</b>
+                  <b className="text-rose-300">$ {totalRappiRealizados.toLocaleString('es-CO')}</b>
                 </div>
                 <div className="flex justify-between">
                   <span>Total Descuentos Aplicados:</span>
