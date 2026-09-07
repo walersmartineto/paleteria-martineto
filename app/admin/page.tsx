@@ -82,8 +82,8 @@ export default function AdminPage() {
   const [acordeonesResumenSedes, setAcordeonesResumenSedes] = useState<{ [key: string]: boolean }>({ global: true });
   const [acordeonesConsolidadoCompras, setAcordeonesConsolidadoCompras] = useState<{ [key: string]: boolean }>({ global: true });
   const [acordeonesVentasAbanico, setAcordeonesVentasAbanico] = useState<{ [key: string]: boolean }>({});
+  const [acordeonesMixViva, setAcordeonesMixViva] = useState<{ [key: string]: boolean }>({});
   const [acordeonesRappi, setAcordeonesRappi] = useState<{ [key: string]: boolean }>({ global: true });
-  
   const [acordeonesProyeccionSedes, setAcordeonesProyeccionSedes] = useState<{ [key: string]: boolean }>({});
 
   useEffect(() => {
@@ -373,6 +373,7 @@ export default function AdminPage() {
   const tieneProductosPorComprar = Object.keys(consolidadoCompras).length > 0;
   const tieneProductosPorEntregar = Object.keys(despachosPorSede).length > 0;
 
+  // Cierre Global: SUMA ABSOLUTA DE TODO LO RECAUDADO (ENTRADAS)
   const CierreGlobal = (() => {
     const totalCaja = registrosCaja.reduce((acc, row) => {
       if (!mapaSedes[row.sede_id]) return acc;
@@ -386,20 +387,22 @@ export default function AdminPage() {
         nequi: acc.nequi + neq,
         daviplata: acc.daviplata + dav,
         rappi: acc.rappi + rap,
-        gastos: acc.gastos + gas,
-        totalVenta: acc.totalVenta + (efec + neq + dav + rap)
+        gastos: acc.gastos + gas
       };
-    }, { efectivo: 0, nequi: 0, daviplata: 0, rappi: 0, gastos: 0, totalVenta: 0 });
+    }, { efectivo: 0, nequi: 0, daviplata: 0, rappi: 0, gastos: 0 });
 
     const totalNominaBD = registrosNomina.reduce((acc, n) => {
       if (!mapaSedes[n.sede_id]) return acc;
       return acc + (Number(n.monto) || 0);
     }, 0);
 
+    // Suma TOTAL de ENTRADAS brutas (Efectivo + Nequi + Daviplata + Rappi + Gastos + Nómina)
+    const totalVentaTotal = totalCaja.efectivo + totalCaja.nequi + totalCaja.daviplata + totalCaja.rappi + totalCaja.gastos + totalNominaBD;
+
     return {
       ...totalCaja,
       nomina: totalNominaBD,
-      ventaNeto: totalCaja.totalVenta - totalCaja.gastos - totalNominaBD
+      totalVenta: totalVentaTotal
     };
   })();
 
@@ -452,6 +455,7 @@ export default function AdminPage() {
     };
   })();
 
+  // Cierres Por Sede: SUMA ABSOLUTA DE TODAS LAS ENTRADAS
   const cierresPorSede = (() => {
     const mapa: { [sede: string]: any } = {};
 
@@ -556,17 +560,11 @@ export default function AdminPage() {
 
     Object.keys(mapa).forEach(sKey => {
       const item = mapa[sKey];
-      const esMartineto = sKey.toLowerCase().includes('martineto');
-      
-      if (esMartineto) {
-        item.efectivoTotal = item.efectivoRecibido - item.nomina;
-      } else {
-        item.efectivoTotal = item.efectivoRecibido;
-      }
-
+      item.efectivoTotal = item.efectivoRecibido;
       item.descuadreCaja = Number(item.diferencia || 0);
       
-      item.totalVenta = item.efectivoRecibido + item.nequi + item.daviplata + item.rappi;
+      // SUMA ABSOLUTA DE TODAS LAS ENTRADAS DE DINERO VENDIDO
+      item.totalVenta = item.efectivoRecibido + item.nequi + item.daviplata + item.rappi + item.gastos + item.nomina;
     });
 
     return mapa;
@@ -695,6 +693,7 @@ export default function AdminPage() {
     return mapaSedDescuadres;
   })();
 
+  // INVENTARIOS Y STOCK: CORREGIDO PARA SEDE VIVA Y SIN 'TOTAL PALETAS' REPETIDO
   const inventarioStockGeneralPorSede = (() => {
     const mapa: { 
       [sedeName: string]: { 
@@ -709,12 +708,27 @@ export default function AdminPage() {
       const nombreSede = getNombreSede(idSede);
       if (sedeSeleccionada !== 'todos' && String(idSede) !== sedeSeleccionada) return;
 
+      const esViva = nombreSede.toLowerCase().includes('viva');
+
       const movimientosSede = inventarioMovsDia
         .filter(m => Number(m.sede_id) === idSede)
-        .sort((a, b) => new Date(b.fecha_registro).getTime() - new Date(a.fecha_registro).getTime());
+        .sort((a, b) => new Date(b.fecha_registro || 0).getTime() - new Date(a.fecha_registro || 0).getTime());
 
-      const ultimoRegistroPaletas = movimientosSede.find(m => m.total_paletas !== undefined && m.total_paletas !== null);
-      const totalPaletasBD = ultimoRegistroPaletas ? Number(ultimoRegistroPaletas.total_paletas || 0) : 0;
+      let totalPaletasBD = 0;
+
+      if (esViva) {
+        // Para Sede Viva buscamos primero el conteo de paletas consolidado o el registro de inventario mas reciente
+        const registroPaletasViva = inventarioEmpaquesSedesBD.find(item => Number(item.sede_id) === idSede && String(item.nombre || item.producto || '').toLowerCase() === 'total paletas');
+        if (registroPaletasViva) {
+          totalPaletasBD = Number(registroPaletasViva.stok ?? registroPaletasViva.stock ?? 0);
+        } else {
+          const ultimoMov = movimientosSede.find(m => m.total_paletas !== undefined && m.total_paletas !== null);
+          totalPaletasBD = ultimoMov ? Number(ultimoMov.total_paletas || 0) : 0;
+        }
+      } else {
+        const ultimoRegistroPaletas = movimientosSede.find(m => m.total_paletas !== undefined && m.total_paletas !== null);
+        totalPaletasBD = ultimoRegistroPaletas ? Number(ultimoRegistroPaletas.total_paletas || 0) : 0;
+      }
 
       const detalleEmpaques: { [k: string]: number } = {};
       const esMartineto = nombreSede.toLowerCase().includes('martineto');
@@ -723,7 +737,7 @@ export default function AdminPage() {
         empaquesMartinetoBD.forEach(item => {
           const nombreItem = String(item.nombre || item.producto || '').trim();
           const stockVal = Number(item.stok ?? item.stock ?? 0);
-          if (nombreItem) {
+          if (nombreItem && nombreItem.toLowerCase() !== 'total paletas') {
             detalleEmpaques[nombreItem] = stockVal;
           }
         });
@@ -910,6 +924,7 @@ export default function AdminPage() {
     return resultadoPorSede;
   })();
 
+  // BI INTELIGENCIA DE NEGOCIO: SUMA EXACTA DE TODAS LAS PALETAS Y PRODUCTOS
   const datosBI = (() => {
     const totalProductos: { [prod: string]: number } = {};
     const ventasPorFecha: { [fecha: string]: number } = {};
@@ -1381,7 +1396,7 @@ export default function AdminPage() {
             )}
           </div>
 
-          {/* MÓDULO 2: PROYECCIÓN DE DEMANDA E INSUMOS (COMPLETAMENTE INDEPENDIENTE) */}
+          {/* MÓDULO 2: PROYECCIÓN DE DEMANDA E INSUMOS */}
           <div className="border border-[#0066b3] bg-[#0b2b48] rounded-2xl overflow-hidden shadow-lg">
             <button 
               onClick={() => toggleModulo('proyeccion')}
@@ -1456,7 +1471,7 @@ export default function AdminPage() {
             )}
           </div>
 
-          {/* MÓDULO 3: CIERRES DE CAJA Y DESCUADRES */}
+          {/* MÓDULO 3: CIERRES DE CAJA Y DESCUADRES (CON TOTAL BRUTO DE ENTRADAS) */}
           <div className="border border-[#0066b3] bg-[#0b2b48] rounded-2xl overflow-hidden shadow-lg">
             <button 
               onClick={() => toggleModulo('cierres')}
@@ -1466,7 +1481,7 @@ export default function AdminPage() {
                 <span>{moduloAbierto === 'cierres' ? '▼' : '▶'}</span> 💰 3. CIERRES DE CAJA Y DESCUADRES
               </span>
               <span className="bg-[#031d35] text-emerald-300 font-bold text-[10px] px-2 py-0.5 rounded border border-[#0066b3]">
-                ${CierreGlobal.ventaNeto.toLocaleString()}
+                ${CierreGlobal.totalVenta.toLocaleString()}
               </span>
             </button>
 
@@ -1487,7 +1502,7 @@ export default function AdminPage() {
                             <span className="flex items-center gap-1.5">
                               <span>{acordeonesCierres.global ? '👁️‍🗨️' : '👁️'}</span> CONSOLIDADO GLOBAL
                             </span>
-                            <span className="text-white">${CierreGlobal.totalVenta.toLocaleString()}</span>
+                            <span className="text-emerald-300 font-bold">${CierreGlobal.totalVenta.toLocaleString()}</span>
                           </button>
                           {acordeonesCierres.global && (
                             <div className="p-3 space-y-1.5 bg-[#031d35] text-xs border-t border-emerald-500/30">
@@ -1495,9 +1510,9 @@ export default function AdminPage() {
                               <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>📲 Nequi:</span><span className="font-bold text-sky-300">${CierreGlobal.nequi.toLocaleString()}</span></div>
                               <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>💳 Daviplata:</span><span className="font-bold text-rose-300">${CierreGlobal.daviplata.toLocaleString()}</span></div>
                               <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>🛵 Rappi:</span><span className="font-bold text-orange-300">${CierreGlobal.rappi.toLocaleString()}</span></div>
-                              <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>📉 Gastos:</span><span className="font-bold text-amber-400">-${CierreGlobal.gastos.toLocaleString()}</span></div>
-                              <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>👥 Nómina Turnos:</span><span className="font-bold text-fuchsia-300">-${CierreGlobal.nomina.toLocaleString()}</span></div>
-                              <div className="flex justify-between py-1.5 text-xs font-black border-t border-emerald-400 mt-1 text-white"><span>💰 VENTA NETO GLOBAL:</span><span className="text-emerald-300">${CierreGlobal.ventaNeto.toLocaleString()}</span></div>
+                              <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>📉 Gastos Registrados:</span><span className="font-bold text-amber-400">${CierreGlobal.gastos.toLocaleString()}</span></div>
+                              <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>👥 Nómina Turnos:</span><span className="font-bold text-fuchsia-300">${CierreGlobal.nomina.toLocaleString()}</span></div>
+                              <div className="flex justify-between py-1.5 text-xs font-black border-t border-emerald-400 mt-1 text-white"><span>💰 TOTAL RECAUDADO (ENTRADAS):</span><span className="text-emerald-300">${CierreGlobal.totalVenta.toLocaleString()}</span></div>
                             </div>
                           )}
                         </div>
@@ -1508,7 +1523,6 @@ export default function AdminPage() {
                           Object.entries(cierresPorSede).map(([nombreSede, dataSede]) => {
                             const abierto = !!acordeonesCierres[nombreSede];
                             const tieneDescuadre = dataSede.descuadreCaja !== 0;
-                            const esMartineto = nombreSede.toLowerCase().includes('martineto');
 
                             return (
                               <div key={nombreSede} className="border border-[#0066b3] bg-[#0b2b48] rounded-xl overflow-hidden shadow-sm">
@@ -1528,15 +1542,8 @@ export default function AdminPage() {
                                     <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>📲 Total Nequi:</span><span className="font-bold text-sky-300">${dataSede.nequi.toLocaleString()}</span></div>
                                     <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>💳 Total Daviplata:</span><span className="font-bold text-rose-300">${dataSede.daviplata.toLocaleString()}</span></div>
                                     <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>🛵 Total Rappi:</span><span className="font-bold text-orange-300">${dataSede.rappi.toLocaleString()}</span></div>
-                                    <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>📉 Total Gastos de Insumos:</span><span className="font-bold text-amber-400">-${dataSede.gastos.toLocaleString()}</span></div>
-                                    <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>👥 Total Nómina Pagada:</span><span className="font-bold text-fuchsia-300">-${dataSede.nomina.toLocaleString()}</span></div>
-
-                                    {esMartineto && (
-                                      <div className="flex justify-between border-b border-[#0066b3]/20 py-1">
-                                        <span>💵 Efectivo Total (Neto Cierre):</span>
-                                        <span className="font-bold text-cyan-300">${dataSede.efectivoTotal.toLocaleString()}</span>
-                                      </div>
-                                    )}
+                                    <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>📉 Gastos de Insumos:</span><span className="font-bold text-amber-400">${dataSede.gastos.toLocaleString()}</span></div>
+                                    <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>👥 Nómina Pagada:</span><span className="font-bold text-fuchsia-300">${dataSede.nomina.toLocaleString()}</span></div>
 
                                     <div className="flex justify-between border-b border-[#0066b3]/20 py-1">
                                       <span>💵 Efectivo Físico Contado:</span>
@@ -1563,7 +1570,7 @@ export default function AdminPage() {
                                     )}
 
                                     <div className="flex justify-between py-1.5 font-black border-t border-sky-500/40 text-white mt-1">
-                                      <span>💰 VENTAS TOTALES DEL DÍA:</span>
+                                      <span>💰 TOTAL VENDIDO (ENTRADAS):</span>
                                       <span className="text-emerald-300">${dataSede.totalVenta.toLocaleString()}</span>
                                     </div>
                                   </div>
@@ -1575,7 +1582,6 @@ export default function AdminPage() {
                       </>
                     ) : (
                       (() => {
-                        const nombreSedeClave = Object.keys(cierresPorSede)[0] || '';
                         const datosSedeSeleccionada = Object.values(cierresPorSede)[0];
 
                         if (!datosSedeSeleccionada) {
@@ -1583,7 +1589,6 @@ export default function AdminPage() {
                         }
 
                         const tieneDescuadre = datosSedeSeleccionada.descuadreCaja !== 0;
-                        const esMartineto = nombreSedeClave.toLowerCase().includes('martineto');
 
                         return (
                           <div className="border border-emerald-500/50 bg-[#031d35] p-3 rounded-xl space-y-2 text-xs shadow-md">
@@ -1592,15 +1597,8 @@ export default function AdminPage() {
                             <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>📲 Total Nequi:</span><span className="font-bold text-sky-300">${datosSedeSeleccionada.nequi.toLocaleString()}</span></div>
                             <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>💳 Total Daviplata:</span><span className="font-bold text-rose-300">${datosSedeSeleccionada.daviplata.toLocaleString()}</span></div>
                             <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>🛵 Total Rappi:</span><span className="font-bold text-orange-300">${datosSedeSeleccionada.rappi.toLocaleString()}</span></div>
-                            <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>📉 Total Gastos de Insumos:</span><span className="font-bold text-amber-400">-${datosSedeSeleccionada.gastos.toLocaleString()}</span></div>
-                            <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>👥 Total Nómina Pagada:</span><span className="font-bold text-fuchsia-300">-${datosSedeSeleccionada.nomina.toLocaleString()}</span></div>
-
-                            {esMartineto && (
-                              <div className="flex justify-between border-b border-[#0066b3]/20 py-1">
-                                <span>💵 Efectivo Total (Neto Cierre):</span>
-                                <span className="font-bold text-cyan-300">${datosSedeSeleccionada.efectivoTotal.toLocaleString()}</span>
-                              </div>
-                            )}
+                            <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>📉 Gastos de Insumos:</span><span className="font-bold text-amber-400">${datosSedeSeleccionada.gastos.toLocaleString()}</span></div>
+                            <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>👥 Nómina Pagada:</span><span className="font-bold text-fuchsia-300">${datosSedeSeleccionada.nomina.toLocaleString()}</span></div>
 
                             <div className="flex justify-between border-b border-[#0066b3]/20 py-1">
                               <span>💵 Efectivo Físico Contado:</span>
@@ -1627,7 +1625,7 @@ export default function AdminPage() {
                             )}
 
                             <div className="flex justify-between py-1.5 font-black border-t border-sky-500/40 text-white mt-1">
-                              <span>💰 VENTAS TOTALES DEL DÍA:</span>
+                              <span>💰 TOTAL VENDIDO (ENTRADAS):</span>
                               <span className="text-emerald-300">${datosSedeSeleccionada.totalVenta.toLocaleString()}</span>
                             </div>
                           </div>
@@ -1752,7 +1750,7 @@ export default function AdminPage() {
                           <span className="flex items-center gap-2">
                             <span>{abierto ? '👁️‍🗨️' : '👁️'}</span> 📍 {nombreSede}
                           </span>
-                          <span className="text-[10px] bg-sky-950 text-sky-300 px-2 py-0.5 rounded border border-sky-500">
+                          <span className="text-[10px] bg-sky-950 text-sky-300 px-2 py-0.5 rounded border border-sky-500 font-black">
                             Total Paletas: {infoSede.totalPaletas}
                           </span>
                         </button>
@@ -1760,16 +1758,6 @@ export default function AdminPage() {
                         {abierto && (
                           <div className="p-3 pt-0 bg-[#031d35] text-xs space-y-3 border-t border-[#0066b3]/30">
                             <div className="pt-2">
-                              <span className="text-[10px] font-black text-amber-300 uppercase block border-b border-[#0066b3]/40 pb-1 mb-1">
-                                🧊 Stock Paletas
-                              </span>
-                              <div className="flex justify-between text-[11px] text-white border-b border-[#0066b3]/20 py-1">
-                                <span>Total Paletas</span>
-                                <span className="font-bold text-emerald-300">x{infoSede.totalPaletas}</span>
-                              </div>
-                            </div>
-
-                            <div>
                               <span className="text-[10px] font-black text-amber-300 uppercase block border-b border-[#0066b3]/40 pb-1 mb-1">
                                 📦 Stock Empaques
                               </span>
@@ -1848,7 +1836,7 @@ export default function AdminPage() {
             )}
           </div>
 
-          {/* MÓDULO 6: VENTAS Y MIX DE SABORES */}
+          {/* MÓDULO 6: VENTAS Y MIX DE SABORES (EN ACORDEÓN) */}
           <div className="border border-[#0066b3] bg-[#0b2b48] rounded-2xl overflow-hidden shadow-lg">
             <button 
               onClick={() => toggleModulo('ventas_abanico')}
@@ -1864,36 +1852,65 @@ export default function AdminPage() {
 
             {moduloAbierto === 'ventas_abanico' && (
               <div className="p-3 space-y-3 border-t border-[#0066b3]/30 bg-[#031d35]/60">
+                
+                {/* MIX DE SABORES VIVA EN ACORDEÓN */}
                 <div className="bg-[#0b2b48] border border-cyan-500/50 rounded-xl overflow-hidden shadow-sm">
-                  <div className="p-3 bg-cyan-950/40 border-b border-cyan-500/30 flex justify-between items-center">
-                    <span className="text-[11px] font-black text-cyan-300 uppercase">🧊 Mix de Sabores y Categorías (Sede Viva)</span>
-                    <span className="text-[10px] bg-[#031d35] text-cyan-200 px-2 py-0.5 rounded border border-cyan-500/40">Total: {mixSaboresSedeViva.totalUnidadesViva} unids</span>
-                  </div>
-                  <div className="p-3 space-y-2.5 bg-[#031d35]/60 text-xs">
-                    {!mixSaboresSedeViva.vivaEncontrado ? (
-                      <p className="text-center text-[11px] text-sky-300 py-2">No se encontró la sede Viva configurada.</p>
-                    ) : Object.keys(mixSaboresSedeViva.categoriasMap).length === 0 ? (
-                      <p className="text-center text-[11px] text-sky-300 py-2">No hay ventas registradas en la sede Viva para este rango.</p>
-                    ) : (
-                      Object.entries(mixSaboresSedeViva.categoriasMap).map(([catNombre, productosCat], idx) => (
-                        <div key={idx} className="bg-[#0b2b48] border border-[#0066b3] p-2.5 rounded-xl space-y-1">
-                          <span className="text-[10px] font-black text-amber-300 uppercase block border-b border-[#0066b3]/40 pb-1">
-                            📂 {catNombre}
-                          </span>
-                          <div className="space-y-1 pt-1">
-                            {Object.entries(productosCat).map(([prodName, cant]: [string, any], i) => (
-                              <div key={i} className="flex justify-between text-[11px] text-white border-b border-[#0066b3]/20 py-0.5">
-                                <span className="truncate pr-2">{prodName}</span>
-                                <span className="font-bold text-emerald-300">x{cant}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
+                  <button 
+                    onClick={() => setAcordeonesMixViva(prev => ({ ...prev, global: !prev.global }))}
+                    className="w-full p-3 flex justify-between items-center text-xs font-black text-cyan-300 uppercase bg-cyan-950/40 cursor-pointer"
+                  >
+                    <span className="flex items-center gap-2">
+                      <span>{acordeonesMixViva.global ? '👁️‍🗨️' : '👁️'}</span> 🧊 MIX DE SABORES Y CATEGORÍAS (SEDE VIVA)
+                    </span>
+                    <span className="text-[10px] bg-[#031d35] text-cyan-200 px-2 py-0.5 rounded border border-cyan-500/40">
+                      Total: {mixSaboresSedeViva.totalUnidadesViva} unids
+                    </span>
+                  </button>
+
+                  {acordeonesMixViva.global && (
+                    <div className="p-3 space-y-2.5 bg-[#031d35]/60 text-xs border-t border-cyan-500/30">
+                      {!mixSaboresSedeViva.vivaEncontrado ? (
+                        <p className="text-center text-[11px] text-sky-300 py-2">No se encontró la sede Viva configurada.</p>
+                      ) : Object.keys(mixSaboresSedeViva.categoriasMap).length === 0 ? (
+                        <p className="text-center text-[11px] text-sky-300 py-2">No hay ventas registradas en la sede Viva para este rango.</p>
+                      ) : (
+                        Object.entries(mixSaboresSedeViva.categoriasMap).map(([catNombre, productosCat], idx) => {
+                          const abiertoCat = !!acordeonesMixViva[catNombre];
+                          const totalCat = Object.values(productosCat).reduce((a, b) => a + (Number(b) || 0), 0);
+
+                          return (
+                            <div key={idx} className="bg-[#0b2b48] border border-[#0066b3] rounded-xl overflow-hidden">
+                              <button 
+                                onClick={() => setAcordeonesMixViva(prev => ({ ...prev, [catNombre]: !abiertoCat }))}
+                                className="w-full p-2.5 flex justify-between items-center text-xs font-bold text-amber-300 uppercase cursor-pointer"
+                              >
+                                <span className="flex items-center gap-2">
+                                  <span>{abiertoCat ? '👁️‍🗨️' : '👁️'}</span> 📂 {catNombre}
+                                </span>
+                                <span className="text-[10px] bg-[#031d35] text-emerald-300 px-2 py-0.5 rounded border border-[#0066b3]">
+                                  {totalCat} unids
+                                </span>
+                              </button>
+
+                              {abiertoCat && (
+                                <div className="p-2.5 pt-0 space-y-1 bg-[#031d35] border-t border-[#0066b3]/30">
+                                  {Object.entries(productosCat).map(([prodName, cant]: [string, any], i) => (
+                                    <div key={i} className="flex justify-between text-[11px] text-white border-b border-[#0066b3]/20 py-1">
+                                      <span className="truncate pr-2">{prodName}</span>
+                                      <span className="font-bold text-emerald-300">x{cant}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  )}
                 </div>
 
+                {/* VENTAS EN ABANICO POR SEDE EN ACORDEÓN */}
                 {Object.keys(ventasAbanicoPorSede).length === 0 ? (
                   <p className="text-center text-xs text-sky-300 py-6 font-semibold">No hay registros en el histórico de ventas para este rango.</p>
                 ) : (
