@@ -49,6 +49,18 @@ const obtenerInicioDiaColombia = () => {
   return `${year}-${month}-${day}T00:00:00`;
 };
 
+const obtenerFechaSoloColombia = () => {
+  const fechaHoraLocal = new Date().toLocaleString("en-US", {
+    timeZone: "America/Bogota",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  });
+  const [datePart] = fechaHoraLocal.split(', ');
+  const [month, day, year] = datePart.split('/');
+  return `${year}-${month}-${day}`;
+};
+
 const formatearMoneda = (val: number | string): string => {
   if (val === '' || val === null || val === undefined) return '';
   const num = typeof val === 'string' ? Number(val.replace(/\D/g, '')) : val;
@@ -115,11 +127,14 @@ export default function MartinetoPOSPage() {
   const [busquedaFacturaPaga, setBusquedaFacturaPaga] = useState('');
 
   const [mostrarModalCobro, setMostrarModalCobro] = useState(false);
-  const [pagoEfectivo, setPagoEfectivo] = useState<number | ''>('');
-  const [pagoNequi, setPagoNequi] = useState<number | ''>('');
-  const [pagoDaviplata, setPagoDaviplata] = useState<number | ''>('');
-  const [descuentoVenta, setDescuentoVenta] = useState<number | ''>('');
-  const [motivoDescuentoVenta, setMotivoDescuentoVenta] = useState<string>('');
+  
+  // PERSISTENCIA DE MÉTODOS DE PAGO PARA EVITAR PÉRDIDA AL RECARGAR
+  const [pagoEfectivo, setPagoEfectivo, limpiarPagoEfectivo] = useAutoSave<number | ''>('martineto_pagoEfectivo', '');
+  const [pagoNequi, setPagoNequi, limpiarPagoNequi] = useAutoSave<number | ''>('martineto_pagoNequi', '');
+  const [pagoDaviplata, setPagoDaviplata, limpiarPagoDaviplata] = useAutoSave<number | ''>('martineto_pagoDaviplata', '');
+  const [descuentoVenta, setDescuentoVenta, limpiarDescuentoVenta] = useAutoSave<number | ''>('martineto_descuentoVenta', '');
+  const [motivoDescuentoVenta, setMotivoDescuentoVenta, limpiarMotivoDescuentoVenta] = useAutoSave<string>('martineto_motivoDescuentoVenta', '');
+  
   const [procesandoPago, setProcesandoPago] = useState(false);
   const [procesandoRappi, setProcesandoRappi] = useState(false);
 
@@ -392,7 +407,7 @@ export default function MartinetoPOSPage() {
       .subscribe();
 
     const channelEmpaques = supabase
-      .channel('schema-db-changes-empaques')
+      .channel('schema-db-changes-[#schema-db-changes-empaques]')
       .on(
         'postgres_changes',
         {
@@ -655,19 +670,20 @@ export default function MartinetoPOSPage() {
         setEmpaquesBD(empaquesData.sort((a: any, b: any) => (a.nombre || '').localeCompare(b.nombre || '', 'es', { sensitivity: 'base' })));
       }
 
-      const inicioDia = obtenerInicioDiaColombia();
+      const fechaHoyColombia = obtenerFechaSoloColombia();
 
+      // CONSULTA CORREGIDA A TABLA NOMINA USANDO fecha_pago
       const { data: nominasBD } = await supabase
         .from('nomina')
-        .select('id, monto, fecha, usuario_id, usuario(nombre_completo, nombre)')
+        .select('id, monto, fecha_pago, usuario_id, usuario(nombre_completo, nombre)')
         .eq('sede_id', SEDE_ID_MARTINETO)
-        .gte('fecha', inicioDia)
+        .gte('fecha_pago', fechaHoyColombia)
         .order('id', { ascending: true });
 
       if (nominasBD && nominasBD.length > 0) {
         const nominasMapeadas: RegistroNominaDia[] = nominasBD.map((n: any) => {
           const nomUser = n.usuario?.nombre_completo || n.usuario?.nombre || 'Operario';
-          const horaFmt = new Date(n.fecha).toLocaleTimeString('es-CO', {
+          const horaFmt = new Date(n.fecha_pago).toLocaleTimeString('es-CO', {
             timeZone: 'America/Bogota',
             hour: '2-digit',
             minute: '2-digit',
@@ -687,6 +703,8 @@ export default function MartinetoPOSPage() {
           setNominaPagadaEnTurno(true);
         }
       }
+
+      const inicioDia = obtenerInicioDiaColombia();
 
       const { data: cajaHoyBD } = await supabase
         .from('caja')
@@ -909,23 +927,37 @@ export default function MartinetoPOSPage() {
 
   async function pagarNominaSolo() {
     if (procesandoNomina) return;
-    if (nominaPagadaEnTurno) {
-      alert('⚠️ La nómina de este turno ya fue registrada.');
-      return;
-    }
 
-    const totalPago = calcularTotalNomina();
-
-    if (totalPago <= 0) {
-      alert('⚠️ El valor a pagar de nómina debe ser mayor a 0 (ingresa las horas trabajadas).');
-      return;
-    }
+    const usuarioId = sesion?.usuario_id || sesion?.id || null;
+    const fechaHoyColombia = obtenerFechaSoloColombia();
 
     setProcesandoNomina(true);
     try {
-      const usuarioId = sesion?.usuario_id || sesion?.id || null;
-      const fechaColombia = obtenerFechaHoraColombia();
+      // 1. VALIDACIÓN DIRECTA CONTRA LA BASE DE DATOS
+      const { data: nominaExistente } = await supabase
+        .from('nomina')
+        .select('id')
+        .eq('sede_id', SEDE_ID_MARTINETO)
+        .eq('usuario_id', usuarioId ? Number(usuarioId) : 0)
+        .gte('fecha_pago', fechaHoyColombia)
+        .maybeSingle();
 
+      if (nominaExistente || nominaPagadaEnTurno) {
+        setNominaPagadaEnTurno(true);
+        alert('⚠️ La nómina de este turno para el operario ya fue registrada previamente en la base de datos.');
+        return;
+      }
+
+      const totalPago = calcularTotalNomina();
+
+      if (totalPago <= 0) {
+        alert('⚠️ El valor a pagar de nómina debe ser mayor a 0 (ingresa las horas trabajadas).');
+        return;
+      }
+
+      const fechaColombiaCompleta = obtenerFechaHoraColombia();
+
+      // INSERCIÓN USANDO fecha_pago Y concepto SEGUN ESTRUCTURA DE BD
       const payloadNomina = {
         sede_id: SEDE_ID_MARTINETO,
         usuario_id: usuarioId ? Number(usuarioId) : null,
@@ -933,7 +965,8 @@ export default function MartinetoPOSPage() {
         horas_dia: Number(horasDia) || 0,
         horas_noche: Number(horasNoche) || 0,
         tipo_dia: tipoDia,
-        fecha: fechaColombia
+        concepto: 'Pago de turno',
+        fecha_pago: fechaColombiaCompleta
       };
 
       const { data: dataNomina, error } = await supabase.from('nomina').insert([payloadNomina]).select();
@@ -2121,6 +2154,13 @@ export default function MartinetoPOSPage() {
         })
       );
 
+      // LIMPIEZA DE CAMPOS DE PAGO
+      limpiarPagoEfectivo();
+      limpiarPagoNequi();
+      limpiarPagoDaviplata();
+      limpiarDescuentoVenta();
+      limpiarMotivoDescuentoVenta();
+
       setMostrarModalCobro(false);
 
       if (estaCompletamentePagado) {
@@ -2589,6 +2629,11 @@ export default function MartinetoPOSPage() {
       limpiarMesasStorage();
       limpiarMesaActivaStorage();
       limpiarRappiStorage();
+      limpiarPagoEfectivo();
+      limpiarPagoNequi();
+      limpiarPagoDaviplata();
+      limpiarDescuentoVenta();
+      limpiarMotivoDescuentoVenta();
 
       localStorage.removeItem('martineto_session');
       router.push('/login');
