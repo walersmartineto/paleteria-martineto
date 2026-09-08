@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAutoSave } from '@/hooks/useAutoSave';
 import {
@@ -69,7 +69,7 @@ export default function VivaPage() {
   const [ventasDiaBD, setVentasDiaBD] = useState<any[]>([]);
   const [registrosNominaDia, setRegistrosNominaDia] = useState<any[]>([]);
 
-  // AUTO-SAVE: Requisición de Pedidos (AQUÍ SÍ SE MANTIENEN SABORES)
+  // AUTO-SAVE: Requisición de Pedidos
   const [mostrarModuloPedidos, setMostrarModuloPedidos] = useState(false);
   const [categoriaPedido, setCategoriaPedido] = useState<'paletas' | 'richi' | 'insumos' | 'aseo'>('paletas');
   const [cantidadesPedidoPaletas, setCantidadesPedidoPaletas, limpiarPedPaletas] = useAutoSave<{ [saborId: number]: number | '' }>('viva_pedPaletas', {});
@@ -135,6 +135,17 @@ export default function VivaPage() {
   const nominaYaPagadaHoy = registrosNominaDia.some(
     (n) => String(n.usuario_id) === String(usuarioIdActual)
   );
+
+  // EXTRAER LUGARES ÚNICOS DE DÓNDE COMPRAR DESDE LA BD
+  const lugaresCompraUnicos = useMemo(() => {
+    const setLugares = new Set<string>();
+    productosInsumosBD.forEach((p) => {
+      if (p.donde_comprar && String(p.donde_comprar).trim() !== '') {
+        setLugares.add(String(p.donde_comprar).trim());
+      }
+    });
+    return Array.from(setLugares).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+  }, [productosInsumosBD]);
 
   const tienePedidoSinEnviar = (() => {
     const paletasCount = Object.values(cantidadesPedidoPaletas).reduce((acc: number, c) => acc + (Number(c) || 0), 0);
@@ -436,6 +447,7 @@ export default function VivaPage() {
 
     setNuevoProdNombre('');
     setNuevoProdGrupo('');
+    setNuevoProdDondeComprar('');
     setDondeComprarPersonalizado('');
     setSedesSeleccionadasProd([SEDE_ID_VIVA]);
     setMostrarModalNuevoProd(false);
@@ -516,7 +528,7 @@ export default function VivaPage() {
     }
   }
 
-  // PROCESAR MOVIMIENTOS DE INVENTARIO (TODAS LAS ACCIONES MANEJAN TOTAL PALETAS)
+  // PROCESAR MOVIMIENTOS DE INVENTARIO
   async function handleGuardarInventario() {
     if (!sesion) {
       alert('⚠️ No hay sesión activa.');
@@ -539,7 +551,6 @@ export default function VivaPage() {
 
     setGuardando(true);
     try {
-      // Consultar stock actual de 'Total Paletas' para la Sede Viva
       const { data: regAnteriorViva } = await supabase
         .from('inventario_empaques_sedes')
         .select('stock')
@@ -588,7 +599,6 @@ export default function VivaPage() {
         ]);
       }
 
-      // Registro de empaques si se modificó 'Caja Mostac'
       if (cajasMostrador !== '') {
         const cantMostac = Number(cajasMostrador) || 0;
         const { data: regAnteriorMostac } = await supabase
@@ -780,45 +790,69 @@ export default function VivaPage() {
   const gast = Number(gastos) || 0;
   const sumaNominaTotalDia = registrosNominaDia.reduce((acc, n) => acc + Number(n.monto || 0), 0);
 
-  // PAGAR NÓMINA
+  // PAGAR NÓMINA (CON VALIDACIÓN DE DUPLICADOS)
   async function pagarNominaBD() {
-    if (nominaYaPagadaHoy) {
-      alert('⚠️ Ya se ha registrado el pago de nómina para este usuario en el día de hoy.');
-      return;
-    }
-
-    if (totalNomina <= 0) {
-      alert('⚠️ El valor a pagar de nómina debe ser mayor a 0 (ingresa las horas trabajadas).');
-      return;
-    }
-
-    setGuardandoNomina(true);
     const usuarioId = sesion?.usuario_id || sesion?.id || null;
 
-    const payloadNomina = {
-      sede_id: SEDE_ID_VIVA,
-      usuario_id: usuarioId ? Number(usuarioId) : null,
-      monto: totalNomina,
-      horas_dia: Number(horasDia) || 0,
-      horas_noche: Number(horasNoche) || 0,
-      tipo_dia: tipoDia,
-      fecha: new Date().toISOString(),
-    };
-
-    const { data, error } = await supabase.from('nomina').insert([payloadNomina]).select();
-
-    setGuardandoNomina(false);
-
-    if (error) {
-      alert('❌ Error al guardar en la tabla nomina: ' + error.message);
+    if (!usuarioId) {
+      alert('⚠️ No hay sesión de usuario activa.');
       return;
     }
 
-    if (data && data.length > 0) {
-      setRegistrosNominaDia(prev => [...prev, data[0]]);
-    }
+    const hoyInicioNom = new Date();
+    hoyInicioNom.setHours(0, 0, 0, 0);
 
-    alert(`💸 Pago de Nómina de $ ${totalNomina.toLocaleString('es-CO')} registrado con éxito.`);
+    setGuardandoNomina(true);
+
+    try {
+      // Verificación directa en base de datos para impedir duplicados de nómina
+      const { data: existeNominaBD } = await supabase
+        .from('nomina')
+        .select('id')
+        .eq('sede_id', SEDE_ID_VIVA)
+        .eq('usuario_id', Number(usuarioId))
+        .gte('fecha', hoyInicioNom.toISOString())
+        .maybeSingle();
+
+      if (existeNominaBD || nominaYaPagadaHoy) {
+        alert('⚠️ Ya se ha registrado el pago de nómina para este usuario en el día de hoy.');
+        setGuardandoNomina(false);
+        return;
+      }
+
+      if (totalNomina <= 0) {
+        alert('⚠️ El valor a pagar de nómina debe ser mayor a 0 (ingresa las horas trabajadas).');
+        setGuardandoNomina(false);
+        return;
+      }
+
+      const payloadNomina = {
+        sede_id: SEDE_ID_VIVA,
+        usuario_id: Number(usuarioId),
+        monto: totalNomina,
+        horas_dia: Number(horasDia) || 0,
+        horas_noche: Number(horasNoche) || 0,
+        tipo_dia: tipoDia,
+        fecha: new Date().toISOString(),
+      };
+
+      const { data, error } = await supabase.from('nomina').insert([payloadNomina]).select();
+
+      if (error) {
+        alert('❌ Error al guardar en la tabla nomina: ' + error.message);
+        return;
+      }
+
+      if (data && data.length > 0) {
+        setRegistrosNominaDia((prev) => [...prev, data[0]]);
+      }
+
+      alert(`💸 Pago de Nómina de $ ${totalNomina.toLocaleString('es-CO')} registrado con éxito.`);
+    } catch (e: any) {
+      alert('❌ Error procesando el pago de nómina: ' + (e?.message || 'Error de conexión'));
+    } finally {
+      setGuardandoNomina(false);
+    }
   }
 
   async function handleEjecutarCambioTurno() {
@@ -1207,7 +1241,6 @@ export default function VivaPage() {
               </select>
             </div>
 
-            {/* SECCIÓN ÚNICA DE ENTRADA TOTAL DE PALETAS PARA TODAS LAS ACCIONES */}
             <div className="bg-[#051829] border border-[#0066b3] p-4 rounded-2xl space-y-3 mb-3 shadow-inner">
               <div className="flex justify-between items-center">
                 <span className="text-xs font-black text-amber-300 uppercase block">
@@ -1975,6 +2008,12 @@ export default function VivaPage() {
                   onChange={(e) => setNuevoProdDondeComprar(e.target.value)}
                   className="w-full bg-[#051829] border border-[#0066b3] text-white text-xs p-2.5 rounded-xl outline-none cursor-pointer"
                 >
+                  <option value="">-- Seleccionar o Agregar Nuevo --</option>
+                  {lugaresCompraUnicos.map((lugar) => (
+                    <option key={lugar} value={lugar}>
+                      📍 {lugar}
+                    </option>
+                  ))}
                   <option value="Otro">✏️ Escribir nuevo lugar...</option>
                 </select>
 
