@@ -97,12 +97,11 @@ export default function OsitosPOSPage() {
   const [listaCategoriasVenta, setListaCategoriasVenta] = useState<string[]>([]);
   const [categoriaVentaSel, setCategoriaVentaSel] = useState<string>('TODAS');
   const [busquedaProducto, setBusquedaProducto] = useState<string>('');
-  const [errorLecturaBD, setErrorLecturaBD] = useState<string | null>(null);
+  const [, setErrorLecturaBD] = useState<string | null>(null);
 
   const [ventasDiaBD, setVentasDiaBD] = useState<any[]>([]);
   const [pedidosRappi, setPedidosRappi] = useState<any[]>([]);
 
-  // Modales
   const [mostrarModalConsultaCaja, setMostrarModalConsultaCaja] = useState(false);
   const [mostrarModalFacturas, setMostrarModalFacturas] = useState(false);
   const [busquedaFactura, setBusquedaFactura] = useState('');
@@ -638,7 +637,15 @@ export default function OsitosPOSPage() {
 
         const userId = sesionActual?.usuario_id || sesionActual?.id;
         const miNomina = nominasBD.find((n: any) => String(n.usuario_id) === String(userId));
-        if (miNomina) {
+        const guardadoLocalNomina = localStorage.getItem(`ositos_nomina_pagada_${userId}_${turnoIdActual}`);
+
+        if (miNomina || guardadoLocalNomina === 'true') {
+          setNominaPagadaEnTurno(true);
+        }
+      } else {
+        const userId = sesionActual?.usuario_id || sesionActual?.id;
+        const guardadoLocalNomina = localStorage.getItem(`ositos_nomina_pagada_${userId}_${turnoIdActual}`);
+        if (guardadoLocalNomina === 'true') {
           setNominaPagadaEnTurno(true);
         }
       }
@@ -869,6 +876,7 @@ export default function OsitosPOSPage() {
     setProcesandoNomina(true);
     try {
       const usuarioId = sesion?.usuario_id || sesion?.id || null;
+      const turnoIdActual = sesion?.turno_id || sesion?.turnoId || 1;
       const fechaColombia = obtenerFechaHoraColombia();
 
       const payloadNomina = {
@@ -890,7 +898,7 @@ export default function OsitosPOSPage() {
 
       setNominaPagadaEnTurno(true);
       if (usuarioId) {
-        localStorage.setItem(`ositos_nomina_pagada_${usuarioId}`, 'true');
+        localStorage.setItem(`ositos_nomina_pagada_${usuarioId}_${turnoIdActual}`, 'true');
       }
 
       const nuevoRegistroNomina: RegistroNominaDia = {
@@ -1712,7 +1720,6 @@ export default function OsitosPOSPage() {
     setValorAdicionManual('');
   }
 
-  // --- LÓGICA DE CAMBIO DE MESA ---
   function ejecutarCambioMesa() {
     if (!mesaActiva || esRappiActivo) {
       alert('⚠️ No se puede cambiar de mesa en un pedido Rappi.');
@@ -1733,8 +1740,6 @@ export default function OsitosPOSPage() {
     const targetMesa = mesas.find((m) => m.id === idDest);
     if (!targetMesa) return;
 
-    // Fusionar o transferir items
-    const nuevosItemsOrigen: any[] = [];
     const nuevosItemsDestino = [...targetMesa.items, ...mesaActiva.items];
 
     const nuevoTotalDestino = nuevosItemsDestino.reduce(
@@ -1744,7 +1749,6 @@ export default function OsitosPOSPage() {
     const nuevoTotalAbonadoDestino = (targetMesa.totalAbonado || 0) + (mesaActiva.totalAbonado || 0);
     const nuevoDescuentoDestino = (targetMesa.descuentoAcumulado || 0) + (mesaActiva.descuentoAcumulado || 0);
 
-    // Actualizar BD
     actualizarEstadoMesaBD(mesaActiva.id, 'libre');
     actualizarEstadoMesaBD(targetMesa.id, 'ocupada');
 
@@ -2168,16 +2172,13 @@ export default function OsitosPOSPage() {
     .filter((v) => v.estado === 'rappi' || Number(v.rappi || 0) > 0)
     .reduce((acc, v) => acc + Number(v.rappi || v.monto_total || 0), 0);
 
-  // Acumulado exacto
   const totalVentasGlobal = totalEfectivoIngresado + totalNequiIngresado + totalDaviplataIngresado + totalRappiRealizados;
 
   const totalNominaDia = listaNominasDia.reduce((acc, n) => acc + Number(n.monto || 0), 0);
 
   const totalEfectivoRecibido = totalEfectivoIngresado;
   const efectivoEsperadoEnCaja = Math.max(0, (Number(baseCaja) || 0) + totalEfectivoRecibido - sumaGastosTotal - totalNominaDia);
-  const cajaDisponibleCalculada = efectivoEsperadoEnCaja;
 
-  // Filtrado rápido de facturas
   const ventasFiltradasResumen = ventasDiaBD.filter((v) => {
     if (!busquedaFactura.trim()) return true;
     const query = busquedaFactura.toLowerCase().trim();
@@ -2726,7 +2727,7 @@ export default function OsitosPOSPage() {
                 <div key={item} className="flex justify-between items-center bg-[#051829] p-2.5 rounded-lg border border-[#0066b3]">
                   <span className="text-xs text-white font-bold flex items-center gap-1.5">📦 {item}:</span>
                   <input
-                    ref={(el) => { inputRefs.current[item] = el; }}
+                    ref={(el) => { if (el) inputRefs.current[item] = el; }}
                     type="text"
                     inputMode="numeric"
                     placeholder={tipoMovimiento === 'apertura' ? String(stockItem) : '0'}
@@ -2832,7 +2833,7 @@ export default function OsitosPOSPage() {
                       <p className="text-xs text-white font-bold">{prod.nombre}</p>
                     </div>
                     <input
-                      ref={(el) => { inputRefs.current[`pedido_${prod.nombre}`] = el; }}
+                      ref={(el) => { if (el) inputRefs.current[`pedido_${prod.nombre}`] = el; }}
                       type="text"
                       inputMode="numeric"
                       placeholder="0"
@@ -3612,7 +3613,7 @@ export default function OsitosPOSPage() {
                   if (!nominaPagadaEnTurno) {
                     const totalNominaCalculado = calcularTotalNomina();
                     if (totalNominaCalculado <= 0) {
-                      alert('⚠️ Debes liquidar y pagar obligatoriamente tu nómina antes de entregar el turno.');
+                      alert('⚠️ Debes ingresar las horas trabajadas y registrar el pago de tu nómina antes de entregar el turno.');
                       return;
                     }
                   }
@@ -3665,6 +3666,87 @@ export default function OsitosPOSPage() {
               </button>
             </div>
           )}
+        </div>
+      )}
+
+      {/* MODAL DE CAMBIO DE TURNO */}
+      {mostrarModalCambioTurno && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+          <div className="bg-[#0b2b48] border border-amber-500/60 p-5 rounded-2xl w-full max-w-md space-y-4 shadow-2xl">
+            <div className="flex justify-between items-center border-b border-amber-500/40 pb-2">
+              <h3 className="text-sm font-black text-amber-300 uppercase">🔄 Entrega de Turno</h3>
+              <button
+                onClick={() => setMostrarModalCambioTurno(false)}
+                disabled={validandoEntrante}
+                className="text-sky-300 hover:text-white font-black text-sm cursor-pointer disabled:opacity-50"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="text-sky-300 font-bold block mb-1">Operario Entrante:</label>
+                <select
+                  value={operarioEntranteId}
+                  onChange={(e) => setOperarioEntranteId(e.target.value)}
+                  disabled={validandoEntrante}
+                  className="w-full bg-[#051829] border border-[#0066b3] text-white font-bold p-2.5 rounded-xl outline-none cursor-pointer"
+                >
+                  {listaOperarios.map((op) => (
+                    <option key={op.id} value={op.id}>
+                      {op.nombre_completo}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-sky-300 font-bold block mb-1">Clave / PIN Operario Entrante:</label>
+                <input
+                  type="password"
+                  placeholder="PIN Secreto"
+                  value={claveOperarioEntrante}
+                  onChange={(e) => setClaveOperarioEntrante(e.target.value)}
+                  disabled={validandoEntrante}
+                  className="w-full bg-[#051829] border border-[#0066b3] text-white font-black text-sm p-2.5 rounded-xl outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="text-sky-300 font-bold block mb-1">Efectivo Físico Dejado en Caja ($):</label>
+                <input
+                  type="text"
+                  placeholder="Monto $"
+                  value={formatearMoneda(efectivoDejadoTurno)}
+                  onChange={(e) => setEfectivoDejadoTurno(desformatearMoneda(e.target.value))}
+                  disabled={validandoEntrante}
+                  className="w-full bg-[#051829] border border-[#0066b3] text-amber-300 font-black text-sm p-2.5 rounded-xl outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={() => setMostrarModalCambioTurno(false)}
+                disabled={validandoEntrante}
+                className="w-1/2 bg-[#051829] hover:bg-[#0e385e] border border-[#0066b3] text-white font-bold py-2.5 rounded-xl text-xs uppercase cursor-pointer disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleConfirmarEntranteYCambiarTurno}
+                disabled={validandoEntrante}
+                className={`w-1/2 font-black py-2.5 rounded-xl text-xs uppercase shadow-md transition-all ${
+                  validandoEntrante
+                    ? 'bg-amber-800 text-white cursor-not-allowed opacity-75'
+                    : 'bg-amber-600 hover:bg-amber-500 text-white cursor-pointer'
+                }`}
+              >
+                {validandoEntrante ? '⏳ Validando...' : 'Confirmar Turno'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
