@@ -41,7 +41,7 @@ export default function CentroPage() {
   const [cajaIdActual, setCajaIdActual] = useState<number | null>(null);
   const [aperturaRealizada, setAperturaRealizada] = useState(false);
   const [cierreRealizado, setCierreRealizado] = useState(false);
-  
+
   // EFECTIVO ENTREGADO EN CAMBIO DE TURNO (VISUAL)
   const [efectivoTurnoManana, setEfectivoTurnoManana] = useState<number | null>(null);
 
@@ -55,6 +55,7 @@ export default function CentroPage() {
   const [, setMovimientosDiaBD] = useState<any[]>([]);
   const [ventasDiaBD, setVentasDiaBD] = useState<any[]>([]);
   const [registrosNominaDia, setRegistrosNominaDia] = useState<any[]>([]);
+  const [nominaPagadaEnTurnoLocal, setNominaPagadaEnTurnoLocal] = useState(false);
 
   // AUTO-SAVE: Requisición de Pedidos (Insumos desde la tabla 'producto')
   const [mostrarModuloPedidos, setMostrarModuloPedidos] = useState(false);
@@ -92,7 +93,7 @@ export default function CentroPage() {
   // CAMPOS DE EFECTIVO
   const [efectivoSistema, setEfectivoSistema, limpiarEfSistema] = useAutoSave<number | ''>('centro_efectivoSistema', '');
   const [efectivoFisico, setEfectivoFisico, limpiarEfFisico] = useAutoSave<number | ''>('centro_efectivoFisico', '');
-  
+
   const [nequi, setNequi, limpiarNequi] = useAutoSave<number | ''>('centro_nequi', '');
   const [daviplata, setDaviplata, limpiarDaviplata] = useAutoSave<number | ''>('centro_daviplata', '');
   const [gastos, setGastos, limpiarGastos] = useAutoSave<number | ''>('centro_gastos', '');
@@ -128,7 +129,7 @@ export default function CentroPage() {
   const totalNominaApoyo = (hDiaAp > 0 || hNocheAp > 0 ? tarifas.subsidio + tarifas.transporte : 0) + hDiaAp * valorHoraDia + hNocheAp * valorHoraNoche;
 
   const usuarioIdActual = sesion?.usuario_id || sesion?.id || null;
-  const nominaYaPagadaHoy = registrosNominaDia.some(
+  const nominaYaPagadaHoy = nominaPagadaEnTurnoLocal || registrosNominaDia.some(
     (n) => String(n.usuario_id) === String(usuarioIdActual)
   );
 
@@ -193,15 +194,19 @@ export default function CentroPage() {
       setEfectivoTurnoManana(Number(efectivoMananaGuardado));
     }
 
-    cargarInicial();
+    cargarInicial(ses);
   }, [router]);
 
-  async function cargarInicial() {
+  async function cargarInicial(sesionActualParam?: any) {
     setCargando(true);
+    const sesAct = sesionActualParam || sesion;
 
     try {
       const hoyInicio = new Date();
       hoyInicio.setHours(0, 0, 0, 0);
+
+      const userId = sesAct?.usuario_id || sesAct?.id;
+      const turnoId = sesAct?.turno_id || sesAct?.turnoId || 1;
 
       const { data: cajaHoyBD } = await supabase
         .from('caja')
@@ -282,8 +287,18 @@ export default function CentroPage() {
         .eq('sede_id', SEDE_ID_CENTRO)
         .gte('fecha', hoyInicio.toISOString());
 
-      if (nomBD) {
+      if (nomBD && nomBD.length > 0) {
         setRegistrosNominaDia(nomBD);
+        const miNomina = nomBD.find((n: any) => String(n.usuario_id) === String(userId));
+        const localNomina = localStorage.getItem(`centro_nomina_pagada_${userId}_${turnoId}`);
+        if (miNomina || localNomina === 'true') {
+          setNominaPagadaEnTurnoLocal(true);
+        }
+      } else {
+        const localNomina = localStorage.getItem(`centro_nomina_pagada_${userId}_${turnoId}`);
+        if (localNomina === 'true') {
+          setNominaPagadaEnTurnoLocal(true);
+        }
       }
 
       const { data: sedesBD } = await supabase
@@ -720,7 +735,7 @@ export default function CentroPage() {
   }
 
   const totalDescuentosDia = ventasDiaBD.reduce((acc, v) => acc + Number(v.descuento || 0), 0);
-  
+
   const listaMotivosUnicosDescuento = Array.from(
     new Set(ventasDiaBD.map((v) => v.motivo_descuento).filter((m): m is string => Boolean(m && m.trim() !== '')))
   );
@@ -769,11 +784,19 @@ export default function CentroPage() {
       return;
     }
 
+    setNominaPagadaEnTurnoLocal(true);
+    const turnoId = sesion?.turno_id || sesion?.turnoId || 1;
+    if (usuarioIdActual) {
+      localStorage.setItem(`centro_nomina_pagada_${usuarioIdActual}_${turnoId}`, 'true');
+    }
+
     if (data && data.length > 0) {
       setRegistrosNominaDia(prev => [...prev, data[0]]);
     }
 
     alert(`💸 Pago de Nómina Principal ($ ${totalNomina.toLocaleString('es-CO')}) registrado con éxito.`);
+    limpiarHorasDia();
+    limpiarHorasNoche();
   }
 
   // PAGAR NÓMINA OPERADOR DE APOYO (DOMINGOS / REFUERZO - OPCIÓN 1)
@@ -819,6 +842,8 @@ export default function CentroPage() {
     }
 
     alert(`💸 Pago de Nómina Apoyo ($ ${totalNominaApoyo.toLocaleString('es-CO')}) registrado con éxito.`);
+    limpiarHorasDiaApoyo();
+    limpiarHorasNocheApoyo();
   }
 
   async function handleEjecutarCambioTurno() {
@@ -827,8 +852,11 @@ export default function CentroPage() {
       return;
     }
 
-    if (totalNomina > 0 && !nominaYaPagadaHoy) {
-      await pagarNominaBD();
+    if (!nominaYaPagadaHoy) {
+      if (totalNomina <= 0) {
+        alert('⚠️ Debes ingresar las horas trabajadas y registrar el pago de tu nómina antes de entregar el turno.');
+        return;
+      }
     }
 
     setEfectivoTurnoManana(efecFisicoInput);
@@ -839,6 +867,13 @@ export default function CentroPage() {
   }
 
   async function guardarCierreDefinitivoBD() {
+    if (!nominaYaPagadaHoy) {
+      if (totalNomina <= 0) {
+        alert('⚠️ Debes liquidar y pagar obligatoriamente la nómina antes de realizar el cierre.');
+        return;
+      }
+    }
+
     const difCaja = efecFisicoInput - efecSistemaInput;
 
     setGuardandoCierre(true);
@@ -1049,6 +1084,7 @@ export default function CentroPage() {
 
         localStorage.setItem('martineto_session', JSON.stringify(nuevaSesion));
         setSesion(nuevaSesion);
+        setNominaPagadaEnTurnoLocal(false);
 
         setMostrarModalCambioTurno(false);
         setClaveOperarioEntrante('');
@@ -1062,7 +1098,7 @@ export default function CentroPage() {
         limpiarMotivoGasto();
 
         setValidandoEntrante(false);
-        alert(`✅ ¡Turno entregado con éxito!\nBienvenido(a) ${nuevaSesion.nombre}.`);
+        alert(`✅ ¡Turno delivered con éxito!\nBienvenido(a) ${nuevaSesion.nombre}.`);
       } catch (err: any) {
         setValidandoEntrante(false);
         alert('❌ Error al procesar el cambio de turno: ' + (err?.message || 'Error desconocido'));
@@ -1442,7 +1478,8 @@ export default function CentroPage() {
                       onChange={(e) => setHorasDia(e.target.value === '' ? '' : Number(e.target.value))} 
                       onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_horas_noche')}
                       onFocus={(e) => e.target.select()} 
-                      className="w-full bg-[#0e385e] border border-[#0066b3] text-white font-bold text-center rounded-lg p-2 outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                      disabled={nominaYaPagadaHoy}
+                      className="w-full bg-[#0e385e] border border-[#0066b3] text-white font-bold text-center rounded-lg p-2 outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none disabled:opacity-50" 
                     />
                   </div>
                   <div>
@@ -1455,7 +1492,8 @@ export default function CentroPage() {
                       onChange={(e) => setHorasNoche(e.target.value === '' ? '' : Number(e.target.value))} 
                       onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_efectivo_fisico')}
                       onFocus={(e) => e.target.select()} 
-                      className="w-full bg-[#0e385e] border border-[#0066b3] text-white font-bold text-center rounded-lg p-2 outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                      disabled={nominaYaPagadaHoy}
+                      className="w-full bg-[#0e385e] border border-[#0066b3] text-white font-bold text-center rounded-lg p-2 outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none disabled:opacity-50" 
                     />
                   </div>
                 </div>
@@ -1499,7 +1537,8 @@ export default function CentroPage() {
                           value={horasDiaApoyo}
                           onChange={(e) => setHorasDiaApoyo(e.target.value === '' ? '' : Number(e.target.value))}
                           onFocus={(e) => e.target.select()}
-                          className="w-full bg-[#051829] border border-[#0066b3] text-white font-bold text-center rounded-lg p-2 outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          disabled={nominaApoyoYaPagadaHoy}
+                          className="w-full bg-[#051829] border border-[#0066b3] text-white font-bold text-center rounded-lg p-2 outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none disabled:opacity-50"
                         />
                       </div>
                       <div>
@@ -1510,7 +1549,8 @@ export default function CentroPage() {
                           value={horasNocheApoyo}
                           onChange={(e) => setHorasNocheApoyo(e.target.value === '' ? '' : Number(e.target.value))}
                           onFocus={(e) => e.target.select()}
-                          className="w-full bg-[#051829] border border-[#0066b3] text-white font-bold text-center rounded-lg p-2 outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          disabled={nominaApoyoYaPagadaHoy}
+                          className="w-full bg-[#051829] border border-[#0066b3] text-white font-bold text-center rounded-lg p-2 outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none disabled:opacity-50"
                         />
                       </div>
                     </div>
