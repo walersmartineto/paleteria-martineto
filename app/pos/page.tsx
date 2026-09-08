@@ -2212,7 +2212,7 @@ export default function MartinetoPOSPage() {
     const montoRappi = Number(v.rappi || 0);
     const esEstadoRappi = String(v.estado || '').toLowerCase() === 'rappi';
     const esMesaRappi = String(v.mesa_id || '').toLowerCase().includes('rappi');
-    
+
     if (montoRappi > 0) return acc + montoRappi;
     if (esEstadoRappi || esMesaRappi) return acc + Number(v.monto_total || 0);
     return acc;
@@ -2482,22 +2482,21 @@ export default function MartinetoPOSPage() {
         motivosAjustados.push(`[DESCUADRE CAJA: $${difCaja.toLocaleString('es-CO')}]: ${motivoDescuadre.trim()}`);
       }
 
-      // 🟢 MAPEO DE CAMPOS CORREGIDO DE LA TABLA CAJA
       let queryCaja = supabase
         .from('caja')
         .update({
           estado: 'cerrada',
-          efectivo_cierre: efectivoEsperadoEnCaja, // 👈 Plata esperada por el sistema
-          efectivo_fisico: efectFisico,            // 👈 Plata física contada por el operario
-          rappi: totalRappiRealizados,             // 👈 Total ventas Rappi
-          nequi: totalNequiIngresado,              // 👈 Total ventas Nequi
-          daviplata: totalDaviplataIngresado,      // 👈 Total ventas Daviplata
-          monto_gasto: sumaGastosTotal,            // 👈 Total gastos
-          monto_nomina: totalNominaDia,            // 👈 Total nómina
+          efectivo_cierre: efectivoEsperadoEnCaja,
+          efectivo_fisico: efectFisico,
+          rappi: totalRappiRealizados,
+          nequi: totalNequiIngresado,
+          daviplata: totalDaviplataIngresado,
+          monto_gasto: sumaGastosTotal,
+          monto_nomina: totalNominaDia,
           motivo_gasto: cadenaMotivosGastos || null,
           descuento: totalDescuentosDia,
           motivo_descuento: motivosAjustados,
-          diferencia: difCaja,                     // 👈 Diferencia física vs sistema
+          diferencia: difCaja,
         });
 
       if (cajaIdActual) {
@@ -3986,7 +3985,7 @@ export default function MartinetoPOSPage() {
                 <span className="text-sky-300">Total Rappi (Electrónico):</span>
                 <b className="text-rose-300">$ {totalRappiRealizados.toLocaleString('es-CO')}</b>
               </div>
-              
+
               <div className="flex justify-between border-t border-[#0066b3]/30 pt-1 text-emerald-300 font-bold">
                 <span>Total Ventas del Día (Global):</span>
                 <b>$ {totalVentasGlobal.toLocaleString('es-CO')}</b>
