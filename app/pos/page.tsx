@@ -1163,6 +1163,7 @@ export default function MartinetoPOSPage() {
   const mesaActiva = !esRappiActivo ? mesas.find((m) => m.id === mesaActivaId) || null : null;
   const rappiActivo = esRappiActivo ? pedidosRappi.find((r) => r.id === mesaActivaId) || null : null;
   const itemActivoActual = esRappiActivo ? rappiActivo : mesaActiva;
+  const mostrarPanelOrden = itemActivoActual && (itemActivoActual.items.length > 0 || esRappiActivo);
 
   const productosFiltradosVenta = productosVenta
     .filter((p) => {
@@ -1536,6 +1537,21 @@ export default function MartinetoPOSPage() {
     };
     setPedidosRappi((prev) => [...prev, nuevoPedido]);
     setMesaActivaId(nuevoId);
+  }
+
+  function eliminarRappiVacio(idRappi: string) {
+    const rappiAEliminar = pedidosRappi.find((r) => r.id === idRappi);
+
+    if (rappiAEliminar && rappiAEliminar.items && rappiAEliminar.items.length > 0) {
+      alert('⚠️ Este pedido Rappi contiene productos. Si no se va a entregar, debes retirar los productos antes de eliminarlo.');
+      return;
+    }
+
+    setPedidosRappi((prev) => prev.filter((r) => r.id !== idRappi));
+
+    if (mesaActivaId === idRappi) {
+      setMesaActivaId(null);
+    }
   }
 
   const calcularDisponibilidadActual = (nombreEmpaque: string) => {
@@ -2774,6 +2790,7 @@ export default function MartinetoPOSPage() {
                 className="w-full bg-[#0e385e] border border-[#0066b3] text-emerald-300 font-black text-sm rounded-xl p-2.5 outline-none"
               />
               <button
+                type="button"
                 onClick={handleGuardarBase}
                 disabled={baseGuardada || guardandoBase}
                 className={`font-bold px-6 rounded-xl text-xs transition-all ${baseGuardada ? 'bg-emerald-950 text-emerald-300 border border-emerald-500 cursor-default' : guardandoBase ? 'bg-emerald-800 text-white cursor-not-allowed opacity-75' : 'bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer'}`}
@@ -2868,6 +2885,7 @@ export default function MartinetoPOSPage() {
           />
 
           <button
+            type="button"
             onClick={handleGuardarInventario}
             disabled={!baseGuardada || guardandoMovimiento}
             className={`w-full text-white font-black py-3 rounded-xl text-xs uppercase shadow-md transition-all ${
@@ -2887,6 +2905,7 @@ export default function MartinetoPOSPage() {
             <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
               <h2 className="text-sm font-black text-white flex items-center gap-1.5">2. 🚚 Seleccionar Pedido a Bodega</h2>
               <button
+                type="button"
                 onClick={() => setMostrarModalNuevoProd(true)}
                 disabled={enviandoPedido || guardandoProducto}
                 className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-3 py-1.5 rounded-xl cursor-pointer shadow disabled:opacity-50"
@@ -2907,6 +2926,7 @@ export default function MartinetoPOSPage() {
                   ] as const
                 ).map((tab) => (
                   <button
+                    type="button"
                     key={tab.id}
                     onClick={() => setTabPedido(tab.id)}
                     disabled={enviandoPedido}
@@ -2927,6 +2947,7 @@ export default function MartinetoPOSPage() {
                 />
                 {busquedaInsumoPedido && (
                   <button
+                    type="button"
                     onClick={() => setBusquedaInsumoPedido('')}
                     className="absolute right-3 top-3 text-sky-300 hover:text-white font-black text-xs cursor-pointer"
                   >
@@ -2992,6 +3013,7 @@ export default function MartinetoPOSPage() {
                         {item.cantidad} un.
                       </span>
                       <button
+                        type="button"
                         onClick={() => {
                           setPedidosCategorias((prev) => {
                             const catActual = { ...prev[item.categoria as CategoriaTab] };
@@ -3020,6 +3042,7 @@ export default function MartinetoPOSPage() {
             />
 
             <button
+              type="button"
               onClick={enviarPedidoBodega}
               disabled={enviandoPedido}
               className={`w-full font-black py-3 rounded-xl text-xs uppercase shadow-md transition-all ${
@@ -3094,6 +3117,7 @@ export default function MartinetoPOSPage() {
                                 {item.cant} un.
                               </span>
                               <button
+                                type="button"
                                 onClick={() => borrarProductoEspecificoDePedido(item.pedidoId, cat.clave, item.nombre)}
                                 disabled={eliminandoPedido}
                                 title="Quitar este producto del pedido"
@@ -3116,6 +3140,7 @@ export default function MartinetoPOSPage() {
                 <div className="flex items-center justify-between border-b border-[#0066b3]/50 pb-2">
                   <div className="flex items-center gap-2">
                     <button
+                      type="button"
                       onClick={() => setMostrarGestorEnvios(!mostrarGestorEnvios)}
                       title={mostrarGestorEnvios ? 'Ocultar envíos' : 'Mostrar envíos'}
                       className="text-sky-300 hover:text-white font-bold text-sm px-1.5 py-0.5 rounded bg-[#0e385e] border border-[#0066b3] cursor-pointer transition-colors"
@@ -3146,6 +3171,7 @@ export default function MartinetoPOSPage() {
                         </div>
 
                         <button
+                          type="button"
                           onClick={() => borrarPedidosBD([ped.id])}
                           disabled={eliminandoPedido}
                           className="bg-rose-700 hover:bg-rose-600 text-white font-bold text-[10px] px-2.5 py-1 rounded cursor-pointer disabled:opacity-50"
@@ -3157,6 +3183,7 @@ export default function MartinetoPOSPage() {
 
                     {pedidosSeleccionados.length > 0 && (
                       <button
+                        type="button"
                         onClick={() => borrarPedidosBD(pedidosSeleccionados)}
                         disabled={eliminandoPedido}
                         className="w-full bg-rose-700 hover:bg-rose-600 text-white font-black py-2 rounded-xl text-xs uppercase cursor-pointer mt-2 border border-rose-500 disabled:opacity-50"
@@ -3201,6 +3228,7 @@ export default function MartinetoPOSPage() {
               className="sm:col-span-3 bg-[#051829] border border-[#0066b3] text-amber-300 text-xs rounded-xl p-3 outline-none font-black text-center"
             />
             <button
+              type="button"
               onClick={registrarNuevoGasto}
               disabled={guardandoGasto}
               className={`sm:col-span-2 font-black rounded-xl text-xs uppercase cursor-pointer py-3 transition-all ${
@@ -3234,23 +3262,26 @@ export default function MartinetoPOSPage() {
       {moduloActivo === 'ventas' && (
         <div className={`grid grid-cols-1 lg:grid-cols-12 gap-3 items-stretch h-[calc(100vh-140px)] overflow-hidden ${bloqueadoPorApertura ? 'opacity-50 pointer-events-none' : ''}`}>
           
-          <div className={`${!mesaActivaId ? 'lg:col-span-12' : itemActivoActual && itemActivoActual.items.length > 0 ? 'lg:col-span-2' : 'lg:col-span-3'} bg-[#0b2b48] border border-[#0066b3] p-3 rounded-2xl flex flex-col shadow-md transition-all duration-300 h-full overflow-hidden`}>
+          <div className={`${!mesaActivaId ? 'lg:col-span-12' : mostrarPanelOrden ? 'lg:col-span-2' : 'lg:col-span-3'} bg-[#0b2b48] border border-[#0066b3] p-3 rounded-2xl flex flex-col shadow-md transition-all duration-300 h-full overflow-hidden`}>
             <div className="flex flex-col gap-2 border-b border-[#0066b3]/50 pb-2 shrink-0">
               <h2 className="text-xs font-black text-white text-center">🪑 Mesas</h2>
               <div className="flex gap-1 justify-center flex-wrap">
                 <button
+                  type="button"
                   onClick={() => setMostrarModalConsultaCaja(true)}
                   className="bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[9px] px-2 py-1 rounded-lg uppercase cursor-pointer shadow border border-emerald-400"
                 >
                   💵 Caja
                 </button>
                 <button
+                  type="button"
                   onClick={() => setMostrarModalFacturasPagas(true)}
                   className="bg-sky-600 hover:bg-sky-500 text-white font-black text-[9px] px-2 py-1 rounded-lg uppercase cursor-pointer shadow border border-sky-400"
                 >
                   📜 Facturas Pagas
                 </button>
                 <button
+                  type="button"
                   onClick={agregarNuevoRappi}
                   className="bg-rose-600 hover:bg-rose-500 text-white font-bold text-[9px] px-2 py-1 rounded-lg uppercase cursor-pointer shadow"
                 >
@@ -3263,12 +3294,13 @@ export default function MartinetoPOSPage() {
               {pedidosRappi.map((rappi) => {
                 const activa = mesaActivaId === rappi.id;
                 const estaPreparado = rappi.estado === 'Preparando';
+                const esVacio = !rappi.items || rappi.items.length === 0;
 
                 return (
                   <div
                     key={rappi.id}
                     onClick={() => setMesaActivaId(rappi.id)}
-                    className={`p-2.5 rounded-xl border cursor-pointer transition-all flex flex-col justify-between shadow-md shrink-0 ${
+                    className={`p-2.5 rounded-xl border cursor-pointer transition-all flex justify-between items-center shadow-md shrink-0 ${
                       activa
                         ? 'border-white ring-2 ring-white bg-rose-700'
                         : estaPreparado
@@ -3276,8 +3308,24 @@ export default function MartinetoPOSPage() {
                         : 'bg-rose-950/80 border-rose-500 hover:bg-rose-900'
                     }`}
                   >
-                    <p className="font-black text-[11px] text-white uppercase truncate">📦 {rappi.nombre}</p>
-                    <p className="text-[9px] font-bold text-rose-200 mt-0.5">{rappi.estado}</p>
+                    <div>
+                      <p className="font-black text-[11px] text-white uppercase truncate">📦 {rappi.nombre}</p>
+                      <p className="text-[9px] font-bold text-rose-200 mt-0.5">{rappi.estado}</p>
+                    </div>
+
+                    {esVacio && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          eliminarRappiVacio(rappi.id);
+                        }}
+                        title="Eliminar pedido Rappi vacío"
+                        className="bg-rose-900/80 hover:bg-rose-600 text-white font-black text-xs p-1 px-2 rounded-lg border border-rose-400 cursor-pointer transition-colors"
+                      >
+                        🗑️
+                      </button>
+                    )}
                   </div>
                 );
               })}
@@ -3324,7 +3372,7 @@ export default function MartinetoPOSPage() {
           </div>
 
           {mesaActivaId && (
-            <div className={`${itemActivoActual && itemActivoActual.items.length > 0 ? 'lg:col-span-6' : 'lg:col-span-9'} bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl flex flex-col shadow-md transition-all duration-300 h-full overflow-hidden`}>
+            <div className={`${mostrarPanelOrden ? 'lg:col-span-6' : 'lg:col-span-9'} bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl flex flex-col shadow-md transition-all duration-300 h-full overflow-hidden`}>
               <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2 shrink-0">
                 <h2 className="text-xs md:text-sm font-black text-white">📂 Categorías y Productos</h2>
                 <span className="text-xs text-sky-200 font-bold truncate max-w-[150px]">
@@ -3343,6 +3391,7 @@ export default function MartinetoPOSPage() {
 
                 <div className="flex flex-wrap gap-1.5 overflow-x-auto pb-1 no-scrollbar">
                   <button
+                    type="button"
                     onClick={() => setCategoriaVentaSel('TODAS')}
                     className={`px-3 py-1.5 rounded-xl text-[11px] font-black uppercase cursor-pointer transition-all shrink-0 ${
                       categoriaVentaSel === 'TODAS'
@@ -3354,6 +3403,7 @@ export default function MartinetoPOSPage() {
                   </button>
                   {listaCategoriasVenta.map((cat) => (
                     <button
+                      type="button"
                       key={cat}
                       onClick={() => setCategoriaVentaSel(cat)}
                       className={`px-3 py-1.5 rounded-xl text-[11px] font-black uppercase cursor-pointer transition-all shrink-0 ${
@@ -3395,12 +3445,14 @@ export default function MartinetoPOSPage() {
                         {esCorralito ? (
                           <div className="grid grid-cols-2 gap-1.5 mt-3 pt-1 border-t border-[#0066b3]">
                             <button
+                              type="button"
                               onClick={() => agregarProductoAMesa(prod, false)}
                               className="bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-[10px] py-1.5 rounded-lg text-center cursor-pointer shadow"
                             >
                               🍽️ Mesa
                             </button>
                             <button
+                              type="button"
                               onClick={() => agregarProductoAMesa(prod, true)}
                               className="bg-amber-600 hover:bg-amber-500 text-white font-bold text-[10px] py-1.5 rounded-lg text-center cursor-pointer shadow"
                             >
@@ -3409,6 +3461,7 @@ export default function MartinetoPOSPage() {
                           </div>
                         ) : (
                           <button
+                            type="button"
                             onClick={() => agregarProductoAMesa(prod, false)}
                             className="w-full bg-[#0066b3] hover:bg-[#0078d4] text-white font-black text-[11px] py-2 rounded-xl mt-3 cursor-pointer shadow"
                           >
@@ -3423,7 +3476,7 @@ export default function MartinetoPOSPage() {
             </div>
           )}
 
-          {itemActivoActual && itemActivoActual.items.length > 0 && (
+          {mostrarPanelOrden && (
             <div className="lg:col-span-4 bg-[#0b2b48] border border-[#0066b3] p-3.5 rounded-2xl flex flex-col shadow-md transition-all duration-300 h-full overflow-hidden">
               <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2 shrink-0 bg-[#051829] px-3 py-2 rounded-xl border border-sky-500/40">
                 <div>
@@ -3435,6 +3488,7 @@ export default function MartinetoPOSPage() {
                 <div className="flex items-center gap-1.5">
                   {!esRappiActivo && (
                     <button
+                      type="button"
                       onClick={() => {
                         setMesaDestinoId(null);
                         setMostrarModalCambioMesa(true);
@@ -3452,72 +3506,81 @@ export default function MartinetoPOSPage() {
               </div>
 
               <div className="overflow-y-auto space-y-2 pr-1 pt-2 flex-1">
-                {itemsVisualesAgrupados.map((i: any, idx: number) => {
-                  const estado = i.estadoItem || 'pedido';
+                {itemsVisualesAgrupados.length === 0 ? (
+                  <p className="text-xs text-sky-400 italic text-center py-8">
+                    No hay productos agregados a este pedido.
+                  </p>
+                ) : (
+                  itemsVisualesAgrupados.map((i: any, idx: number) => {
+                    const estado = i.estadoItem || 'pedido';
 
-                  let badgeBg = 'bg-emerald-800 text-emerald-200 border-emerald-500';
-                  if (estado === 'entregado') badgeBg = 'bg-amber-700 text-amber-200 border-amber-400';
+                    let badgeBg = 'bg-emerald-800 text-emerald-200 border-emerald-500';
+                    if (estado === 'entregado') badgeBg = 'bg-amber-700 text-amber-200 border-amber-400';
 
-                  const esRappiPreparado = esRappiActivo && rappiActivo?.estado === 'Preparado';
+                    const esRappiPreparado = esRappiActivo && rappiActivo?.estado === 'Preparado';
 
-                  return (
-                    <div key={`${i.nombre}_${estado}_${idx}`} className="bg-[#051829] border border-[#0066b3] p-2.5 rounded-xl space-y-2 shadow-sm">
-                      <div className="flex justify-between items-start gap-1">
-                        <span className="font-black text-xs text-white leading-tight">
-                          {i.cantidad > 1 ? `${i.cantidad}x ` : ''}{i.nombre}
-                        </span>
-                        {!esRappiActivo && (
-                          <span className="text-[11px] font-black text-emerald-300 whitespace-nowrap">
-                            $ {(Number(i.precio || 0) * i.cantidad).toLocaleString('es-CO')}
+                    return (
+                      <div key={`${i.nombre}_${estado}_${idx}`} className="bg-[#051829] border border-[#0066b3] p-2.5 rounded-xl space-y-2 shadow-sm">
+                        <div className="flex justify-between items-start gap-1">
+                          <span className="font-black text-xs text-white leading-tight">
+                            {i.cantidad > 1 ? `${i.cantidad}x ` : ''}{i.nombre}
                           </span>
-                        )}
-                      </div>
-
-                      <div className="flex justify-between items-center pt-1.5 border-t border-[#0066b3]/40">
-                        <span className={`text-[9px] px-2 py-0.5 rounded font-black border uppercase ${badgeBg}`}>
-                          {estado}
-                        </span>
-
-                        <div className="flex items-center gap-1.5">
-                          {!esRappiActivo && estado === 'pedido' && (
-                            <button
-                              onClick={() => marcarItemEntregado(i.nombre, estado)}
-                              className="bg-amber-600 hover:bg-amber-500 text-white font-bold text-[10px] px-2 py-0.5 rounded-lg cursor-pointer shadow"
-                              title="Marcar entregado"
-                            >
-                              ✓ Entregar
-                            </button>
-                          )}
-                          {!esRappiPreparado && (
-                            <div className="flex items-center bg-[#0e385e] border border-[#0066b3] rounded-lg overflow-hidden shadow">
-                              <button
-                                onClick={() => restarProductoDeMesa(i.nombre, estado)}
-                                className="bg-rose-800 hover:bg-rose-700 text-white font-bold text-xs px-2 py-0.5 cursor-pointer"
-                                title="Restar"
-                              >
-                                −
-                              </button>
-                              <button
-                                onClick={() => {
-                                  const productoOriginal = productosVenta.find((p) => p.nombre.replace(' (LLEVAR)', '') === i.nombre.replace(' (LLEVAR)', ''));
-                                  if (productoOriginal) {
-                                    agregarProductoAMesa(productoOriginal, i.nombre.includes('(LLEVAR)'));
-                                  } else {
-                                    agregarProductoAMesa({ nombre: i.nombre.replace(' (LLEVAR)', ''), precio: i.precio }, i.nombre.includes('(LLEVAR)'));
-                                  }
-                                }}
-                                className="bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-xs px-2 py-0.5 cursor-pointer border-l border-[#0066b3]"
-                                title="Sumar"
-                              >
-                                +
-                              </button>
-                            </div>
+                          {!esRappiActivo && (
+                            <span className="text-[11px] font-black text-emerald-300 whitespace-nowrap">
+                              $ {(Number(i.precio || 0) * i.cantidad).toLocaleString('es-CO')}
+                            </span>
                           )}
                         </div>
+
+                        <div className="flex justify-between items-center pt-1.5 border-t border-[#0066b3]/40">
+                          <span className={`text-[9px] px-2 py-0.5 rounded font-black border uppercase ${badgeBg}`}>
+                            {estado}
+                          </span>
+
+                          <div className="flex items-center gap-1.5">
+                            {!esRappiActivo && estado === 'pedido' && (
+                              <button
+                                type="button"
+                                onClick={() => marcarItemEntregado(i.nombre, estado)}
+                                className="bg-amber-600 hover:bg-amber-500 text-white font-bold text-[10px] px-2 py-0.5 rounded-lg cursor-pointer shadow"
+                                title="Marcar entregado"
+                              >
+                                ✓ Entregar
+                              </button>
+                            )}
+                            {!esRappiPreparado && (
+                              <div className="flex items-center bg-[#0e385e] border border-[#0066b3] rounded-lg overflow-hidden shadow">
+                                <button
+                                  type="button"
+                                  onClick={() => restarProductoDeMesa(i.nombre, estado)}
+                                  className="bg-rose-800 hover:bg-rose-700 text-white font-bold text-xs px-2 py-0.5 cursor-pointer"
+                                  title="Restar"
+                                >
+                                  −
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const productoOriginal = productosVenta.find((p) => p.nombre.replace(' (LLEVAR)', '') === i.nombre.replace(' (LLEVAR)', ''));
+                                    if (productoOriginal) {
+                                      agregarProductoAMesa(productoOriginal, i.nombre.includes('(LLEVAR)'));
+                                    } else {
+                                      agregarProductoAMesa({ nombre: i.nombre.replace(' (LLEVAR)', ''), precio: i.precio }, i.nombre.includes('(LLEVAR)'));
+                                    }
+                                  }}
+                                  className="bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-xs px-2 py-0.5 cursor-pointer border-l border-[#0066b3]"
+                                  title="Sumar"
+                                >
+                                  +
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })
+                )}
               </div>
 
               <div className="shrink-0 pt-2 space-y-2 border-t border-[#0066b3]/50 mt-2">
@@ -3564,6 +3627,7 @@ export default function MartinetoPOSPage() {
                         className="w-20 bg-[#051829] border border-[#0066b3] text-amber-300 font-black text-[11px] p-1.5 rounded-lg outline-none text-center"
                       />
                       <button
+                        type="button"
                         onClick={agregarAdicionManualAMesa}
                         className="bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs px-2.5 rounded-lg cursor-pointer"
                       >
@@ -3575,8 +3639,17 @@ export default function MartinetoPOSPage() {
 
                 {esRappiActivo ? (
                   <div className="space-y-1.5">
-                    {rappiActivo?.estado === 'Preparando' ? (
+                    {!rappiActivo?.items || rappiActivo.items.length === 0 ? (
                       <button
+                        type="button"
+                        onClick={() => eliminarRappiVacio(rappiActivo.id)}
+                        className="w-full bg-rose-700 hover:bg-rose-600 text-white font-black py-2 rounded-xl text-xs uppercase cursor-pointer shadow border border-rose-500"
+                      >
+                        🗑️ Eliminar Pedido Rappi Vacío
+                      </button>
+                    ) : rappiActivo?.estado === 'Preparando' ? (
+                      <button
+                        type="button"
                         onClick={marcarRappiPreparado}
                         className="w-full bg-amber-600 hover:bg-amber-500 text-white font-black py-2 rounded-xl text-xs uppercase cursor-pointer shadow"
                       >
@@ -3584,6 +3657,7 @@ export default function MartinetoPOSPage() {
                       </button>
                     ) : (
                       <button
+                        type="button"
                         onClick={procesarEntregarRappiDirecto}
                         disabled={procesandoRappi}
                         className={`w-full font-black py-2 rounded-xl text-xs uppercase shadow-md transition-all ${
@@ -3600,6 +3674,7 @@ export default function MartinetoPOSPage() {
                   <div className="grid grid-cols-2 gap-1.5">
                     {hayProductosPorEntregar && (
                       <button
+                        type="button"
                         onClick={marcarTodosEntregados}
                         className="col-span-full bg-amber-600 hover:bg-amber-500 text-white font-black py-2 rounded-xl text-xs uppercase cursor-pointer shadow"
                       >
@@ -3608,6 +3683,7 @@ export default function MartinetoPOSPage() {
                     )}
 
                     <button
+                      type="button"
                       onClick={abrirModalCobro}
                       disabled={procesandoPago}
                       className="bg-emerald-600 hover:bg-emerald-500 text-white font-black py-2.5 rounded-xl text-xs uppercase cursor-pointer shadow-md disabled:opacity-50"
@@ -3617,6 +3693,7 @@ export default function MartinetoPOSPage() {
 
                     {mesaTotalmentePagada ? (
                       <button
+                        type="button"
                         onClick={liberarMesa}
                         className="bg-purple-700 hover:bg-purple-600 text-white font-black py-2.5 rounded-xl text-xs uppercase cursor-pointer shadow-md"
                       >
@@ -3693,6 +3770,7 @@ export default function MartinetoPOSPage() {
 
             <div className="pt-2">
               <button
+                type="button"
                 onClick={pagarNominaSolo}
                 disabled={nominaPagadaEnTurno || procesandoNomina}
                 className={`w-full font-black py-3 rounded-xl text-xs uppercase shadow-md transition-all ${
@@ -3717,6 +3795,7 @@ export default function MartinetoPOSPage() {
                 Usa esta opción para entregar el turno al operario de la tarde. Se liquidará tu nómina y el sistema cambiará al turno Tarde / Cierre.
               </p>
               <button
+                type="button"
                 onClick={() => setMostrarModalCambioTurno(true)}
                 className="w-full bg-amber-600 hover:bg-amber-500 text-white font-black py-3 rounded-xl text-xs uppercase cursor-pointer shadow-md"
               >
@@ -3734,6 +3813,7 @@ export default function MartinetoPOSPage() {
             </p>
 
             <button
+              type="button"
               onClick={() => {
                 if (!nominaPagadaEnTurno) {
                   const totalNominaCalculado = calcularTotalNomina();
@@ -3774,6 +3854,7 @@ export default function MartinetoPOSPage() {
             <div className="flex justify-between items-center border-b border-amber-500/40 pb-2">
               <h3 className="text-sm font-black text-amber-300 uppercase">🔁 Cambiar {mesaActiva.nombre} a otra mesa</h3>
               <button
+                type="button"
                 onClick={() => setMostrarModalCambioMesa(false)}
                 className="text-sky-300 hover:text-white font-black text-sm cursor-pointer"
               >
@@ -3807,12 +3888,14 @@ export default function MartinetoPOSPage() {
 
             <div className="flex gap-2 pt-2">
               <button
+                type="button"
                 onClick={() => setMostrarModalCambioMesa(false)}
                 className="w-1/2 bg-[#051829] hover:bg-[#0e385e] border border-[#0066b3] text-white font-bold py-2.5 rounded-xl text-xs uppercase cursor-pointer"
               >
                 Cancelar
               </button>
               <button
+                type="button"
                 onClick={procesarCambioMesa}
                 className="w-1/2 bg-amber-600 hover:bg-amber-500 text-white font-black py-2.5 rounded-xl text-xs uppercase shadow-md cursor-pointer"
               >
@@ -3829,6 +3912,7 @@ export default function MartinetoPOSPage() {
             <div className="flex justify-between items-center border-b border-sky-500/40 pb-2 shrink-0">
               <h3 className="text-sm font-black text-sky-200 uppercase">📜 Resumen de Facturas Pagas del Día</h3>
               <button
+                type="button"
                 onClick={() => setMostrarModalFacturasPagas(false)}
                 className="text-sky-300 hover:text-white font-black text-sm cursor-pointer"
               >
@@ -3911,6 +3995,7 @@ export default function MartinetoPOSPage() {
             </div>
 
             <button
+              type="button"
               onClick={() => setMostrarModalFacturasPagas(false)}
               className="w-full bg-[#0066b3] hover:bg-[#0078d4] text-white font-black py-2.5 rounded-xl text-xs uppercase cursor-pointer shrink-0"
             >
@@ -3926,6 +4011,7 @@ export default function MartinetoPOSPage() {
             <div className="flex justify-between items-center border-b border-amber-500/40 pb-2">
               <h3 className="text-sm font-black text-amber-300 uppercase">🔄 Entregar Turno de Mañana</h3>
               <button
+                type="button"
                 onClick={() => setMostrarModalCambioTurno(false)}
                 disabled={validandoEntrante}
                 className="text-sky-300 hover:text-white font-black text-sm cursor-pointer disabled:opacity-50"
@@ -3972,6 +4058,7 @@ export default function MartinetoPOSPage() {
 
             <div className="flex gap-2 pt-2">
               <button
+                type="button"
                 onClick={() => setMostrarModalCambioTurno(false)}
                 disabled={validandoEntrante}
                 className="w-1/2 bg-[#051829] hover:bg-[#0e385e] border border-[#0066b3] text-white font-bold py-2.5 rounded-xl text-xs uppercase cursor-pointer disabled:opacity-50"
@@ -3979,6 +4066,7 @@ export default function MartinetoPOSPage() {
                 Cancelar
               </button>
               <button
+                type="button"
                 onClick={handleConfirmarEntranteYCambiarTurno}
                 disabled={validandoEntrante}
                 className={`w-1/2 font-black py-2.5 rounded-xl text-xs uppercase shadow-md transition-all ${
@@ -4000,6 +4088,7 @@ export default function MartinetoPOSPage() {
             <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
               <h3 className="text-sm font-black text-white uppercase">💵 Consulta Rápida de Caja</h3>
               <button
+                type="button"
                 onClick={() => setMostrarModalConsultaCaja(false)}
                 className="text-sky-300 hover:text-white font-black text-sm cursor-pointer"
               >
@@ -4048,6 +4137,7 @@ export default function MartinetoPOSPage() {
             </div>
 
             <button
+              type="button"
               onClick={() => setMostrarModalConsultaCaja(false)}
               className="w-full bg-[#0066b3] hover:bg-[#0078d4] text-white font-black py-2.5 rounded-xl text-xs uppercase cursor-pointer"
             >
@@ -4063,6 +4153,7 @@ export default function MartinetoPOSPage() {
             <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
               <h3 className="text-sm font-black text-white uppercase">💳 Cobrar / Abonar a {mesaActiva.nombre}</h3>
               <button
+                type="button"
                 onClick={() => setMostrarModalCobro(false)}
                 disabled={procesandoPago}
                 className="text-sky-300 hover:text-white font-black text-sm cursor-pointer disabled:opacity-50"
@@ -4176,6 +4267,7 @@ export default function MartinetoPOSPage() {
 
             <div className="flex gap-2 pt-2">
               <button
+                type="button"
                 onClick={() => setMostrarModalCobro(false)}
                 disabled={procesandoPago}
                 className="w-1/2 bg-[#051829] hover:bg-[#0e385e] border border-[#0066b3] text-white font-bold py-2.5 rounded-xl text-xs uppercase cursor-pointer disabled:opacity-50"
@@ -4183,6 +4275,7 @@ export default function MartinetoPOSPage() {
                 Cancelar
               </button>
               <button
+                type="button"
                 onClick={procesarCobroMesa}
                 disabled={procesandoPago}
                 className={`w-1/2 font-black py-2.5 rounded-xl text-xs uppercase shadow-md transition-all ${
@@ -4204,6 +4297,7 @@ export default function MartinetoPOSPage() {
             <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
               <h3 className="text-sm font-black text-white uppercase">➕ Crear Nuevo Producto en Base de Datos</h3>
               <button
+                type="button"
                 onClick={() => setMostrarModalNuevoProd(false)}
                 disabled={guardandoProducto}
                 className="text-sky-300 hover:text-white font-black text-sm cursor-pointer disabled:opacity-50"
@@ -4344,6 +4438,7 @@ export default function MartinetoPOSPage() {
 
             <div className="flex gap-2 pt-2">
               <button
+                type="button"
                 onClick={() => setMostrarModalNuevoProd(false)}
                 disabled={guardandoProducto}
                 className="w-1/2 bg-[#051829] hover:bg-[#0e385e] border border-[#0066b3] text-white font-bold py-2.5 rounded-xl text-xs uppercase cursor-pointer disabled:opacity-50"
@@ -4351,6 +4446,7 @@ export default function MartinetoPOSPage() {
                 Cancelar
               </button>
               <button
+                type="button"
                 onClick={crearNuevoProductoBD}
                 disabled={guardandoProducto}
                 className={`w-1/2 font-black py-2.5 rounded-xl text-xs uppercase shadow-md transition-all ${
@@ -4372,6 +4468,7 @@ export default function MartinetoPOSPage() {
             <div className="flex justify-between items-center border-b border-purple-500/40 pb-2">
               <h3 className="text-sm font-black text-purple-300 uppercase">📋 Resumen Consolidado de Cierre y Auditoría</h3>
               <button
+                type="button"
                 onClick={() => setMostrarModalResumen(false)}
                 disabled={guardandoCierre}
                 className="text-sky-300 hover:text-white font-black text-sm cursor-pointer disabled:opacity-50"
@@ -4536,6 +4633,7 @@ export default function MartinetoPOSPage() {
 
             <div className="flex gap-2 pt-2">
               <button
+                type="button"
                 onClick={() => setMostrarModalResumen(false)}
                 disabled={guardandoCierre}
                 className="w-1/2 bg-[#051829] hover:bg-[#0e385e] border border-[#0066b3] text-white font-bold py-3 rounded-xl text-xs uppercase cursor-pointer disabled:opacity-50"
@@ -4543,6 +4641,7 @@ export default function MartinetoPOSPage() {
                 Volver
               </button>
               <button
+                type="button"
                 onClick={guardarCierreDefinitivoBD}
                 disabled={guardandoCierre}
                 className={`w-1/2 font-black py-3 rounded-xl text-xs uppercase shadow-md transition-all ${
