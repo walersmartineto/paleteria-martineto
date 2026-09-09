@@ -70,6 +70,7 @@ export default function AdminPage() {
   const [inventarioMovsDia, setInventarioMovsDia] = useState<any[]>([]);
   const [inventarioEmpaquesSedesBD, setInventarioEmpaquesSedesBD] = useState<any[]>([]);
   const [empaquesMartinetoBD, setEmpaquesMartinetoBD] = useState<any[]>([]);
+  const [empaquesOsitosBD, setEmpaquesOsitosBD] = useState<any[]>([]);
   const [historicoVentasBD, setHistoricoVentasBD] = useState<any[]>([]);
   const [historicoVentas30DiasBD, setHistoricoVentas30DiasBD] = useState<any[]>([]);
   const [cargando, setCargando] = useState<boolean>(true);
@@ -251,6 +252,7 @@ export default function AdminPage() {
 
       const { data: empaquesSedesData } = await supabase.from('inventario_empaques_sedes').select('*');
       const { data: empaquesMartinetoData } = await supabase.from('empaques_martineto').select('*');
+      const { data: empaquesOsitosData } = await supabase.from('empaques_ositos').select('*');
 
       setPedidos(pedidosData);
       setPedidos30Dias(pedidos30DiasFiltrado);
@@ -260,6 +262,7 @@ export default function AdminPage() {
       setInventarioMovimientos(diffDataFiltrado);
       setInventarioEmpaquesSedesBD(empaquesSedesData || []);
       setEmpaquesMartinetoBD(empaquesMartinetoData || []);
+      setEmpaquesOsitosBD(empaquesOsitosData || []);
       setHistoricoVentasBD(historicoVentasFiltrado);
       setHistoricoVentas30DiasBD(historicoVentas30DiasFiltrado);
       setItemsChequeados({});
@@ -494,8 +497,14 @@ export default function AdminPage() {
       });
 
       const stockActualSede: { [prod: string]: number } = {};
-      if (nombreSede.toLowerCase().includes('martineto')) {
+      const nombreSedeLower = nombreSede.toLowerCase();
+      if (nombreSedeLower.includes('martineto')) {
         empaquesMartinetoBD.forEach(e => {
+          const pNombre = String(e.nombre || e.producto || '').trim();
+          if (pNombre) stockActualSede[pNombre] = Number(e.stok ?? e.stock ?? 0);
+        });
+      } else if (nombreSedeLower.includes('ositos')) {
+        empaquesOsitosBD.forEach(e => {
           const pNombre = String(e.nombre || e.producto || '').trim();
           if (pNombre) stockActualSede[pNombre] = Number(e.stok ?? e.stock ?? 0);
         });
@@ -550,8 +559,14 @@ export default function AdminPage() {
       }
 
       const detalleEmpaques: { [k: string]: number } = {};
-      if (nombreSede.toLowerCase().includes('martineto')) {
+      const nombreSedeLower = nombreSede.toLowerCase();
+      if (nombreSedeLower.includes('martineto')) {
         empaquesMartinetoBD.forEach(item => {
+          const name = String(item.nombre || item.producto || '').trim();
+          if (name && name.toLowerCase() !== 'total paletas') detalleEmpaques[name] = Number(item.stok ?? item.stock ?? 0);
+        });
+      } else if (nombreSedeLower.includes('ositos')) {
+        empaquesOsitosBD.forEach(item => {
           const name = String(item.nombre || item.producto || '').trim();
           if (name && name.toLowerCase() !== 'total paletas') detalleEmpaques[name] = Number(item.stok ?? item.stock ?? 0);
         });
