@@ -150,11 +150,11 @@ export default function AdminPage() {
           apertura: row.monto_apertura ?? row.base_inicial ?? 0
         }));
 
+      // FILTRADO DE NÓMINA POR CAMPO fecha_pago
       const { data: nominaDataRaw } = await supabase.from('nomina').select('*');
       const nominaData = (nominaDataRaw || []).filter(row => {
-        const fRow = row.fecha_pago 
-          ? String(row.fecha_pago).split('T')[0] 
-          : (row.fecha ? obtenerFechaLocalStr(row.fecha) : '');
+        if (!row.fecha_pago) return false;
+        const fRow = String(row.fecha_pago).split('T')[0];
         return fRow >= fechaInicio && fRow <= fechaFin;
       });
 
@@ -184,7 +184,7 @@ export default function AdminPage() {
         const nombre = mapaU[uId] || `Operario #${uId}`;
         const hDia = Number(row.horas_dia || 0);
         const hNoche = Number(row.horas_noche || 0);
-        const total = Number(row.monto || row.total_pagado || 0);
+        const total = Number(row.monto || 0);
 
         if (!acumulado[uId]) {
           acumulado[uId] = {
@@ -373,7 +373,6 @@ export default function AdminPage() {
   const tieneProductosPorComprar = Object.keys(consolidadoCompras).length > 0;
   const tieneProductosPorEntregar = Object.keys(despachosPorSede).length > 0;
 
-  // Cierre Global: SUMA ABSOLUTA DE TODO LO RECAUDADO (ENTRADAS)
   const CierreGlobal = (() => {
     const totalCaja = registrosCaja.reduce((acc, row) => {
       if (!mapaSedes[row.sede_id]) return acc;
@@ -396,7 +395,6 @@ export default function AdminPage() {
       return acc + (Number(n.monto) || 0);
     }, 0);
 
-    // Suma TOTAL de ENTRADAS brutas (Efectivo + Nequi + Daviplata + Rappi + Gastos + Nómina)
     const totalVentaTotal = totalCaja.efectivo + totalCaja.nequi + totalCaja.daviplata + totalCaja.rappi + totalCaja.gastos + totalNominaBD;
 
     return {
@@ -455,7 +453,7 @@ export default function AdminPage() {
     };
   })();
 
-  // Cierres Por Sede: SUMA ABSOLUTA DE TODAS LAS ENTRADAS
+  // CIERRES POR SEDE
   const cierresPorSede = (() => {
     const mapa: { [sede: string]: any } = {};
 
@@ -525,11 +523,14 @@ export default function AdminPage() {
       }
     });
 
+    // PROCESAMIENTO EXCLUSIVO DE LA TABLA NOMINA
     registrosNomina.forEach(n => {
-      if (!mapaSedes[n.sede_id]) return;
-      const nombreSede = getNombreSede(n.sede_id);
+      const idSede = Number(n.sede_id);
+      if (!mapaSedes[idSede]) return;
+      const nombreSede = mapaSedes[idSede] || getNombreSede(idSede);
       if (sedeSeleccionada !== 'todos' && String(n.sede_id) !== sedeSeleccionada) return;
-      const montoPago = Number(n.monto) || 0;
+
+      const montoPago = Number(n.monto || 0);
 
       if (!mapa[nombreSede]) {
         mapa[nombreSede] = {
@@ -553,9 +554,8 @@ export default function AdminPage() {
       }
 
       mapa[nombreSede].nomina += montoPago;
-      const empleadoNombre = n.usuario_id ? getNombreUsuario(n.usuario_id) : (n.concepto || 'Pago turno');
-      const horaPago = n.created_at ? obtenerHoraLocalStr(n.created_at) : '';
-      mapa[nombreSede].notasNomina.push(`${empleadoNombre} ${horaPago ? `(${horaPago})` : ''}: $${montoPago.toLocaleString()}`);
+      const empleadoNombre = usuariosBD[n.usuario_id] || getNombreUsuario(n.usuario_id) || `Operario #${n.usuario_id}`;
+      mapa[nombreSede].notasNomina.push(`${empleadoNombre} : $${montoPago.toLocaleString()}`);
     });
 
     Object.keys(mapa).forEach(sKey => {
@@ -563,7 +563,6 @@ export default function AdminPage() {
       item.efectivoTotal = item.efectivoRecibido;
       item.descuadreCaja = Number(item.diferencia || 0);
       
-      // SUMA ABSOLUTA DE TODAS LAS ENTRADAS DE DINERO VENDIDO
       item.totalVenta = item.efectivoRecibido + item.nequi + item.daviplata + item.rappi + item.gastos + item.nomina;
     });
 
@@ -693,7 +692,6 @@ export default function AdminPage() {
     return mapaSedDescuadres;
   })();
 
-  // INVENTARIOS Y STOCK: CORREGIDO PARA SEDE VIVA Y SIN 'TOTAL PALETAS' REPETIDO
   const inventarioStockGeneralPorSede = (() => {
     const mapa: { 
       [sedeName: string]: { 
@@ -717,7 +715,6 @@ export default function AdminPage() {
       let totalPaletasBD = 0;
 
       if (esViva) {
-        // Para Sede Viva buscamos primero el conteo de paletas consolidado o el registro de inventario mas reciente
         const registroPaletasViva = inventarioEmpaquesSedesBD.find(item => Number(item.sede_id) === idSede && String(item.nombre || item.producto || '').toLowerCase() === 'total paletas');
         if (registroPaletasViva) {
           totalPaletasBD = Number(registroPaletasViva.stok ?? registroPaletasViva.stock ?? 0);
@@ -924,7 +921,6 @@ export default function AdminPage() {
     return resultadoPorSede;
   })();
 
-  // BI INTELIGENCIA DE NEGOCIO: SUMA EXACTA DE TODAS LAS PALETAS Y PRODUCTOS
   const datosBI = (() => {
     const totalProductos: { [prod: string]: number } = {};
     const ventasPorFecha: { [fecha: string]: number } = {};
@@ -1471,7 +1467,7 @@ export default function AdminPage() {
             )}
           </div>
 
-          {/* MÓDULO 3: CIERRES DE CAJA Y DESCUADRES (CON TOTAL BRUTO DE ENTRADAS) */}
+          {/* MÓDULO 3: CIERRES DE CAJA Y DESCUADRES */}
           <div className="border border-[#0066b3] bg-[#0b2b48] rounded-2xl overflow-hidden shadow-lg">
             <button 
               onClick={() => toggleModulo('cierres')}
@@ -1836,7 +1832,7 @@ export default function AdminPage() {
             )}
           </div>
 
-          {/* MÓDULO 6: VENTAS Y MIX DE SABORES (EN ACORDEÓN) */}
+          {/* MÓDULO 6: VENTAS Y MIX DE SABORES */}
           <div className="border border-[#0066b3] bg-[#0b2b48] rounded-2xl overflow-hidden shadow-lg">
             <button 
               onClick={() => toggleModulo('ventas_abanico')}
@@ -1853,7 +1849,6 @@ export default function AdminPage() {
             {moduloAbierto === 'ventas_abanico' && (
               <div className="p-3 space-y-3 border-t border-[#0066b3]/30 bg-[#031d35]/60">
                 
-                {/* MIX DE SABORES VIVA EN ACORDEÓN */}
                 <div className="bg-[#0b2b48] border border-cyan-500/50 rounded-xl overflow-hidden shadow-sm">
                   <button 
                     onClick={() => setAcordeonesMixViva(prev => ({ ...prev, global: !prev.global }))}
@@ -1910,7 +1905,6 @@ export default function AdminPage() {
                   )}
                 </div>
 
-                {/* VENTAS EN ABANICO POR SEDE EN ACORDEÓN */}
                 {Object.keys(ventasAbanicoPorSede).length === 0 ? (
                   <p className="text-center text-xs text-sky-300 py-6 font-semibold">No hay registros en el histórico de ventas para este rango.</p>
                 ) : (

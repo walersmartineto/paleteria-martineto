@@ -83,7 +83,7 @@ export default function CentroPage() {
   const [horasDia, setHorasDia, limpiarHorasDia] = useAutoSave<number | ''>('centro_horasDia', '');
   const [horasNoche, setHorasNoche, limpiarHorasNoche] = useAutoSave<number | ''>('centro_horasNoche', '');
 
-  // NÓMINA OPERADOR DE APOYO / REFUERZO (OPCIÓN 1)
+  // NÓMINA OPERADOR DE APOYO / REFUERZO
   const [mostrarBloqueApoyo, setMostrarBloqueApoyo] = useState(false);
   const [operadorApoyoId, setOperadorApoyoId] = useState<string>('');
   const [horasDiaApoyo, setHorasDiaApoyo, limpiarHorasDiaApoyo] = useAutoSave<number | ''>('centro_horasDiaApoyo', '');
@@ -204,6 +204,7 @@ export default function CentroPage() {
     try {
       const hoyInicio = new Date();
       hoyInicio.setHours(0, 0, 0, 0);
+      const hoyFechaStr = hoyInicio.toISOString().split('T')[0];
 
       const userId = sesAct?.usuario_id || sesAct?.id;
       const turnoId = sesAct?.turno_id || sesAct?.turnoId || 1;
@@ -281,11 +282,12 @@ export default function CentroPage() {
         setVentasDiaBD(vtsBD);
       }
 
+      // CONSULTA MEJORADA DE NÓMINA (CONSULTA POR FECHA O FECHA_PAGO)
       const { data: nomBD } = await supabase
         .from('nomina')
         .select('*')
         .eq('sede_id', SEDE_ID_CENTRO)
-        .gte('fecha', hoyInicio.toISOString());
+        .or(`fecha.gte.${hoyInicio.toISOString()},fecha_pago.eq.${hoyFechaStr}`);
 
       if (nomBD && nomBD.length > 0) {
         setRegistrosNominaDia(nomBD);
@@ -765,6 +767,8 @@ export default function CentroPage() {
 
     setGuardandoNomina(true);
 
+    const hoyFechaStr = new Date().toISOString().split('T')[0];
+
     const payloadNomina = {
       sede_id: SEDE_ID_CENTRO,
       usuario_id: usuarioIdActual ? Number(usuarioIdActual) : null,
@@ -773,6 +777,7 @@ export default function CentroPage() {
       horas_noche: Number(horasNoche) || 0,
       tipo_dia: tipoDia,
       fecha: new Date().toISOString(),
+      fecha_pago: hoyFechaStr, // GUARDA LA FECHA CORRESPONDIENTE
     };
 
     const { data, error } = await supabase.from('nomina').insert([payloadNomina]).select();
@@ -799,7 +804,7 @@ export default function CentroPage() {
     limpiarHorasNoche();
   }
 
-  // PAGAR NÓMINA OPERADOR DE APOYO (DOMINGOS / REFUERZO - OPCIÓN 1)
+  // PAGAR NÓMINA OPERADOR DE APOYO
   async function pagarNominaApoyoBD() {
     if (!operadorApoyoId) {
       alert('⚠️ Selecciona al operador de apoyo.');
@@ -818,6 +823,8 @@ export default function CentroPage() {
 
     setGuardandoNominaApoyo(true);
 
+    const hoyFechaStr = new Date().toISOString().split('T')[0];
+
     const payloadNominaApoyo = {
       sede_id: SEDE_ID_CENTRO,
       usuario_id: Number(operadorApoyoId),
@@ -826,6 +833,7 @@ export default function CentroPage() {
       horas_noche: Number(horasNocheApoyo) || 0,
       tipo_dia: tipoDia,
       fecha: new Date().toISOString(),
+      fecha_pago: hoyFechaStr, // GUARDA LA FECHA CORRESPONDIENTE
     };
 
     const { data, error } = await supabase.from('nomina').insert([payloadNominaApoyo]).select();
@@ -1098,7 +1106,7 @@ export default function CentroPage() {
         limpiarMotivoGasto();
 
         setValidandoEntrante(false);
-        alert(`✅ ¡Turno delivered con éxito!\nBienvenido(a) ${nuevaSesion.nombre}.`);
+        alert(`✅ ¡Turno entregado con éxito!\nBienvenido(a) ${nuevaSesion.nombre}.`);
       } catch (err: any) {
         setValidandoEntrante(false);
         alert('❌ Error al procesar el cambio de turno: ' + (err?.message || 'Error desconocido'));
@@ -1503,7 +1511,7 @@ export default function CentroPage() {
                   <span className="text-sm font-black text-rose-300">$ {totalNomina.toLocaleString('es-CO')}</span>
                 </div>
 
-                {/* SECCIÓN OPCIONAL: NÓMINA OPERADOR DE APOYO / REFUERZO (DOMINGOS - OPCIÓN 1) */}
+                {/* NÓMINA OPERADOR DE APOYO / REFUERZO */}
                 {mostrarBloqueApoyo && (
                   <div className="bg-[#0e385e]/80 border border-amber-500/50 p-2.5 rounded-xl space-y-2 mt-2">
                     <span className="text-[10px] font-black text-amber-300 uppercase block">
