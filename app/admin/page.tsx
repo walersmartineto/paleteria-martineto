@@ -51,8 +51,6 @@ export default function AdminPage() {
   const [acordeonAperturaAbierto, setAcordeonAperturaAbierto] = useState<boolean>(true);
   const [moduloAbierto, setModuloAbierto] = useState<string | null>('gestion_sistema');
   const [subPestanaLogistica, setSubPestanaLogistica] = useState<'compras' | 'despachos'>('compras');
-  const [subPestanaCierres, setSubPestanaCierres] = useState<'caja' | 'descuadres'>('caja');
-  const [acordeonBISedeAbierto, setAcordeonBISedeAbierto] = useState<{ [nombreSede: string]: boolean }>({});
 
   // Datos BD
   const [resumenNominaOperarios, setResumenNominaOperarios] = useState<any[]>([]);
@@ -92,21 +90,9 @@ export default function AdminPage() {
   const [nuevoProdVentaNombre, setNuevoProdVentaNombre] = useState('');
   const [nuevoProdVentaPrecio, setNuevoProdVentaPrecio] = useState<number | ''>('');
   const [nuevoProdVentaCategoria, setNuevoProdVentaCategoria] = useState('');
+  const [nuevoProdEsInventario, setNuevoProdEsInventario] = useState(false);
 
   const [preciosEditados, setPreciosEditados] = useState<{ [id: number]: number }>({});
-
-  // Acordeones Internos
-  const [acordeonesCompras, setAcordeonesCompras] = useState<{ [key: string]: boolean }>({});
-  const [acordeonesDespachos, setAcordeonesDespachos] = useState<{ [key: string]: boolean }>({});
-  const [acordeonesCierres, setAcordeonesCierres] = useState<{ [key: string]: boolean }>({ global: true });
-  const [acordeonesDescuadres, setAcordeonesDescuadres] = useState<{ [key: string]: boolean }>({});
-  const [acordeonesInventario, setAcordeonesInventario] = useState<{ [key: string]: boolean }>({});
-  const [acordeonesResumenSedes, setAcordeonesResumenSedes] = useState<{ [key: string]: boolean }>({ global: true });
-  const [acordeonesConsolidadoCompras, setAcordeonesConsolidadoCompras] = useState<{ [key: string]: boolean }>({ global: true });
-  const [acordeonesVentasAbanico, setAcordeonesVentasAbanico] = useState<{ [key: string]: boolean }>({});
-  const [acordeonesMixViva, setAcordeonesMixViva] = useState<{ [key: string]: boolean }>({});
-  const [acordeonesRappi, setAcordeonesRappi] = useState<{ [key: string]: boolean }>({ global: true });
-  const [acordeonesProyeccionSedes, setAcordeonesProyeccionSedes] = useState<{ [key: string]: boolean }>({});
 
   useEffect(() => {
     cargarDatosAdmin();
@@ -299,21 +285,50 @@ export default function AdminPage() {
   }
 
   async function crearProductoVentaBD() {
-    if (!nuevoProdVentaNombre.trim() || !nuevoProdVentaPrecio || Number(nuevoProdVentaPrecio) <= 0) {
+    const nombreLimpio = nuevoProdVentaNombre.trim();
+    if (!nombreLimpio || !nuevoProdVentaPrecio || Number(nuevoProdVentaPrecio) <= 0) {
       alert('⚠️ Completa el nombre y un precio válido.');
       return;
     }
-    const { error } = await supabase.from(tablaProductoSeleccionada).insert([{
-      nombre: nuevoProdVentaNombre.trim(),
+
+    // 1. Guardar en la tabla de productos de venta
+    const { error: errVenta } = await supabase.from(tablaProductoSeleccionada).insert([{
+      nombre: nombreLimpio,
       precio: Number(nuevoProdVentaPrecio),
       categoria: nuevoProdVentaCategoria.trim() || 'general',
       activo: true
     }]);
-    if (error) { alert('❌ Error al crear producto: ' + error.message); return; }
-    alert(`✅ Producto "${nuevoProdVentaNombre}" agregado.`);
-    setNuevoProdVentaNombre(''); setNuevoProdVentaPrecio(''); setNuevoProdVentaCategoria('');
+
+    if (errVenta) {
+      alert('❌ Error al crear producto de venta: ' + errVenta.message);
+      return;
+    }
+
+    // 2. Si se marcó como producto de inventario, guardarlo en la tabla de empaques correspondiente con stock 0
+    if (nuevoProdEsInventario) {
+      const tablaEmpaques = tablaProductoSeleccionada === 'produc_ven_martineto' 
+        ? 'empaques_martineto' 
+        : 'empaques_ositos';
+
+      const { error: errEmpaque } = await supabase.from(tablaEmpaques).insert([{
+        nombre: nombreLimpio,
+        stock: 0,
+        activo: true
+      }]);
+
+      if (errEmpaque) {
+        alert(`⚠️ El producto se creó en ventas, pero hubo un error agregándolo a ${tablaEmpaques}: ` + errEmpaque.message);
+      }
+    }
+
+    alert(`✅ Producto "${nombreLimpio}" agregado correctamente.`);
+    setNuevoProdVentaNombre(''); 
+    setNuevoProdVentaPrecio(''); 
+    setNuevoProdVentaCategoria('');
+    setNuevoProdEsInventario(false);
     setMostrarModalNuevoProdVenta(false);
     cargarProductosVentaBD(tablaProductoSeleccionada);
+    cargarDatosAdmin();
   }
 
   async function guardarPrecioProducto(idProd: number) {
@@ -333,18 +348,6 @@ export default function AdminPage() {
     const { error } = await supabase.from(tablaProductoSeleccionada).update({ activo: !estadoActual }).eq('id', idProd);
     if (!error) cargarProductosVentaBD(tablaProductoSeleccionada);
     else alert('Error actualizando estado: ' + error.message);
-  }
-
-  async function guardarProveedorInteligente(nombreProducto: string, idProd?: number) {
-    const nuevoProv = editandoProveedor[nombreProducto];
-    if (!nuevoProv || !nuevoProv.trim()) { alert('⚠️ Escribe el lugar de compra.'); return; }
-    if (idProd) {
-      await supabase.from('producto').update({ donde_comprar: nuevoProv.trim() }).eq('id', idProd);
-    } else {
-      await supabase.from('producto').insert([{ nombre: nombreProducto, donde_comprar: nuevoProv.trim(), categoria: 'General', activo: true, sede_id: 0 }]);
-    }
-    alert(`✅ Guardado: ${nuevoProv}`);
-    cargarDatosAdmin();
   }
 
   const toggleChecklistLocal = (proveedor: string, nombreProducto: string) => {
@@ -378,7 +381,7 @@ export default function AdminPage() {
 
   const toggleModulo = (id: string) => { setModuloAbierto(prev => prev === id ? null : id); };
 
-  // CÁLCULOS Y REORDENAMIENTO ALFABÉTICO
+  // CÁLCULOS
   const controlAperturaSedes = (() => {
     const lista = sedesBD.map(s => {
       const idSede = s.id;
@@ -1109,13 +1112,47 @@ export default function AdminPage() {
       {mostrarModalNuevoProdVenta && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 font-sans">
           <div className="bg-[#0b2b48] border-2 border-fuchsia-400 rounded-2xl p-5 max-w-sm w-full space-y-4 shadow-2xl">
-            <div className="flex justify-between items-center border-b border-[#0066b3] pb-2"><h3 className="text-xs font-black text-white uppercase">➕ Crear Producto ({tablaProductoSeleccionada})</h3><button onClick={() => setMostrarModalNuevoProdVenta(false)} className="text-sky-300 font-bold">✕</button></div>
-            <div className="space-y-3 text-xs">
-              <div><label className="text-[11px] text-sky-200 font-bold block mb-1">Nombre *:</label><input type="text" placeholder="Ej. Malteada de Fresa" value={nuevoProdVentaNombre} onChange={(e) => setNuevoProdVentaNombre(e.target.value)} className="w-full bg-[#031d35] border border-[#0066b3] text-white p-2 rounded-xl outline-none" /></div>
-              <div><label className="text-[11px] text-sky-200 font-bold block mb-1">Precio ($) *:</label><input type="number" placeholder="12000" value={nuevoProdVentaPrecio} onChange={(e) => setNuevoProdVentaPrecio(e.target.value === '' ? '' : Number(e.target.value))} className="w-full bg-[#031d35] border border-[#0066b3] text-white p-2 rounded-xl outline-none font-bold text-emerald-300" /></div>
-              <div><label className="text-[11px] text-sky-200 font-bold block mb-1">Categoría:</label><input type="text" placeholder="Ej. paletas..." value={nuevoProdVentaCategoria} onChange={(e) => setNuevoProdVentaCategoria(e.target.value)} className="w-full bg-[#031d35] border border-[#0066b3] text-white p-2 rounded-xl outline-none" /></div>
+            <div className="flex justify-between items-center border-b border-[#0066b3] pb-2">
+              <h3 className="text-xs font-black text-white uppercase">➕ Crear Producto ({tablaProductoSeleccionada === 'produc_ven_martineto' ? 'Martineto' : 'Ositos'})</h3>
+              <button onClick={() => setMostrarModalNuevoProdVenta(false)} className="text-sky-300 font-bold">✕</button>
             </div>
-            <div className="flex gap-2 pt-2"><button onClick={() => setMostrarModalNuevoProdVenta(false)} className="w-1/2 bg-[#031d35] text-sky-200 font-bold py-2 rounded-xl text-xs uppercase border border-[#0066b3]">Cancelar</button><button onClick={crearProductoVentaBD} className="w-1/2 bg-emerald-600 hover:bg-emerald-500 text-white font-black py-2 rounded-xl text-xs uppercase shadow">Guardar</button></div>
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="text-[11px] text-sky-200 font-bold block mb-1">Nombre *:</label>
+                <input type="text" placeholder="Ej. Malteada de Fresa" value={nuevoProdVentaNombre} onChange={(e) => setNuevoProdVentaNombre(e.target.value)} className="w-full bg-[#031d35] border border-[#0066b3] text-white p-2 rounded-xl outline-none" />
+              </div>
+              <div>
+                <label className="text-[11px] text-sky-200 font-bold block mb-1">Precio ($) *:</label>
+                <input type="number" placeholder="12000" value={nuevoProdVentaPrecio} onChange={(e) => setNuevoProdVentaPrecio(e.target.value === '' ? '' : Number(e.target.value))} className="w-full bg-[#031d35] border border-[#0066b3] text-white p-2 rounded-xl outline-none font-bold text-emerald-300" />
+              </div>
+              <div>
+                <label className="text-[11px] text-sky-200 font-bold block mb-1">Categoría:</label>
+                <input type="text" placeholder="Ej. paletas..." value={nuevoProdVentaCategoria} onChange={(e) => setNuevoProdVentaCategoria(e.target.value)} className="w-full bg-[#031d35] border border-[#0066b3] text-white p-2 rounded-xl outline-none" />
+              </div>
+
+              {/* OPCIÓN PRODUCTO DE INVENTARIO */}
+              <div className="flex items-center gap-2 bg-[#031d35] p-2.5 rounded-xl border border-sky-500/50 mt-1">
+                <input 
+                  type="checkbox" 
+                  id="chkInventario" 
+                  checked={nuevoProdEsInventario} 
+                  onChange={(e) => setNuevoProdEsInventario(e.target.checked)} 
+                  className="w-4 h-4 accent-fuchsia-500 rounded cursor-pointer" 
+                />
+                <label htmlFor="chkInventario" className="text-[11px] font-bold text-sky-200 cursor-pointer select-none">
+                  📦 ¿Es también un producto de inventario/empaque?
+                </label>
+              </div>
+              {nuevoProdEsInventario && (
+                <p className="text-[9px] text-amber-300 italic px-1">
+                  ℹ️ Se creará en la tabla de empaques ({tablaProductoSeleccionada === 'produc_ven_martineto' ? 'empaques_martineto' : 'empaques_ositos'}) con stock inicial en 0.
+                </p>
+              )}
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button onClick={() => setMostrarModalNuevoProdVenta(false)} className="w-1/2 bg-[#031d35] text-sky-200 font-bold py-2 rounded-xl text-xs uppercase border border-[#0066b3]">Cancelar</button>
+              <button onClick={crearProductoVentaBD} className="w-1/2 bg-emerald-600 hover:bg-emerald-500 text-white font-black py-2 rounded-xl text-xs uppercase shadow">Guardar</button>
+            </div>
           </div>
         </div>
       )}
