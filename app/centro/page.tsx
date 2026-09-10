@@ -5,6 +5,23 @@ import { useRouter } from 'next/navigation';
 import { useAutoSave } from '@/hooks/useAutoSave';
 import { supabase } from '@/lib/supabase';
 
+// HELPERS DE FECHA PARA COLOMBIA (America/Bogota)
+const getFechaHoraColombia = (): string => {
+  const ahora = new Date();
+  const offsetColombiaMs = -5 * 60 * 60 * 1000;
+  const colDate = new Date(ahora.getTime() + offsetColombiaMs + (ahora.getTimezoneOffset() * 60000));
+  return colDate.toISOString();
+};
+
+const getFechaStringColombia = (): string => {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Bogota',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(new Date());
+};
+
 // FUNCIONES DE FORMATO DE MONEDA
 const formatearMoneda = (val: number | string): string => {
   if (val === '' || val === null || val === undefined) return '';
@@ -202,9 +219,8 @@ export default function CentroPage() {
     const sesAct = sesionActualParam || sesion;
 
     try {
-      const hoyInicio = new Date();
-      hoyInicio.setHours(0, 0, 0, 0);
-      const hoyFechaStr = hoyInicio.toISOString().split('T')[0];
+      const hoyFechaStr = getFechaStringColombia();
+      const hoyInicioIso = `${hoyFechaStr}T00:00:00.000Z`;
 
       const userId = sesAct?.usuario_id || sesAct?.id;
       const turnoId = sesAct?.turno_id || sesAct?.turnoId || 1;
@@ -213,7 +229,7 @@ export default function CentroPage() {
         .from('caja')
         .select('*')
         .eq('sede_id', SEDE_ID_CENTRO)
-        .gte('fecha', hoyInicio.toISOString())
+        .gte('fecha', hoyInicioIso)
         .eq('estado', 'abierta')
         .order('id', { ascending: false })
         .limit(1)
@@ -229,7 +245,7 @@ export default function CentroPage() {
         .from('inventario_diario')
         .select('*')
         .eq('sede_id', SEDE_ID_CENTRO)
-        .gte('fecha_registro', hoyInicio.toISOString())
+        .gte('fecha_registro', hoyInicioIso)
         .ilike('tipo_movimiento', 'apertura')
         .order('id', { ascending: false })
         .limit(1)
@@ -247,7 +263,7 @@ export default function CentroPage() {
         .from('inventario_diario')
         .select('id')
         .eq('sede_id', SEDE_ID_CENTRO)
-        .gte('fecha_registro', hoyInicio.toISOString())
+        .gte('fecha_registro', hoyInicioIso)
         .ilike('tipo_movimiento', 'cierre')
         .maybeSingle();
 
@@ -259,7 +275,7 @@ export default function CentroPage() {
         .from('inventario_diario')
         .select('*')
         .eq('sede_id', SEDE_ID_CENTRO)
-        .gte('fecha_registro', hoyInicio.toISOString());
+        .gte('fecha_registro', hoyInicioIso);
 
       if (movsBD) {
         setMovimientosDiaBD(
@@ -276,18 +292,18 @@ export default function CentroPage() {
         .from('venta')
         .select('*')
         .eq('sede_id', SEDE_ID_CENTRO)
-        .gte('fecha', hoyInicio.toISOString());
+        .gte('fecha', hoyInicioIso);
 
       if (vtsBD) {
         setVentasDiaBD(vtsBD);
       }
 
-      // CONSULTA MEJORADA DE NÓMINA (CONSULTA POR FECHA O FECHA_PAGO)
+      // CONSULTA DE NÓMINA AJUSTADA
       const { data: nomBD } = await supabase
         .from('nomina')
         .select('*')
         .eq('sede_id', SEDE_ID_CENTRO)
-        .or(`fecha.gte.${hoyInicio.toISOString()},fecha_pago.eq.${hoyFechaStr}`);
+        .or(`fecha.gte.${hoyInicioIso},fecha_pago.eq.${hoyFechaStr}`);
 
       if (nomBD && nomBD.length > 0) {
         setRegistrosNominaDia(nomBD);
@@ -496,7 +512,7 @@ export default function CentroPage() {
           monto_apertura: monto,
           diferencia: 0,
           estado: 'abierta',
-          fecha: new Date().toISOString(),
+          fecha: getFechaHoraColombia(),
         },
       ]).select();
 
@@ -528,6 +544,7 @@ export default function CentroPage() {
 
     const usuarioId = sesion?.usuario_id || sesion?.id || 1;
     const sedeId = SEDE_ID_CENTRO;
+    const fechaActualCol = getFechaHoraColombia();
 
     setGuardando(true);
     try {
@@ -561,7 +578,7 @@ export default function CentroPage() {
 
           await supabase
             .from('inventario_empaques_sedes')
-            .update({ stock: nuevoStock, diferencia: difCalculada, fecha_actualizacion: new Date().toISOString() })
+            .update({ stock: nuevoStock, diferencia: difCalculada, fecha_actualizacion: fechaActualCol })
             .eq('sede_id', sedeId)
             .eq('nombre', nombreItem);
 
@@ -569,7 +586,7 @@ export default function CentroPage() {
           nuevoStock = stockViejo + cantidadIngresada;
           await supabase
             .from('inventario_empaques_sedes')
-            .update({ stock: nuevoStock, fecha_actualizacion: new Date().toISOString() })
+            .update({ stock: nuevoStock, fecha_actualizacion: fechaActualCol })
             .eq('sede_id', sedeId)
             .eq('nombre', nombreItem);
 
@@ -577,7 +594,7 @@ export default function CentroPage() {
           nuevoStock = Math.max(0, stockViejo - cantidadIngresada);
           await supabase
             .from('inventario_empaques_sedes')
-            .update({ stock: nuevoStock, fecha_actualizacion: new Date().toISOString() })
+            .update({ stock: nuevoStock, fecha_actualizacion: fechaActualCol })
             .eq('sede_id', sedeId)
             .eq('nombre', nombreItem);
 
@@ -586,7 +603,7 @@ export default function CentroPage() {
           const vendidasCalculadas = Math.max(0, stockViejo - cantidadIngresada);
           await supabase
             .from('inventario_empaques_sedes')
-            .update({ stock: nuevoStock, vendidas: vendidasCalculadas, fecha_actualizacion: new Date().toISOString() })
+            .update({ stock: nuevoStock, vendidas: vendidasCalculadas, fecha_actualizacion: fechaActualCol })
             .eq('sede_id', sedeId)
             .eq('nombre', nombreItem);
         }
@@ -600,7 +617,7 @@ export default function CentroPage() {
             diferencia_paletas: diferenciaPaletasJson,
             diferencia_empaques: diferenciaEmpaquesJson,
             total_diferencia: sumaTotalDiferencia,
-            fecha_registro: new Date().toISOString(),
+            fecha_registro: fechaActualCol,
           },
         ]);
       }
@@ -628,6 +645,7 @@ export default function CentroPage() {
         detalle_paletas: detallePaletasObj,
         detalle_empaques: detalleEmpaquesObj,
         observacion: observaciones || null,
+        fecha_registro: fechaActualCol,
       };
 
       if (sesion?.turno_id && !isNaN(Number(sesion.turno_id))) {
@@ -635,14 +653,14 @@ export default function CentroPage() {
       }
 
       if (tipoMovimiento === 'cierre') {
-        const hoyInicioInv = new Date();
-        hoyInicioInv.setHours(0, 0, 0, 0);
+        const hoyFechaStr = getFechaStringColombia();
+        const hoyInicioIso = `${hoyFechaStr}T00:00:00.000Z`;
 
         const { data: regExistenteCierre } = await supabase
           .from('inventario_diario')
           .select('id')
           .eq('sede_id', sedeId)
-          .gte('fecha_registro', hoyInicioInv.toISOString())
+          .gte('fecha_registro', hoyInicioIso)
           .ilike('tipo_movimiento', 'cierre')
           .maybeSingle();
 
@@ -654,6 +672,7 @@ export default function CentroPage() {
               detalle_paletas: detallePaletasObj,
               detalle_empaques: detalleEmpaquesObj,
               observacion: observaciones || null,
+              fecha_registro: fechaActualCol,
             })
             .eq('id', regExistenteCierre.id);
         } else {
@@ -717,7 +736,7 @@ export default function CentroPage() {
           estado: 'pendiente',
           pedidos_insumos: pedidosDesglosadosObj,
           observaciones: obsPedido || null,
-          fecha: new Date().toISOString(),
+          fecha: getFechaHoraColombia(),
         },
       ]);
 
@@ -767,7 +786,8 @@ export default function CentroPage() {
 
     setGuardandoNomina(true);
 
-    const hoyFechaStr = new Date().toISOString().split('T')[0];
+    const hoyFechaStr = getFechaStringColombia();
+    const hoyFechaHoraIso = getFechaHoraColombia();
 
     const payloadNomina = {
       sede_id: SEDE_ID_CENTRO,
@@ -776,8 +796,8 @@ export default function CentroPage() {
       horas_dia: Number(horasDia) || 0,
       horas_noche: Number(horasNoche) || 0,
       tipo_dia: tipoDia,
-      fecha: new Date().toISOString(),
-      fecha_pago: hoyFechaStr, // GUARDA LA FECHA CORRESPONDIENTE
+      fecha: hoyFechaHoraIso,
+      fecha_pago: hoyFechaStr, // GUARDA LA FECHA CORRESPONDIENTE EN COLOMBIA
     };
 
     const { data, error } = await supabase.from('nomina').insert([payloadNomina]).select();
@@ -823,7 +843,8 @@ export default function CentroPage() {
 
     setGuardandoNominaApoyo(true);
 
-    const hoyFechaStr = new Date().toISOString().split('T')[0];
+    const hoyFechaStr = getFechaStringColombia();
+    const hoyFechaHoraIso = getFechaHoraColombia();
 
     const payloadNominaApoyo = {
       sede_id: SEDE_ID_CENTRO,
@@ -832,8 +853,8 @@ export default function CentroPage() {
       horas_dia: Number(horasDiaApoyo) || 0,
       horas_noche: Number(horasNocheApoyo) || 0,
       tipo_dia: tipoDia,
-      fecha: new Date().toISOString(),
-      fecha_pago: hoyFechaStr, // GUARDA LA FECHA CORRESPONDIENTE
+      fecha: hoyFechaHoraIso,
+      fecha_pago: hoyFechaStr, // GUARDA LA FECHA CORRESPONDIENTE EN COLOMBIA
     };
 
     const { data, error } = await supabase.from('nomina').insert([payloadNominaApoyo]).select();
@@ -885,20 +906,21 @@ export default function CentroPage() {
     const difCaja = efecFisicoInput - efecSistemaInput;
 
     setGuardandoCierre(true);
-    const hoyInicio = new Date();
-    hoyInicio.setHours(0, 0, 0, 0);
+    const hoyFechaStr = getFechaStringColombia();
+    const hoyInicioIso = `${hoyFechaStr}T00:00:00.000Z`;
+    const fechaHoraCol = getFechaHoraColombia();
 
     try {
       const turnoIdActual = sesion?.turno_id || sesion?.turnoId;
       if (turnoIdActual) {
         await supabase
           .from('turno_trabajo')
-          .update({ hora_salida: new Date().toISOString() })
+          .update({ hora_salida: fechaHoraCol })
           .eq('id', turnoIdActual);
       } else if (usuarioIdActual) {
         await supabase
           .from('turno_trabajo')
-          .update({ hora_salida: new Date().toISOString() })
+          .update({ hora_salida: fechaHoraCol })
           .eq('sede_id', SEDE_ID_CENTRO)
           .eq('usuario_id', usuarioIdActual)
           .is('hora_salida', null);
@@ -926,7 +948,7 @@ export default function CentroPage() {
       const { error: errorHistorico } = await supabase.from('historico_ventas').insert([
         {
           sede_id: SEDE_ID_CENTRO,
-          fecha: new Date().toISOString(),
+          fecha: fechaHoraCol,
           productos: jsonVentasCierre,
         },
       ]);
@@ -939,7 +961,7 @@ export default function CentroPage() {
         .from('inventario_diario')
         .select('id')
         .eq('sede_id', SEDE_ID_CENTRO)
-        .gte('fecha_registro', hoyInicio.toISOString())
+        .gte('fecha_registro', hoyInicioIso)
         .ilike('tipo_movimiento', 'apertura')
         .order('id', { ascending: false })
         .limit(1)
@@ -948,14 +970,14 @@ export default function CentroPage() {
       if (!errBuscaInv && invAperturaHoy) {
         await supabase
           .from('inventario_diario')
-          .update({ tipo_movimiento: 'cierre' })
+          .update({ tipo_movimiento: 'cierre', fecha_registro: fechaHoraCol })
           .eq('id', invAperturaHoy.id);
       } else {
         const { data: invUltimoHoy } = await supabase
           .from('inventario_diario')
           .select('id')
           .eq('sede_id', SEDE_ID_CENTRO)
-          .gte('fecha_registro', hoyInicio.toISOString())
+          .gte('fecha_registro', hoyInicioIso)
           .order('id', { ascending: false })
           .limit(1)
           .maybeSingle();
@@ -963,7 +985,7 @@ export default function CentroPage() {
         if (invUltimoHoy) {
           await supabase
             .from('inventario_diario')
-            .update({ tipo_movimiento: 'cierre' })
+            .update({ tipo_movimiento: 'cierre', fecha_registro: fechaHoraCol })
             .eq('id', invUltimoHoy.id);
         }
       }
@@ -988,7 +1010,7 @@ export default function CentroPage() {
       } else {
         queryCaja = queryCaja
           .eq('sede_id', SEDE_ID_CENTRO)
-          .gte('fecha', hoyInicio.toISOString())
+          .gte('fecha', hoyInicioIso)
           .eq('estado', 'abierta');
       }
 
@@ -1048,16 +1070,17 @@ export default function CentroPage() {
       String(pinOperario).trim() === String(claveOperarioEntrante).trim()
     ) {
       try {
+        const fechaHoraCol = getFechaHoraColombia();
         const turnoIdActual = sesion?.turno_id || sesion?.turnoId;
         if (turnoIdActual) {
           await supabase
             .from('turno_trabajo')
-            .update({ hora_salida: new Date().toISOString() })
+            .update({ hora_salida: fechaHoraCol })
             .eq('id', turnoIdActual);
         } else if (usuarioIdActual) {
           await supabase
             .from('turno_trabajo')
-            .update({ hora_salida: new Date().toISOString() })
+            .update({ hora_salida: fechaHoraCol })
             .eq('sede_id', SEDE_ID_CENTRO)
             .eq('usuario_id', usuarioIdActual)
             .is('hora_salida', null);
@@ -1071,7 +1094,7 @@ export default function CentroPage() {
               sede_id: SEDE_ID_CENTRO,
               usuario_id: Number(operarioEncontrado.id),
               tipo_turno: turnoNormalizado,
-              hora_entrada: new Date().toISOString(),
+              hora_entrada: fechaHoraCol,
             },
           ])
           .select()
@@ -1122,7 +1145,7 @@ export default function CentroPage() {
     if (turnoIdActual) {
       supabase
         .from('turno_trabajo')
-        .update({ hora_salida: new Date().toISOString() })
+        .update({ hora_salida: getFechaHoraColombia() })
         .eq('id', turnoIdActual)
         .then(() => {});
     }
