@@ -42,16 +42,6 @@ export default function CentroPage() {
   // IDENTIFICADOR DE LA SEDE CENTRO
   const SEDE_ID_CENTRO = 2;
 
-  // ESTADO DE TARIFAS
-  const [tarifas, setTarifas] = useState({
-    subsidio: 0,
-    transporte: 0,
-    horaDiaEntreSemana: 0,
-    horaNocheEntreSemana: 0,
-    horaDiaFestivo: 0,
-    horaNocheFestivo: 0,
-  });
-
   // AUTO-SAVE: Base de Caja
   const [baseCaja, setBaseCaja, limpiarBaseCaja] = useAutoSave<number | ''>('centro_baseCaja', '');
   const [baseGuardada, setBaseGuardada] = useState(false);
@@ -95,14 +85,15 @@ export default function CentroPage() {
   const [, setListaSedesBD] = useState<any[]>([]);
   const [sedesSeleccionadasProd, setSedesSeleccionadasProd] = useState<(number | string)[]>([]);
 
-  // NÓMINA Y ARQUEO DE CAJA EN CENTRO (OPERADOR PRINCIPAL)
-  const [tipoDia, setTipoDia] = useState<'entre_semana' | 'domingo_festivo'>('entre_semana');
+  // NÓMINA MANUAL + HORAS (OPERADOR PRINCIPAL)
+  const [montoNominaInput, setMontoNominaInput, limpiarMontoNominaInput] = useAutoSave<number | ''>('centro_montoNominaInput', '');
   const [horasDia, setHorasDia, limpiarHorasDia] = useAutoSave<number | ''>('centro_horasDia', '');
   const [horasNoche, setHorasNoche, limpiarHorasNoche] = useAutoSave<number | ''>('centro_horasNoche', '');
 
-  // NÓMINA OPERADOR DE APOYO / REFUERZO
+  // NÓMINA MANUAL + HORAS (OPERADOR DE APOYO / REFUERZO)
   const [mostrarBloqueApoyo, setMostrarBloqueApoyo] = useState(false);
   const [operadorApoyoId, setOperadorApoyoId] = useState<string>('');
+  const [montoNominaApoyoInput, setMontoNominaApoyoInput, limpiarMontoNominaApoyoInput] = useAutoSave<number | ''>('centro_montoNominaApoyoInput', '');
   const [horasDiaApoyo, setHorasDiaApoyo, limpiarHorasDiaApoyo] = useAutoSave<number | ''>('centro_horasDiaApoyo', '');
   const [horasNocheApoyo, setHorasNocheApoyo, limpiarHorasNocheApoyo] = useAutoSave<number | ''>('centro_horasNocheApoyo', '');
   const [guardandoNominaApoyo, setGuardandoNominaApoyo] = useState(false);
@@ -134,24 +125,19 @@ export default function CentroPage() {
 
   const inputsRef = useRef<{ [key: string]: HTMLInputElement | HTMLTextAreaElement | null }>({});
 
-  const hDia = Number(horasDia) || 0;
-  const hNoche = Number(horasNoche) || 0;
-  const valorHoraDia = tipoDia === 'domingo_festivo' ? tarifas.horaDiaFestivo : tarifas.horaDiaEntreSemana;
-  const valorHoraNoche = tipoDia === 'domingo_festivo' ? tarifas.horaNocheFestivo : tarifas.horaNocheEntreSemana;
-  const totalNomina = (hDia > 0 || hNoche > 0 ? tarifas.subsidio + tarifas.transporte : 0) + hDia * valorHoraDia + hNoche * valorHoraNoche;
-
-  // CÁLCULO NÓMINA OPERADOR DE APOYO
-  const hDiaAp = Number(horasDiaApoyo) || 0;
-  const hNocheAp = Number(horasNocheApoyo) || 0;
-  const totalNominaApoyo = (hDiaAp > 0 || hNocheAp > 0 ? tarifas.subsidio + tarifas.transporte : 0) + hDiaAp * valorHoraDia + hNocheAp * valorHoraNoche;
+  const totalNomina = Number(montoNominaInput) || 0;
+  const totalNominaApoyo = Number(montoNominaApoyoInput) || 0;
 
   const usuarioIdActual = sesion?.usuario_id || sesion?.id || null;
-  const nominaYaPagadaHoy = nominaPagadaEnTurnoLocal || registrosNominaDia.some(
-    (n) => String(n.usuario_id) === String(usuarioIdActual)
-  );
+  const turnoIdActual = sesion?.turno_id || sesion?.turnoId || null;
+
+  // EVALUACIÓN DE PAGO POR USUARIO Y TURNO ESPECÍFICO
+  const nominaYaPagadaHoy = nominaPagadaEnTurnoLocal;
 
   const nominaApoyoYaPagadaHoy = operadorApoyoId
-    ? registrosNominaDia.some((n) => String(n.usuario_id) === String(operadorApoyoId))
+    ? registrosNominaDia.some(
+        (n) => String(n.usuario_id) === String(operadorApoyoId) && String(n.turno_id || '') === String(turnoIdActual || '')
+      )
     : false;
 
   const tienePedidoSinEnviar = (() => {
@@ -193,8 +179,8 @@ export default function CentroPage() {
 
   const esTurnoCierre = (() => {
     if (!sesion) return false;
-    const str = JSON.stringify(sesion).toLowerCase();
-    return str.includes('completo') || str.includes('cierre') || str.includes('tarde');
+    const t = String(sesion.turno || '').toLowerCase();
+    return t.includes('cierre') || t.includes('tarde') || t.includes('completo');
   })();
 
   useEffect(() => {
@@ -223,7 +209,7 @@ export default function CentroPage() {
       const hoyInicioIso = `${hoyFechaStr}T00:00:00.000Z`;
 
       const userId = sesAct?.usuario_id || sesAct?.id;
-      const turnoId = sesAct?.turno_id || sesAct?.turnoId || 1;
+      const turnoId = sesAct?.turno_id || sesAct?.turnoId;
 
       const { data: cajaHoyBD } = await supabase
         .from('caja')
@@ -253,7 +239,7 @@ export default function CentroPage() {
 
       if (invHoyBD) {
         setAperturaRealizada(true);
-        setTipoMovimiento('nuevas');
+        setTipoMovimiento('cierre');
       } else {
         setAperturaRealizada(false);
         setTipoMovimiento('apertura');
@@ -264,11 +250,14 @@ export default function CentroPage() {
         .select('id')
         .eq('sede_id', SEDE_ID_CENTRO)
         .gte('fecha_registro', hoyInicioIso)
+        .eq('turno_id', sesAct?.turno_id || 0)
         .ilike('tipo_movimiento', 'cierre')
         .maybeSingle();
 
       if (invCierreBD) {
         setCierreRealizado(true);
+      } else {
+        setCierreRealizado(false);
       }
 
       const { data: movsBD } = await supabase
@@ -298,7 +287,7 @@ export default function CentroPage() {
         setVentasDiaBD(vtsBD);
       }
 
-      // CONSULTA DE NÓMINA AJUSTADA
+      // CONSULTA NÓMINA: EVALÚA DÍA, SEDE, TURNO Y USUARIO
       const { data: nomBD } = await supabase
         .from('nomina')
         .select('*')
@@ -307,15 +296,24 @@ export default function CentroPage() {
 
       if (nomBD && nomBD.length > 0) {
         setRegistrosNominaDia(nomBD);
-        const miNomina = nomBD.find((n: any) => String(n.usuario_id) === String(userId));
+        const miNominaTurno = nomBD.find(
+          (n: any) =>
+            String(n.usuario_id) === String(userId) &&
+            (turnoId ? String(n.turno_id || '') === String(turnoId) : true)
+        );
+
         const localNomina = localStorage.getItem(`centro_nomina_pagada_${userId}_${turnoId}`);
-        if (miNomina || localNomina === 'true') {
+        if (miNominaTurno || localNomina === 'true') {
           setNominaPagadaEnTurnoLocal(true);
+        } else {
+          setNominaPagadaEnTurnoLocal(false);
         }
       } else {
         const localNomina = localStorage.getItem(`centro_nomina_pagada_${userId}_${turnoId}`);
         if (localNomina === 'true') {
           setNominaPagadaEnTurnoLocal(true);
+        } else {
+          setNominaPagadaEnTurnoLocal(false);
         }
       }
 
@@ -334,22 +332,6 @@ export default function CentroPage() {
           { id: 4, nombre: 'Martineto' }
         ]);
         setSedesSeleccionadasProd([SEDE_ID_CENTRO]);
-      }
-
-      const { data: configBD } = await supabase
-        .from('configuracion_tarifa')
-        .select('*')
-        .single();
-
-      if (configBD) {
-        setTarifas({
-          subsidio: Number(configBD.subsidio) || 0,
-          transporte: Number(configBD.transporte) || 0,
-          horaDiaEntreSemana: Number(configBD.hora_dia_entre_semana) || 0,
-          horaNocheEntreSemana: Number(configBD.hora_noche_entre_semana) || 0,
-          horaDiaFestivo: Number(configBD.hora_dia_festivo) || 0,
-          horaNocheFestivo: Number(configBD.hora_noche_festivo) || 0,
-        });
       }
 
       const { data: operariosBD } = await supabase
@@ -661,6 +643,7 @@ export default function CentroPage() {
           .select('id')
           .eq('sede_id', sedeId)
           .gte('fecha_registro', hoyInicioIso)
+          .eq('turno_id', sesion?.turno_id || 0)
           .ilike('tipo_movimiento', 'cierre')
           .maybeSingle();
 
@@ -683,7 +666,7 @@ export default function CentroPage() {
         await supabase.from('inventario_diario').insert([payloadInventario]);
         if (tipoMovimiento === 'apertura') {
           setAperturaRealizada(true);
-          setTipoMovimiento('nuevas');
+          setTipoMovimiento('cierre');
         }
       }
 
@@ -772,15 +755,15 @@ export default function CentroPage() {
   const gast = Number(gastos) || 0;
   const sumaNominaTotalDia = registrosNominaDia.reduce((acc, n) => acc + Number(n.monto || 0), 0);
 
-  // PAGAR NÓMINA OPERADOR PRINCIPAL
+  // PAGAR NÓMINA MANUAL + GUARDA HORAS (OPERADOR PRINCIPAL)
   async function pagarNominaBD() {
     if (nominaYaPagadaHoy) {
-      alert('⚠️ Ya se ha registrado el pago de nómina para el operador principal en el día de hoy.');
+      alert('⚠️ Ya se ha registrado el pago de nómina para este turno.');
       return;
     }
 
     if (totalNomina <= 0) {
-      alert('⚠️ El valor a pagar de nómina debe ser mayor a 0 (ingresa las horas trabajadas).');
+      alert('⚠️ Ingresa el valor a pagar de nómina.');
       return;
     }
 
@@ -792,12 +775,13 @@ export default function CentroPage() {
     const payloadNomina = {
       sede_id: SEDE_ID_CENTRO,
       usuario_id: usuarioIdActual ? Number(usuarioIdActual) : null,
+      turno_id: turnoIdActual ? Number(turnoIdActual) : null,
       monto: totalNomina,
       horas_dia: Number(horasDia) || 0,
       horas_noche: Number(horasNoche) || 0,
-      tipo_dia: tipoDia,
+      tipo_dia: 'manual',
       fecha: hoyFechaHoraIso,
-      fecha_pago: hoyFechaStr, // GUARDA LA FECHA CORRESPONDIENTE EN COLOMBIA
+      fecha_pago: hoyFechaStr,
     };
 
     const { data, error } = await supabase.from('nomina').insert([payloadNomina]).select();
@@ -810,9 +794,8 @@ export default function CentroPage() {
     }
 
     setNominaPagadaEnTurnoLocal(true);
-    const turnoId = sesion?.turno_id || sesion?.turnoId || 1;
-    if (usuarioIdActual) {
-      localStorage.setItem(`centro_nomina_pagada_${usuarioIdActual}_${turnoId}`, 'true');
+    if (usuarioIdActual && turnoIdActual) {
+      localStorage.setItem(`centro_nomina_pagada_${usuarioIdActual}_${turnoIdActual}`, 'true');
     }
 
     if (data && data.length > 0) {
@@ -820,11 +803,12 @@ export default function CentroPage() {
     }
 
     alert(`💸 Pago de Nómina Principal ($ ${totalNomina.toLocaleString('es-CO')}) registrado con éxito.`);
+    limpiarMontoNominaInput();
     limpiarHorasDia();
     limpiarHorasNoche();
   }
 
-  // PAGAR NÓMINA OPERADOR DE APOYO
+  // PAGAR NÓMINA MANUAL + GUARDA HORAS (OPERADOR DE APOYO)
   async function pagarNominaApoyoBD() {
     if (!operadorApoyoId) {
       alert('⚠️ Selecciona al operador de apoyo.');
@@ -832,12 +816,12 @@ export default function CentroPage() {
     }
 
     if (nominaApoyoYaPagadaHoy) {
-      alert('⚠️ Ya se ha registrado la nómina de hoy para este operador de apoyo.');
+      alert('⚠️ Ya se ha registrado la nómina de este operador de apoyo en el turno actual.');
       return;
     }
 
     if (totalNominaApoyo <= 0) {
-      alert('⚠️ Ingresa las horas trabajadas del operador de apoyo.');
+      alert('⚠️ Ingresa el valor a pagar para el operador de apoyo.');
       return;
     }
 
@@ -849,12 +833,13 @@ export default function CentroPage() {
     const payloadNominaApoyo = {
       sede_id: SEDE_ID_CENTRO,
       usuario_id: Number(operadorApoyoId),
+      turno_id: turnoIdActual ? Number(turnoIdActual) : null,
       monto: totalNominaApoyo,
       horas_dia: Number(horasDiaApoyo) || 0,
       horas_noche: Number(horasNocheApoyo) || 0,
-      tipo_dia: tipoDia,
+      tipo_dia: 'manual',
       fecha: hoyFechaHoraIso,
-      fecha_pago: hoyFechaStr, // GUARDA LA FECHA CORRESPONDIENTE EN COLOMBIA
+      fecha_pago: hoyFechaStr,
     };
 
     const { data, error } = await supabase.from('nomina').insert([payloadNominaApoyo]).select();
@@ -871,6 +856,7 @@ export default function CentroPage() {
     }
 
     alert(`💸 Pago de Nómina Apoyo ($ ${totalNominaApoyo.toLocaleString('es-CO')}) registrado con éxito.`);
+    limpiarMontoNominaApoyoInput();
     limpiarHorasDiaApoyo();
     limpiarHorasNocheApoyo();
   }
@@ -883,7 +869,7 @@ export default function CentroPage() {
 
     if (!nominaYaPagadaHoy) {
       if (totalNomina <= 0) {
-        alert('⚠️ Debes ingresar las horas trabajadas y registrar el pago de tu nómina antes de entregar el turno.');
+        alert('⚠️ Debes ingresar el valor de tu nómina y registrar el pago antes de entregar el turno.');
         return;
       }
     }
@@ -898,7 +884,7 @@ export default function CentroPage() {
   async function guardarCierreDefinitivoBD() {
     if (!nominaYaPagadaHoy) {
       if (totalNomina <= 0) {
-        alert('⚠️ Debes liquidar y pagar obligatoriamente la nómina antes de realizar el cierre.');
+        alert('⚠️ Debes ingresar y pagar obligatoriamente la nómina antes de realizar el cierre.');
         return;
       }
     }
@@ -911,7 +897,6 @@ export default function CentroPage() {
     const fechaHoraCol = getFechaHoraColombia();
 
     try {
-      const turnoIdActual = sesion?.turno_id || sesion?.turnoId;
       if (turnoIdActual) {
         await supabase
           .from('turno_trabajo')
@@ -1028,8 +1013,10 @@ export default function CentroPage() {
       limpiarCantidadesPedido();
       limpiarOtroInsumo();
       limpiarObsPedido();
+      limpiarMontoNominaInput();
       limpiarHorasDia();
       limpiarHorasNoche();
+      limpiarMontoNominaApoyoInput();
       limpiarHorasDiaApoyo();
       limpiarHorasNocheApoyo();
       limpiarEfSistema();
@@ -1071,7 +1058,6 @@ export default function CentroPage() {
     ) {
       try {
         const fechaHoraCol = getFechaHoraColombia();
-        const turnoIdActual = sesion?.turno_id || sesion?.turnoId;
         if (turnoIdActual) {
           await supabase
             .from('turno_trabajo')
@@ -1115,12 +1101,15 @@ export default function CentroPage() {
 
         localStorage.setItem('martineto_session', JSON.stringify(nuevaSesion));
         setSesion(nuevaSesion);
+
+        // RESETEO DE ESTADOS DE NÓMINA PARA EL NUEVO TURNO
         setNominaPagadaEnTurnoLocal(false);
 
         setMostrarModalCambioTurno(false);
         setClaveOperarioEntrante('');
         setOperarioEntranteId('');
 
+        limpiarMontoNominaInput();
         limpiarHorasDia();
         limpiarHorasNoche();
         limpiarEfSistema();
@@ -1141,7 +1130,6 @@ export default function CentroPage() {
   }
 
   function cerrarSesion() {
-    const turnoIdActual = sesion?.turno_id || sesion?.turnoId;
     if (turnoIdActual) {
       supabase
         .from('turno_trabajo')
@@ -1263,10 +1251,10 @@ export default function CentroPage() {
                 {!aperturaRealizada && <option value="apertura">🌅 1. Conteo de Apertura (Obligatorio)</option>}
                 {aperturaRealizada && (
                   <>
+                    <option value="cierre">🌙 Conteo de Cierre</option>
                     <option value="nuevas">📦 Ingreso de Nuevos / Stock</option>
                     <option value="compras">🛒 Compras Directas</option>
                     <option value="debaja">⚠️ De Baja / Mermas</option>
-                    <option value="cierre">🌙 Conteo de Cierre</option>
                   </>
                 )}
               </select>
@@ -1489,44 +1477,51 @@ export default function CentroPage() {
                     {mostrarBloqueApoyo ? '✕ Quitar Refuerzo' : '➕ Agregar Refuerzo/Apoyo'}
                   </button>
                 </div>
-                
-                <div>
-                  <label className="text-[10px] text-sky-200 font-bold block mb-1">Tipo de Día:</label>
-                  <select value={tipoDia} onChange={(e) => setTipoDia(e.target.value as any)} className="w-full bg-[#0e385e] border border-[#0066b3] text-white font-bold text-xs rounded-xl p-2 outline-none cursor-pointer focus:border-[#00a4ef]">
-                    <option value="entre_semana">Entre semana (lunes a sábado)</option>
-                    <option value="domingo_festivo">Domingo / Festivo</option>
-                  </select>
-                </div>
 
                 <div className="grid grid-cols-2 gap-2 text-[10px]">
                   <div>
                     <span className="text-sky-200 block mb-1 font-bold">Horas Día</span>
-                    <input 
+                    <input
                       ref={(el) => { inputsRef.current['cierre_horas_dia'] = el; }}
-                      type="number" 
-                      placeholder="0" 
-                      value={horasDia} 
-                      onChange={(e) => setHorasDia(e.target.value === '' ? '' : Number(e.target.value))} 
+                      type="number"
+                      placeholder="0"
+                      value={horasDia}
+                      onChange={(e) => setHorasDia(e.target.value === '' ? '' : Number(e.target.value))}
                       onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_horas_noche')}
-                      onFocus={(e) => e.target.select()} 
+                      onFocus={(e) => e.target.select()}
                       disabled={nominaYaPagadaHoy}
-                      className="w-full bg-[#0e385e] border border-[#0066b3] text-white font-bold text-center rounded-lg p-2 outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none disabled:opacity-50" 
+                      className="w-full bg-[#0e385e] border border-[#0066b3] text-white font-bold text-center rounded-lg p-2 outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none disabled:opacity-50"
                     />
                   </div>
                   <div>
                     <span className="text-sky-200 block mb-1 font-bold">Horas Noche</span>
-                    <input 
+                    <input
                       ref={(el) => { inputsRef.current['cierre_horas_noche'] = el; }}
-                      type="number" 
-                      placeholder="0" 
-                      value={horasNoche} 
-                      onChange={(e) => setHorasNoche(e.target.value === '' ? '' : Number(e.target.value))} 
-                      onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_efectivo_fisico')}
-                      onFocus={(e) => e.target.select()} 
+                      type="number"
+                      placeholder="0"
+                      value={horasNoche}
+                      onChange={(e) => setHorasNoche(e.target.value === '' ? '' : Number(e.target.value))}
+                      onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_monto_nomina')}
+                      onFocus={(e) => e.target.select()}
                       disabled={nominaYaPagadaHoy}
-                      className="w-full bg-[#0e385e] border border-[#0066b3] text-white font-bold text-center rounded-lg p-2 outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none disabled:opacity-50" 
+                      className="w-full bg-[#0e385e] border border-[#0066b3] text-white font-bold text-center rounded-lg p-2 outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none disabled:opacity-50"
                     />
                   </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] text-sky-200 font-bold block mb-1">Valor de Turno / Nómina ($):</label>
+                  <input
+                    ref={(el) => { inputsRef.current['cierre_monto_nomina'] = el; }}
+                    type="text"
+                    placeholder="$ 0"
+                    value={formatearMoneda(montoNominaInput)}
+                    onChange={(e) => setMontoNominaInput(desformatearMoneda(e.target.value))}
+                    onKeyDown={(e) => handleKeyDownCierre(e, 'cierre_efectivo_fisico')}
+                    onFocus={(e) => e.target.select()}
+                    disabled={nominaYaPagadaHoy}
+                    className="w-full bg-[#0e385e] border border-[#0066b3] text-rose-300 font-black text-center text-sm rounded-xl p-2.5 outline-none focus:border-[#00a4ef] disabled:opacity-50"
+                  />
                 </div>
 
                 <div className="flex justify-between items-center bg-rose-950/60 p-2 rounded-lg border border-rose-500/50 text-xs font-bold text-rose-200">
@@ -1538,7 +1533,7 @@ export default function CentroPage() {
                 {mostrarBloqueApoyo && (
                   <div className="bg-[#0e385e]/80 border border-amber-500/50 p-2.5 rounded-xl space-y-2 mt-2">
                     <span className="text-[10px] font-black text-amber-300 uppercase block">
-                      🤝 Operador de Apoyo / Refuerzo (Domingos/Festivos):
+                      🤝 Operador de Apoyo / Refuerzo:
                     </span>
 
                     <div>
@@ -1584,6 +1579,19 @@ export default function CentroPage() {
                           className="w-full bg-[#051829] border border-[#0066b3] text-white font-bold text-center rounded-lg p-2 outline-none focus:border-[#00a4ef] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none disabled:opacity-50"
                         />
                       </div>
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] text-sky-200 font-bold block mb-1">Valor Turno Apoyo ($):</label>
+                      <input
+                        type="text"
+                        placeholder="$ 0"
+                        value={formatearMoneda(montoNominaApoyoInput)}
+                        onChange={(e) => setMontoNominaApoyoInput(desformatearMoneda(e.target.value))}
+                        onFocus={(e) => e.target.select()}
+                        disabled={nominaApoyoYaPagadaHoy}
+                        className="w-full bg-[#051829] border border-[#0066b3] text-amber-300 font-black text-center text-sm rounded-xl p-2.5 outline-none focus:border-[#00a4ef] disabled:opacity-50"
+                      />
                     </div>
 
                     <div className="flex justify-between items-center bg-amber-950/60 p-2 rounded-lg border border-amber-500/50 text-xs font-bold text-amber-200">
@@ -1649,6 +1657,30 @@ export default function CentroPage() {
                     />
                   </div>
                 </div>
+
+                {/* INDICADOR DE DIFERENCIA / DESCUADRE EN TIEMPO REAL */}
+                {esTurnoCierre && efecFisicoInput > 0 && (
+                  <div
+                    className={`p-2.5 rounded-xl border text-xs font-bold flex justify-between items-center transition-all ${
+                      efecFisicoInput - efecSistemaInput === 0
+                        ? 'bg-emerald-950/60 border-emerald-500/50 text-emerald-300'
+                        : efecFisicoInput - efecSistemaInput < 0
+                        ? 'bg-rose-950/70 border-rose-500/60 text-rose-300'
+                        : 'bg-sky-950/60 border-sky-500/50 text-sky-300'
+                    }`}
+                  >
+                    <span>
+                      {efecFisicoInput - efecSistemaInput === 0
+                        ? '✅ Caja Cuadrada'
+                        : efecFisicoInput - efecSistemaInput < 0
+                        ? '⚠️ Faltante de Efectivo:'
+                        : '💡 Sobrante de Efectivo:'}
+                    </span>
+                    <span className="text-sm font-black">
+                      $ {(efecFisicoInput - efecSistemaInput).toLocaleString('es-CO')}
+                    </span>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-2 gap-2 text-[10px] pt-1">
                   <div>
@@ -1839,6 +1871,26 @@ export default function CentroPage() {
                   <span>$ {efecFisicoInput.toLocaleString('es-CO')}</span>
                 </div>
 
+                {/* RESUMEN DE DIFERENCIA DENTRO DEL MODAL */}
+                <div
+                  className={`flex justify-between font-black pt-1 border-t border-[#0066b3]/30 ${
+                    efecFisicoInput - efecSistemaInput === 0
+                      ? 'text-emerald-300'
+                      : efecFisicoInput - efecSistemaInput < 0
+                      ? 'text-rose-300'
+                      : 'text-sky-300'
+                  }`}
+                >
+                  <span>
+                    {efecFisicoInput - efecSistemaInput === 0
+                      ? '✅ Cuadrado de Caja:'
+                      : efecFisicoInput - efecSistemaInput < 0
+                      ? '⚠️ Faltante en Caja:'
+                      : '💡 Sobrante en Caja:'}
+                  </span>
+                  <span>$ {(efecFisicoInput - efecSistemaInput).toLocaleString('es-CO')}</span>
+                </div>
+
                 <div className="flex justify-between text-amber-400">
                   <span>💸 Gastos Directos Insumos (Efectivo):</span>
                   <span>- $ {gast.toLocaleString('es-CO')}</span>
@@ -1870,8 +1922,13 @@ export default function CentroPage() {
                     const opEncontrado = listaOperarios.find((op) => String(op.id) === String(n.usuario_id));
                     const nombreOperario = opEncontrado ? (opEncontrado.nombre_completo || opEncontrado.nombre) : `Operario #${n.usuario_id || 'N/A'}`;
                     return (
-                      <div key={i} className="flex justify-between text-[11px] text-white border-b border-[#0066b3]/30 py-1">
-                        <span>{nombreOperario}</span>
+                      <div key={i} className="flex justify-between items-center text-[11px] text-white border-b border-[#0066b3]/30 py-1">
+                        <div>
+                          <span>{nombreOperario}</span>
+                          <span className="text-[10px] text-sky-300 block">
+                            (HD: {n.horas_dia || 0} | HN: {n.horas_noche || 0})
+                          </span>
+                        </div>
                         <span className="font-bold text-fuchsia-300">$ {Number(n.monto || 0).toLocaleString('es-CO')}</span>
                       </div>
                     );
