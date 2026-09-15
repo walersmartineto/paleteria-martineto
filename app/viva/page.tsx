@@ -295,11 +295,13 @@ export default function VivaPage() {
         setVentasDiaBD(vtsBD);
       }
 
+      // CORRECCIÓN: Filtrar por fecha_pago en formato local YYYY-MM-DD
+      const hoyTexto = new Date().toLocaleDateString('sv-SE');
       const { data: nomBD } = await supabase
         .from('nomina')
         .select('*')
         .eq('sede_id', SEDE_ID_VIVA)
-        .gte('fecha', hoyInicio.toISOString());
+        .eq('fecha_pago', hoyTexto);
 
       if (nomBD) {
         setRegistrosNominaDia(nomBD);
@@ -799,19 +801,19 @@ export default function VivaPage() {
       return;
     }
 
-    const hoyInicioNom = new Date();
-    hoyInicioNom.setHours(0, 0, 0, 0);
+    // Formato local YYYY-MM-DD
+    const hoyTexto = new Date().toLocaleDateString('sv-SE');
 
     setGuardandoNomina(true);
 
     try {
-      // Verificación directa en base de datos para impedir duplicados de nómina
+      // Verificación directa en BD con fecha_pago exacta
       const { data: existeNominaBD } = await supabase
         .from('nomina')
         .select('id')
         .eq('sede_id', SEDE_ID_VIVA)
         .eq('usuario_id', Number(usuarioId))
-        .gte('fecha', hoyInicioNom.toISOString())
+        .eq('fecha_pago', hoyTexto)
         .maybeSingle();
 
       if (existeNominaBD || nominaYaPagadaHoy) {
@@ -833,7 +835,8 @@ export default function VivaPage() {
         horas_dia: Number(horasDia) || 0,
         horas_noche: Number(horasNoche) || 0,
         tipo_dia: tipoDia,
-        fecha: new Date().toISOString(),
+        fecha_pago: hoyTexto,
+        concepto: 'Pago de turno',
       };
 
       const { data, error } = await supabase.from('nomina').insert([payloadNomina]).select();
