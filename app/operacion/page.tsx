@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { useAutoSave } from '@/hooks/useAutoSave';
@@ -66,6 +66,7 @@ interface ItemCarrito {
   precio: number;
   cantidad: number;
   esAdicion?: boolean;
+  paraLlevar?: boolean;
 }
 
 interface PedidoRappi {
@@ -567,7 +568,64 @@ export default function WalersPOSOperacionPage() {
       ? rappiActual.items
       : [];
 
-  function agregarProductoACarrito(prod: any) {
+  // FUNCIONALIDAD: DESCUENTO DE EMPAQUES EN STOCK
+  async function procesarDescuentoEmpaques(itemsVendidos: ItemCarrito[]) {
+    const idSede = Number(sesion?.sede_id || sedeIdActual);
+
+    for (const item of itemsVendidos) {
+      if (item.esAdicion) continue;
+
+      const { data: prodData, error: prodErr } = await supabase
+        .from('productos_para_venta')
+        .select('empaque_id, nombre')
+        .eq('id', item.id)
+        .maybeSingle();
+
+      if (prodErr || !prodData) continue;
+
+      const empaqueId = prodData.empaque_id;
+
+      if (empaqueId === null || empaqueId === undefined) {
+        continue;
+      }
+
+      const { data: empaqueData, error: empErr } = await supabase
+        .from('inventario_empaques_sedes')
+        .select('id, stock, nombre')
+        .eq('id', empaqueId)
+        .eq('sede_id', idSede)
+        .maybeSingle();
+
+      if (empErr || !empaqueData) {
+        alert(`⚠️ ADVERTENCIA: El empaque configurado para "${item.nombre}" (ID Empaque: ${empaqueId}) no existe en la sede actual.`);
+        continue;
+      }
+
+      let cantidadADescontar = item.cantidad;
+
+      const esCorralito = item.nombre.toLowerCase().includes('corralito');
+      if (esCorralito && item.paraLlevar) {
+        cantidadADescontar = item.cantidad * 2;
+      }
+
+      const nuevoStock = Math.max(0, Number(empaqueData.stock || 0) - cantidadADescontar);
+
+      const { error: updateErr } = await supabase
+        .from('inventario_empaques_sedes')
+        .update({ stock: nuevoStock })
+        .eq('id', empaqueData.id);
+
+      if (updateErr) {
+        console.error(`Error actualizando empaque ${empaqueData.nombre}:`, updateErr);
+      } else {
+        setEmpaquesBD((prev) =>
+          prev.map((e) => (e.id === empaqueData.id ? { ...e, stock: nuevoStock } : e))
+        );
+      }
+    }
+  }
+
+  function agregarProductoACarrito(prod: any, esParaLlevar: boolean = false) {
     if (tipoCanalSeleccionado === 'mesa') {
       if (!mesaSeleccionada) {
         alert('⚠️ Selecciona primero una mesa o pasillo.');
@@ -576,7 +634,9 @@ export default function WalersPOSOperacionPage() {
 
       setCarritosPorMesa((prev) => {
         const actual = prev[mesaSeleccionada] || [];
-        const existeIdx = actual.findIndex((i) => i.id === prod.id && !i.esAdicion);
+        const existeIdx = actual.findIndex(
+          (i) => i.id === prod.id && !i.esAdicion && i.paraLlevar === esParaLlevar
+        );
 
         if (existeIdx >= 0) {
           const copia = [...actual];
@@ -587,7 +647,13 @@ export default function WalersPOSOperacionPage() {
             ...prev,
             [mesaSeleccionada]: [
               ...actual,
-              { id: prod.id, nombre: prod.nombre, precio: Number(prod.precio) || 0, cantidad: 1 },
+              {
+                id: prod.id,
+                nombre: `${prod.nombre}${esParaLlevar ? ' (Para Llevar)' : ''}`,
+                precio: Number(prod.precio) || 0,
+                cantidad: 1,
+                paraLlevar: esParaLlevar,
+              },
             ],
           };
         }
@@ -602,7 +668,9 @@ export default function WalersPOSOperacionPage() {
         prev.map((r) => {
           if (r.id === rappiSeleccionadoId) {
             const actual = r.items || [];
-            const existeIdx = actual.findIndex((i) => i.id === prod.id && !i.esAdicion);
+            const existeIdx = actual.findIndex(
+              (i) => i.id === prod.id && !i.esAdicion && i.paraLlevar === esParaLlevar
+            );
             let nuevosItems = [];
 
             if (existeIdx >= 0) {
@@ -614,7 +682,13 @@ export default function WalersPOSOperacionPage() {
             } else {
               nuevosItems = [
                 ...actual,
-                { id: prod.id, nombre: prod.nombre, precio: Number(prod.precio) || 0, cantidad: 1 },
+                {
+                  id: prod.id,
+                  nombre: `${prod.nombre}${esParaLlevar ? ' (Para Llevar)' : ''}`,
+                  precio: Number(prod.precio) || 0,
+                  cantidad: 1,
+                  paraLlevar: esParaLlevar,
+                },
               ];
             }
             return { ...r, items: nuevosItems };
@@ -923,6 +997,8 @@ export default function WalersPOSOperacionPage() {
         return;
       }
 
+      await procesarDescuentoEmpaques(rappiActual.items);
+
       alert(`✅ Pedido ${rappiActual.codigo} entregado y registrado como venta Rappi.`);
 
       setPedidosRappi((prev) => prev.filter((r) => r.id !== rappiSeleccionadoId));
@@ -981,6 +1057,8 @@ export default function WalersPOSOperacionPage() {
         alert('❌ Error al registrar la venta: ' + error.message);
         return;
       }
+
+      await procesarDescuentoEmpaques(carritoActual);
 
       alert('✅ ¡Venta registrada exitosamente!');
 
@@ -1251,6 +1329,7 @@ export default function WalersPOSOperacionPage() {
     const idSede = Number(sesion?.sede_id || sedeIdActual);
     const usuarioId = sesion?.usuario_id || sesion?.id;
     const fechaRealSQL = obtenerFechaHoraColombia();
+    const inicioDia = obtenerInicioDiaColombia();
 
     const totalPaletasNum =
       totalPaletasInventario !== ''
@@ -1321,13 +1400,19 @@ export default function WalersPOSOperacionPage() {
         );
 
         if (empReg) {
+          const diferenciaVal = cantDigitada - stockActual;
+
           await supabase
             .from('inventario_empaques_sedes')
-            .update({ stock: nuevoStockCalculado })
+            .update({ 
+              stock: nuevoStockCalculado,
+              diferencia: diferenciaVal,
+              fecha_actualizacion: fechaRealSQL
+            })
             .eq('id', empReg.id);
 
           setEmpaquesBD((prev) =>
-            prev.map((e) => (e.id === empReg.id ? { ...e, stock: nuevoStockCalculado } : e))
+            prev.map((e) => (e.id === empReg.id ? { ...e, stock: nuevoStockCalculado, diferencia: diferenciaVal } : e))
           );
         }
       }
@@ -1344,8 +1429,62 @@ export default function WalersPOSOperacionPage() {
         }
         await supabase
           .from('inventario_empaques_sedes')
-          .update({ stock: nuevoStockPaletas })
+          .update({ 
+            stock: nuevoStockPaletas,
+            diferencia: totalPaletasNum - stockPaletaViejo,
+            fecha_actualizacion: fechaRealSQL
+          })
           .eq('id', paletaReg.id);
+      }
+
+      // EN APERTURA: LLENAR/ACTUALIZAR TABLA diferencia_inventARIO (1 REGISTRO POR DÍA)
+      if (tipoMovimiento === 'apertura') {
+        const { data: empaquesSedeData } = await supabase
+          .from('inventario_empaques_sedes')
+          .select('nombre, diferencia')
+          .eq('sede_id', idSede);
+
+        const mapaDiferenciaEmpaques: { [key: string]: number } = {};
+        let sumaDiferencias = 0;
+
+        if (empaquesSedeData) {
+          empaquesSedeData.forEach((item: any) => {
+            const dif = Number(item.diferencia || 0);
+            mapaDiferenciaEmpaques[item.nombre] = dif;
+            sumaDiferencias += dif;
+          });
+        }
+
+        const mapaDiferenciaPaletas: { [key: string]: number } = {
+          "Total Paletas": totalPaletasNum - stockPaletaViejo
+        };
+
+        const { data: registroDifExistente } = await supabase
+          .from('diferencia_inventario')
+          .select('id')
+          .eq('sede_id', idSede)
+          .gte('fecha', inicioDia)
+          .maybeSingle();
+
+        const payloadDif = {
+          sede_id: idSede,
+          usuario_id: Number(usuarioId),
+          diferencia_paletas: mapaDiferenciaPaletas,
+          diferencia_empaques: mapaDiferenciaEmpaques,
+          total_diferencia: sumaDiferencias,
+          fecha: fechaRealSQL
+        };
+
+        if (registroDifExistente) {
+          await supabase
+            .from('diferencia_inventario')
+            .update(payloadDif)
+            .eq('id', registroDifExistente.id);
+        } else {
+          await supabase
+            .from('diferencia_inventario')
+            .insert([payloadDif]);
+        }
       }
 
       alert(`✅ ¡${tipoMovimiento.toUpperCase()} registrada con éxito! Stock actualizado en base de datos.`);
@@ -1505,6 +1644,8 @@ export default function WalersPOSOperacionPage() {
 
     const efectivoSistema = totalEfectivoJornada;
     const diferenciaCalculada = fisicoNum - efectivoSistema;
+    const fechaRealSQL = obtenerFechaHoraColombia();
+    const inicioDia = obtenerInicioDiaColombia();
 
     setGuardandoCierre(true);
     try {
@@ -1539,20 +1680,73 @@ export default function WalersPOSOperacionPage() {
           detalle_vendidas: unidadesVendidas,
           observaciones: observacionesCierre || 'Cierre de turno',
           turno_id: sesion?.turno_id ? Number(sesion.turno_id) : null,
-          fecha_registro: obtenerFechaHoraColombia()
+          fecha_registro: fechaRealSQL
         }
       ]);
 
       for (const [nombreEmp, cantContada] of Object.entries(detalleEmpaquesCierre)) {
         const empReg = empaquesBD.find((e) => (e.nombre || '').toLowerCase().trim() === nombreEmp.toLowerCase().trim());
         if (empReg) {
-          await supabase.from('inventario_empaques_sedes').update({ stock: cantContada }).eq('id', empReg.id);
+          const vendidasEmp = unidadesVendidas[nombreEmp] || 0;
+          await supabase
+            .from('inventario_empaques_sedes')
+            .update({ 
+              stock: cantContada,
+              vendidas: vendidasEmp,
+              fecha_actualizacion: fechaRealSQL
+            })
+            .eq('id', empReg.id);
         }
       }
 
       const paletaReg = empaquesBD.find((e) => (e.nombre || '').toLowerCase().trim() === 'total paletas');
       if (paletaReg) {
-        await supabase.from('inventario_empaques_sedes').update({ stock: totalPaletasContadas }).eq('id', paletaReg.id);
+        await supabase
+          .from('inventario_empaques_sedes')
+          .update({ 
+            stock: totalPaletasContadas,
+            vendidas: paletasVendidas,
+            fecha_actualizacion: fechaRealSQL
+          })
+          .eq('id', paletaReg.id);
+      }
+
+      // EN CIERRE: LLENAR/ACTUALIZAR TABLA historico_ventas (1 REGISTRO POR DÍA)
+      const { data: empaquesSedeData } = await supabase
+        .from('inventario_empaques_sedes')
+        .select('nombre, vendidas')
+        .eq('sede_id', idSede);
+
+      const mapaProductosVendidos: { [key: string]: number } = {};
+
+      if (empaquesSedeData) {
+        empaquesSedeData.forEach((item: any) => {
+          mapaProductosVendidos[item.nombre] = Number(item.vendidas || 0);
+        });
+      }
+
+      const { data: registroHistExistente } = await supabase
+        .from('historico_ventas')
+        .select('id')
+        .eq('sede_id', idSede)
+        .gte('fecha', inicioDia)
+        .maybeSingle();
+
+      const payloadHistorico = {
+        sede_id: idSede,
+        productos: mapaProductosVendidos,
+        fecha: fechaRealSQL
+      };
+
+      if (registroHistExistente) {
+        await supabase
+          .from('historico_ventas')
+          .update(payloadHistorico)
+          .eq('id', registroHistExistente.id);
+      } else {
+        await supabase
+          .from('historico_ventas')
+          .insert([payloadHistorico]);
       }
 
       if (cajaIdActual) {
@@ -2674,21 +2868,51 @@ export default function WalersPOSOperacionPage() {
                     </p>
                   ) : (
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                      {productosVentaFiltrados.map((prod) => (
-                        <div
-                          key={prod.id}
-                          onClick={() => agregarProductoACarrito(prod)}
-                          className="bg-[#051829] border border-[#0066b3] hover:border-emerald-400 p-2.5 rounded-xl flex flex-col justify-between text-left space-y-2 cursor-pointer transition-all shadow"
-                        >
-                          <div>
-                            <p className="text-xs font-bold text-white line-clamp-2">{prod.nombre}</p>
-                            <p className="text-[10px] text-sky-300 uppercase mt-0.5">{prod.categoria || 'General'}</p>
+                      {productosVentaFiltrados.map((prod) => {
+                        const esCorralito = (prod.nombre || '').toLowerCase().includes('corralito');
+
+                        return (
+                          <div
+                            key={prod.id}
+                            className="bg-[#051829] border border-[#0066b3] p-2.5 rounded-xl flex flex-col justify-between text-left space-y-2 shadow"
+                          >
+                            <div>
+                              <p className="text-xs font-bold text-white line-clamp-2">{prod.nombre}</p>
+                              <p className="text-[10px] text-sky-300 uppercase mt-0.5">{prod.categoria || 'General'}</p>
+                              <p className="text-xs font-black text-emerald-300 mt-1">
+                                {formatearMoneda(prod.precio)}
+                              </p>
+                            </div>
+
+                            {esCorralito ? (
+                              <div className="grid grid-cols-2 gap-1.5 pt-1">
+                                <button
+                                  type="button"
+                                  onClick={() => agregarProductoACarrito(prod, false)}
+                                  className="bg-[#0078d4] hover:bg-[#0086e6] text-white font-bold text-[10px] py-1.5 rounded-lg cursor-pointer transition-all uppercase text-center"
+                                >
+                                  Local
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => agregarProductoACarrito(prod, true)}
+                                  className="bg-amber-600 hover:bg-amber-500 text-white font-bold text-[10px] py-1.5 rounded-lg cursor-pointer transition-all uppercase text-center"
+                                >
+                                  Para Llevar
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => agregarProductoACarrito(prod, false)}
+                                className="w-full bg-[#0078d4] hover:bg-[#0086e6] text-white font-bold text-[11px] py-1.5 rounded-lg cursor-pointer transition-all uppercase text-center mt-1"
+                              >
+                                + Agregar
+                              </button>
+                            )}
                           </div>
-                          <p className="text-xs font-black text-emerald-300">
-                            {formatearMoneda(prod.precio)}
-                          </p>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </div>
