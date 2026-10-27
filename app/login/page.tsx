@@ -43,23 +43,23 @@ export default function PaginaLoginWalers() {
       setCargando(true);
       try {
         const { data: dSedes } = await supabase.from('sede').select('*');
-        if (dSedes && dSedes.length > 0) {
-          const sedesOrdenadas = dSedes.sort((a, b) => {
-            const nombreA = (a.nombre || a.nombre_sede || '').toLowerCase();
-            const nombreB = (b.nombre || b.nombre_sede || '').toLowerCase();
-            return nombreA.localeCompare(nombreB, 'es', { sensitivity: 'base' });
-          });
-          setSedes(sedesOrdenadas);
-        } else {
-          const sedesDefault = [
-            { id: 4, nombre: 'Walers Martineto' },
-            { id: 3, nombre: 'Walers Ositos' },
-            { id: 2, nombre: 'Walers Centro' },
-            { id: 1, nombre: 'Walers Viva' },
-            { id: 5, nombre: 'Producción' }
-          ].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }));
-          setSedes(sedesDefault);
-        }
+        
+        let listaSedes = dSedes && dSedes.length > 0 ? dSedes : [
+          { id: 4, nombre: 'Martineto', codigo: 'martineto' },
+          { id: 3, nombre: 'Ositos', codigo: 'ositos' },
+          { id: 2, nombre: 'Walers Centro', codigo: 'centro' },
+          { id: 1, nombre: 'Walers Viva', codigo: 'viva' },
+          { id: 5, nombre: 'Administración Global', codigo: 'admin' },
+          { id: 11, nombre: 'Walers Producción', codigo: 'produccion' }
+        ];
+
+        const sedesOrdenadas = listaSedes.sort((a: any, b: any) => {
+          const nombreA = (a.nombre || a.nombre_sede || '').toLowerCase();
+          const nombreB = (b.nombre || b.nombre_sede || '').toLowerCase();
+          return nombreA.localeCompare(nombreB, 'es', { sensitivity: 'base' });
+        });
+
+        setSedes(sedesOrdenadas);
 
         const { data: dUsuarios, error } = await supabase.from('usuario').select('*');
         if (error) console.error('Error cargando usuario:', error);
@@ -112,6 +112,7 @@ export default function PaginaLoginWalers() {
 
     const sedeObj = sedes.find(s => String(s.id) === String(sedeId));
     const nombreSedeLower = (sedeObj?.nombre || sedeObj?.nombre_sede || '').toLowerCase();
+    const codigoSedeLower = (sedeObj?.codigo || '').toLowerCase();
     const usuarioObj = usuarios.find(u => String(u.id) === String(usuarioId));
 
     try {
@@ -122,14 +123,25 @@ export default function PaginaLoginWalers() {
         }
       }
 
-      const esSedeProduccion = nombreSedeLower.includes('producción') || nombreSedeLower.includes('produccion');
-      const esSedeAdmin = nombreSedeLower.includes('administrador') || nombreSedeLower.includes('admin');
+      // Verificamos si es administración por nombre o por código 'admin'
+      const esSedeAdmin = 
+        codigoSedeLower === 'admin' || 
+        nombreSedeLower.includes('admin') || 
+        nombreSedeLower.includes('administración') || 
+        nombreSedeLower.includes('administracion');
 
+      const esSedeProduccion = 
+        codigoSedeLower === 'produccion' || 
+        nombreSedeLower.includes('producción') || 
+        nombreSedeLower.includes('produccion');
+
+      // Si es administración, va directo a /admin
       if (esSedeAdmin) {
         router.replace('/admin');
         return;
       }
 
+      // Si es producción, va directo a /produccion
       if (esSedeProduccion) {
         router.replace('/produccion');
         return;
@@ -168,10 +180,18 @@ export default function PaginaLoginWalers() {
     }
   };
 
+  // Ocultamos únicamente "Producción" y "Global" (si solo es insumos), pero dejamos visible Administración y las demás sedes
   const sedesFiltradas = sedes.filter(s => {
     const nombre = (s.nombre || s.nombre_sede || '').toLowerCase();
-    const esGlobalSede = nombre.includes('global');
-    return !esGlobalSede;
+    const codigo = (s.codigo || '').toLowerCase();
+    
+    // Ocultar producción explícitamente
+    const esProduccion = codigo === 'produccion' || nombre.includes('producción') || nombre.includes('produccion');
+    
+    // Ocultar sede global pura si así se desea, pero mantener Administración Global
+    const esSedeGlobalPura = codigo === 'global' || nombre === 'sede global';
+
+    return !esProduccion && !esSedeGlobalPura;
   });
 
   return (
