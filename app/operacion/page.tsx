@@ -175,8 +175,8 @@ export default function WalersPOSOperacionPage() {
   // ESTADOS MÓDULO 5 (NÓMINA Y TURNO)
   const [tipoPersonaNomina, setTipoPersonaNomina] = useState<'operador' | 'ayudante'>('operador');
   const [ayudanteSeleccionadoId, setAyudanteSeleccionadoId] = useState<number | string>('');
-  const [horasDiaNomina, setHorasDiaNomina] = useState<number | ''>('');
-  const [horasNocheNomina, setHorasNocheNomina] = useState<number | ''>('');
+  const [horasDiaNomina, setHorasDiaNomina] = useState<string>('');
+  const [horasNocheNomina, setHorasNocheNomina] = useState<string>('');
   const [montoTotalNomina, setMontoTotalNomina] = useState<number | ''>('');
   const [guardandoNomina, setGuardandoNomina] = useState(false);
   const [nominasDiaBD, setNominasDiaBD] = useState<any[]>([]);
@@ -200,7 +200,7 @@ export default function WalersPOSOperacionPage() {
 
   const bloqueadoPorApertura = !baseGuardada || !aperturaRealizada;
 
-  // Listado de empaques filtrados y ordenados alfabéticamente de forma estricta (es-CO)
+  // Listado de empaques filtrados y ordenados alfabéticamente
   const listaEmpaquesFiltrados = Array.from(
     new Set(
       empaquesBD
@@ -336,7 +336,7 @@ export default function WalersPOSOperacionPage() {
     const { data, error } = await supabase
       .from('productos_para_venta')
       .select('*')
-      .or(`sede_id.eq.${sId},sede_id.is.null`)
+      .eq('sede_id', sId)
       .order('nombre', { ascending: true });
 
     if (!error && data) {
@@ -447,7 +447,7 @@ export default function WalersPOSOperacionPage() {
         const { data: turnoData } = await supabase
           .from('turno_trabajo')
           .select('id, nombre')
-          .or(`sede_id.eq.${sId},sede_id.is.null`)
+          .eq('sede_id', sId)
           .order('id', { ascending: false })
           .limit(1);
 
@@ -513,7 +513,7 @@ export default function WalersPOSOperacionPage() {
       const { data: prodsInsumosBD } = await supabase
         .from('producto')
         .select('*')
-        .or(`sede_id.eq.${sId},sede_id.is.null`);
+        .eq('sede_id', sId);
 
       if (prodsInsumosBD) {
         const productosMapeados = prodsInsumosBD.map((p: any) => ({
@@ -2254,7 +2254,6 @@ export default function WalersPOSOperacionPage() {
             <span className="text-xs font-black text-amber-300 bg-[#051829] px-3 py-1 rounded-full border border-amber-500/40">
               Total Gastos Insumos: {formatearMoneda(totalGastosHoy) || '$ 0'}
             </span>
-
           </div>
 
           <div className="bg-[#051829] border border-[#0066b3] p-4 rounded-xl space-y-3">
@@ -2845,12 +2844,14 @@ export default function WalersPOSOperacionPage() {
                   <label className="text-xs text-sky-200 font-bold block mb-1">Horas Día:</label>
                   <input
                     type="text"
-                    inputMode="numeric"
-                    placeholder="0"
+                    inputMode="decimal"
+                    placeholder="0.0"
                     value={horasDiaNomina}
                     onChange={(e) => {
-                      const val = e.target.value.replace(/\D/g, '');
-                      setHorasDiaNomina(val === '' ? '' : Number(val));
+                      const val = e.target.value.replace(',', '.');
+                      if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                        setHorasDiaNomina(val);
+                      }
                     }}
                     className="w-full bg-[#0e385e] border border-[#0066b3] text-white font-bold text-xs p-2.5 rounded-xl outline-none"
                   />
@@ -2860,12 +2861,14 @@ export default function WalersPOSOperacionPage() {
                   <label className="text-xs text-sky-200 font-bold block mb-1">Horas Noche:</label>
                   <input
                     type="text"
-                    inputMode="numeric"
-                    placeholder="0"
+                    inputMode="decimal"
+                    placeholder="0.0"
                     value={horasNocheNomina}
                     onChange={(e) => {
-                      const val = e.target.value.replace(/\D/g, '');
-                      setHorasNocheNomina(val === '' ? '' : Number(val));
+                      const val = e.target.value.replace(',', '.');
+                      if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                        setHorasNocheNomina(val);
+                      }
                     }}
                     className="w-full bg-[#0e385e] border border-[#0066b3] text-white font-bold text-xs p-2.5 rounded-xl outline-none"
                   />
@@ -2987,7 +2990,6 @@ export default function WalersPOSOperacionPage() {
             <span className="bg-rose-900/60 border border-rose-500/50 text-rose-200 text-xs font-black px-3 py-1 rounded-full uppercase">
               Cierre Sede
             </span>
-
           </div>
 
           <div className="space-y-3 bg-[#051829] border border-[#0066b3] p-4 rounded-xl">
