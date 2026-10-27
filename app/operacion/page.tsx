@@ -78,8 +78,8 @@ interface PedidoRappi {
 export default function WalersPOSOperacionPage() {
   const router = useRouter();
   const [sesion, setSesion] = useState<any>(null);
-  const [sedeIdActual, setSedeIdActual] = useState<number>(4);
-  const [nombreSedeActual, setNombreSedeActual] = useState<string>('Sede Principal');
+  const [sedeIdActual, setSedeIdActual] = useState<number | null>(null);
+  const [nombreSedeActual, setNombreSedeActual] = useState<string>('');
 
   const [moduloActivo, setModuloActivo] = useState<ModuloPrincipal>('movimientos');
 
@@ -200,7 +200,7 @@ export default function WalersPOSOperacionPage() {
 
   const bloqueadoPorApertura = !baseGuardada || !aperturaRealizada;
 
-  // Listado de empaques filtrados y ordenados alfabéticamente
+  // Listado de empaques filtrados
   const listaEmpaquesFiltrados = Array.from(
     new Set(
       empaquesBD
@@ -209,7 +209,7 @@ export default function WalersPOSOperacionPage() {
     )
   ).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
 
-  // Insumos filtrados y ordenados alfabéticamente
+  // Insumos filtrados
   const insumosFiltrados = productosInsumosBD
     .filter((prod) => {
       const cat = String(prod?.categoriaLimpia || '');
@@ -241,7 +241,6 @@ export default function WalersPOSOperacionPage() {
     })
     .sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'es', { sensitivity: 'base' }));
 
-  // Lugares de compra únicos ordenados alfabéticamente
   const listaLugaresCompraUnica = Array.from(
     new Set(
       productosInsumosBD
@@ -250,12 +249,10 @@ export default function WalersPOSOperacionPage() {
     )
   ).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
 
-  // Categorías de venta ordenadas alfabéticamente
   const categoriasVentaDisponibles = Array.from(
     new Set(productosVentaBD.map((p) => p.categoria || 'General').filter(Boolean))
   ).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
 
-  // Productos de venta filtrados y ordenados alfabéticamente
   const productosVentaFiltrados = productosVentaBD.filter((prod) => {
     const coincideTexto =
       !busquedaProductoVenta.trim() ||
@@ -277,8 +274,9 @@ export default function WalersPOSOperacionPage() {
     const ses = JSON.parse(sesionLocal);
     setSesion(ses);
 
-    const sId = Number(ses.sede_id) || 4;
-    const sNombre = ses.sede_nombre || 'Sede Walers';
+    const sId = Number(ses.sede_id);
+    const sNombre = ses.sede_nombre || 'Sede';
+    
     setSedeIdActual(sId);
     setNombreSedeActual(sNombre);
 
@@ -291,7 +289,7 @@ export default function WalersPOSOperacionPage() {
     const { data, error } = await supabase
       .from('gasto')
       .select('*')
-      .eq('sede_id', sId)
+      .eq('sede_id', Number(sId))
       .gte('fecha', inicioDia)
       .order('id', { ascending: false });
 
@@ -307,7 +305,7 @@ export default function WalersPOSOperacionPage() {
     const { data, error } = await supabase
       .from('venta')
       .select('*')
-      .eq('sede_id', sId)
+      .eq('sede_id', Number(sId))
       .gte('fecha_hora', inicioDia)
       .order('id', { ascending: false });
 
@@ -323,7 +321,7 @@ export default function WalersPOSOperacionPage() {
     const { data, error } = await supabase
       .from('pedidos_insumos')
       .select('*')
-      .eq('sede_id', sId)
+      .eq('sede_id', Number(sId))
       .gte('fecha', inicioDia)
       .order('id', { ascending: false });
 
@@ -336,7 +334,7 @@ export default function WalersPOSOperacionPage() {
     const { data, error } = await supabase
       .from('productos_para_venta')
       .select('*')
-      .eq('sede_id', sId)
+      .eq('sede_id', Number(sId))
       .order('nombre', { ascending: true });
 
     if (!error && data) {
@@ -348,7 +346,7 @@ export default function WalersPOSOperacionPage() {
     const { data, error } = await supabase
       .from('mesa')
       .select('*')
-      .eq('sede_id', sId)
+      .eq('sede_id', Number(sId))
       .order('id', { ascending: true });
 
     if (!error && data && data.length > 0) {
@@ -385,28 +383,33 @@ export default function WalersPOSOperacionPage() {
   }
 
   async function cargarNominasDia(sId: number) {
-    const inicioDia = obtenerInicioDiaColombia();
+    const sedeNum = Number(sId || sesion?.sede_id || sedeIdActual);
+    if (!sedeNum) return;
+
+    const fechaHoyCorta = obtenerFechaCortaColombia();
 
     const { data, error } = await supabase
       .from('nomina')
       .select('*')
-      .eq('sede_id', sId)
-      .gte('fecha', inicioDia)
+      .eq('sede_id', sedeNum)
+      .eq('fecha_pago', fechaHoyCorta)
       .order('id', { ascending: false });
 
     if (!error && data) {
-      setNominasDiaBD(data);
+      const nominasExclusivasSede = data.filter((n: any) => Number(n.sede_id) === sedeNum);
+      setNominasDiaBD(nominasExclusivasSede);
     }
   }
 
   async function agregarPasilloMesa() {
+    const idSede = Number(sedeIdActual || sesion?.sede_id);
     const totalPasillos = mesasBD.filter((m) => (m.nombre || '').toUpperCase().includes('PASILLO')).length + 1;
     const nombreNuevo = `PASILLO ${totalPasillos < 10 ? '0' + totalPasillos : totalPasillos}`;
 
     try {
       const { data, error } = await supabase
         .from('mesa')
-        .insert([{ sede_id: sedeIdActual, nombre: nombreNuevo }])
+        .insert([{ sede_id: idSede, nombre: nombreNuevo }])
         .select();
 
       if (!error && data && data.length > 0) {
@@ -440,6 +443,7 @@ export default function WalersPOSOperacionPage() {
 
   async function cargarInicial(sesionActual: any, sId: number) {
     setCargando(true);
+    const idSedeNumerico = Number(sId || sesionActual?.sede_id);
 
     try {
       let turnoIdActual = sesionActual?.turno_id;
@@ -447,7 +451,7 @@ export default function WalersPOSOperacionPage() {
         const { data: turnoData } = await supabase
           .from('turno_trabajo')
           .select('id, nombre')
-          .eq('sede_id', sId)
+          .eq('sede_id', idSedeNumerico)
           .order('id', { ascending: false })
           .limit(1);
 
@@ -462,7 +466,7 @@ export default function WalersPOSOperacionPage() {
       const { data: empaquesData } = await supabase
         .from('inventario_empaques_sedes')
         .select('*')
-        .eq('sede_id', sId)
+        .eq('sede_id', idSedeNumerico)
         .order('nombre', { ascending: true });
 
       if (empaquesData) {
@@ -470,12 +474,12 @@ export default function WalersPOSOperacionPage() {
       }
 
       const inicioDia = obtenerInicioDiaColombia();
-      const usuarioId = sesionActual?.usuario_id || sesionActual?.id || 2;
+      const usuarioId = sesionActual?.usuario_id || sesionActual?.id;
 
       const { data: cajaHoyBD } = await supabase
         .from('caja')
         .select('*')
-        .eq('sede_id', sId)
+        .eq('sede_id', idSedeNumerico)
         .eq('usuario_id', usuarioId)
         .gte('fecha', inicioDia)
         .order('id', { ascending: false })
@@ -498,7 +502,7 @@ export default function WalersPOSOperacionPage() {
       const { data: invHoyBD } = await supabase
         .from('inventario_diario')
         .select('*')
-        .eq('sede_id', sId)
+        .eq('sede_id', idSedeNumerico)
         .gte('fecha_registro', inicioDia)
         .ilike('tipo_movimiento', 'apertura')
         .order('id', { ascending: false })
@@ -513,7 +517,7 @@ export default function WalersPOSOperacionPage() {
       const { data: prodsInsumosBD } = await supabase
         .from('producto')
         .select('*')
-        .eq('sede_id', sId);
+        .eq('sede_id', idSedeNumerico);
 
       if (prodsInsumosBD) {
         const productosMapeados = prodsInsumosBD.map((p: any) => ({
@@ -539,13 +543,13 @@ export default function WalersPOSOperacionPage() {
         }
       }
 
-      await cargarHistorialPedidos(sId);
-      await cargarGastosDia(sId);
-      await cargarVentasDiaBD(sId);
-      await cargarProductosParaVenta(sId);
-      await cargarMesas(sId);
+      await cargarHistorialPedidos(idSedeNumerico);
+      await cargarGastosDia(idSedeNumerico);
+      await cargarVentasDiaBD(idSedeNumerico);
+      await cargarProductosParaVenta(idSedeNumerico);
+      await cargarMesas(idSedeNumerico);
       await cargarUsuarios();
-      await cargarNominasDia(sId);
+      await cargarNominasDia(idSedeNumerico);
     } catch (e: any) {
       console.error(e);
     } finally {
@@ -744,25 +748,31 @@ export default function WalersPOSOperacionPage() {
       return;
     }
 
+    const sedeActual = Number(sesion?.sede_id || sedeIdActual);
+
+    if (!sedeActual) {
+      alert('❌ Error: No se encontró la sede de la sesión activa.');
+      return;
+    }
+
     setGuardandoNomina(true);
 
     try {
-      const usuarioLogueadoId = sesion?.usuario_id || sesion?.id || 2;
-      
+      const usuarioLogueadoId = Number(sesion?.usuario_id || sesion?.id);
+
       let nombreBeneficiario = '';
-      let usuarioIdGuardar = Number(usuarioLogueadoId);
+      let usuarioIdGuardar = usuarioLogueadoId;
 
       if (tipoPersonaNomina === 'operador') {
         nombreBeneficiario = sesion?.nombre || 'Operador Actual';
-        usuarioIdGuardar = Number(sesion?.usuario_id || sesion?.id || 2);
       } else {
         const uAyudante = usuariosBD.find((u) => String(u.id) === String(ayudanteSeleccionadoId));
         nombreBeneficiario = uAyudante ? uAyudante.nombre : 'Ayudante';
-        usuarioIdGuardar = ayudanteSeleccionadoId ? Number(ayudanteSeleccionadoId) : Number(usuarioLogueadoId);
+        usuarioIdGuardar = ayudanteSeleccionadoId ? Number(ayudanteSeleccionadoId) : usuarioLogueadoId;
       }
 
       const payload = {
-        sede_id: sedeIdActual,
+        sede_id: sedeActual,
         usuario_id: usuarioIdGuardar,
         monto: monto,
         concepto: `Pago de turno (${nombreBeneficiario})`,
@@ -781,7 +791,8 @@ export default function WalersPOSOperacionPage() {
       setHorasDiaNomina('');
       setHorasNocheNomina('');
       setMontoTotalNomina('');
-      await cargarNominasDia(sedeIdActual);
+      
+      await cargarNominasDia(sedeActual);
     } finally {
       setGuardandoNomina(false);
     }
@@ -809,6 +820,7 @@ export default function WalersPOSOperacionPage() {
     setVerificandoCambioTurno(true);
 
     try {
+      const idSede = Number(sesion?.sede_id || sedeIdActual);
       const uEntrante = usuariosBD.find((u) => String(u.id) === String(usuarioEntranteId));
 
       if (!uEntrante || String(uEntrante.contrasena || '') !== String(claveUsuarioEntrante.trim())) {
@@ -830,7 +842,7 @@ export default function WalersPOSOperacionPage() {
         .from('caja')
         .insert([
           {
-            sede_id: sedeIdActual,
+            sede_id: idSede,
             usuario_id: Number(uEntrante.id),
             monto_apertura: dejandoCajaNum,
             diferencia: 0,
@@ -880,12 +892,13 @@ export default function WalersPOSOperacionPage() {
     setGuardandoVenta(true);
 
     try {
-      const usuarioId = sesion?.usuario_id || sesion?.id || 2;
+      const idSede = Number(sesion?.sede_id || sedeIdActual);
+      const usuarioId = sesion?.usuario_id || sesion?.id;
       const turnoId = sesion?.turno_id ? Number(sesion.turno_id) : null;
       const totalRappi = rappiActual.items.reduce((a, b) => a + b.precio * b.cantidad, 0);
 
       const payloadVenta = {
-        sede_id: sedeIdActual,
+        sede_id: idSede,
         mesa_id: null,
         usuario_id: usuarioId,
         turno_id: turnoId,
@@ -914,7 +927,7 @@ export default function WalersPOSOperacionPage() {
 
       setPedidosRappi((prev) => prev.filter((r) => r.id !== rappiSeleccionadoId));
       setRappiSeleccionadoId(null);
-      await cargarVentasDiaBD(sedeIdActual);
+      await cargarVentasDiaBD(idSede);
       if (mesasBD.length > 0) {
         setMesaSeleccionada(mesasBD[0].id);
         setTipoCanalSeleccionado('mesa');
@@ -940,11 +953,12 @@ export default function WalersPOSOperacionPage() {
     setGuardandoVenta(true);
 
     try {
-      const usuarioId = sesion?.usuario_id || sesion?.id || 2;
+      const idSede = Number(sesion?.sede_id || sedeIdActual);
+      const usuarioId = sesion?.usuario_id || sesion?.id;
       const turnoId = sesion?.turno_id ? Number(sesion.turno_id) : null;
 
       const payloadVenta = {
-        sede_id: sedeIdActual,
+        sede_id: idSede,
         mesa_id: mesaSeleccionada,
         usuario_id: usuarioId,
         turno_id: turnoId,
@@ -981,7 +995,7 @@ export default function WalersPOSOperacionPage() {
       setDetalleOtro('');
       setDescuentoVenta('');
       setMostrarModalPago(false);
-      await cargarVentasDiaBD(sedeIdActual);
+      await cargarVentasDiaBD(idSede);
     } finally {
       setGuardandoVenta(false);
     }
@@ -990,7 +1004,8 @@ export default function WalersPOSOperacionPage() {
   async function handleGuardarVentasExternas() {
     if (guardandoExterno) return;
 
-    const usuarioId = sesion?.usuario_id || sesion?.id || 2;
+    const idSede = Number(sesion?.sede_id || sedeIdActual);
+    const usuarioId = sesion?.usuario_id || sesion?.id;
     const efec = externoEfectivo === '' ? 0 : Number(externoEfectivo);
     const neq = externoNequi === '' ? 0 : Number(externoNequi);
     const davi = externoDaviplata === '' ? 0 : Number(externoDaviplata);
@@ -1012,7 +1027,7 @@ export default function WalersPOSOperacionPage() {
         const { data: cajaBD } = await supabase
           .from('caja')
           .select('*')
-          .eq('sede_id', sedeIdActual)
+          .eq('sede_id', idSede)
           .eq('usuario_id', usuarioId)
           .gte('fecha', inicioDia)
           .order('id', { ascending: false })
@@ -1050,7 +1065,7 @@ export default function WalersPOSOperacionPage() {
           .from('caja')
           .insert([
             {
-              sede_id: sedeIdActual,
+              sede_id: idSede,
               usuario_id: usuarioId,
               monto_apertura: baseCaja === '' ? 0 : Number(baseCaja),
               efectivo_cierre: efec,
@@ -1085,6 +1100,7 @@ export default function WalersPOSOperacionPage() {
   async function handleGuardarGasto() {
     if (guardandoGasto) return;
 
+    const idSede = Number(sesion?.sede_id || sedeIdActual);
     const descLimpia = descripcionGasto.trim();
     const montoNum = montoGasto === '' ? 0 : Number(montoGasto);
 
@@ -1105,7 +1121,7 @@ export default function WalersPOSOperacionPage() {
       const turnoId = sesion?.turno_id ? Number(sesion.turno_id) : null;
 
       const payload = {
-        sede_id: sedeIdActual,
+        sede_id: idSede,
         usuario_id: usuarioId ? Number(usuarioId) : null,
         turno_id: turnoId,
         descripcion: descLimpia,
@@ -1123,7 +1139,7 @@ export default function WalersPOSOperacionPage() {
       alert('✅ Gasto registrado correctamente.');
       setDescripcionGasto('');
       setMontoGasto('');
-      await cargarGastosDia(sedeIdActual);
+      await cargarGastosDia(idSede);
     } finally {
       setGuardandoGasto(false);
     }
@@ -1133,13 +1149,14 @@ export default function WalersPOSOperacionPage() {
     if (!confirm(`¿Deseas eliminar el gasto "${desc}"?`)) return;
 
     try {
+      const idSede = Number(sesion?.sede_id || sedeIdActual);
       const { error } = await supabase.from('gasto').delete().eq('id', idGasto);
 
       if (error) {
         alert('Error al borrar el gasto: ' + error.message);
       } else {
         alert('✅ Gasto eliminado.');
-        await cargarGastosDia(sedeIdActual);
+        await cargarGastosDia(idSede);
       }
     } catch (e: any) {
       alert('Error en la operación: ' + e.message);
@@ -1183,8 +1200,9 @@ export default function WalersPOSOperacionPage() {
 
   async function handleGuardarBase() {
     if (guardandoBase || baseGuardada) return;
+    const idSede = Number(sesion?.sede_id || sedeIdActual);
     const monto = baseCaja === '' ? 0 : Number(baseCaja);
-    const usuarioId = sesion?.usuario_id || sesion?.id || 2;
+    const usuarioId = sesion?.usuario_id || sesion?.id;
     const turnoId = sesion?.turno_id ? Number(sesion.turno_id) : null;
 
     if (monto < 0) {
@@ -1196,7 +1214,7 @@ export default function WalersPOSOperacionPage() {
     try {
       const { data, error } = await supabase.from('caja').insert([
         {
-          sede_id: sedeIdActual,
+          sede_id: idSede,
           usuario_id: Number(usuarioId),
           turno_id: turnoId,
           monto_apertura: monto,
@@ -1230,7 +1248,8 @@ export default function WalersPOSOperacionPage() {
       return;
     }
 
-    const usuarioId = sesion?.usuario_id || sesion?.id || 2;
+    const idSede = Number(sesion?.sede_id || sedeIdActual);
+    const usuarioId = sesion?.usuario_id || sesion?.id;
     const fechaRealSQL = obtenerFechaHoraColombia();
 
     const totalPaletasNum =
@@ -1241,7 +1260,6 @@ export default function WalersPOSOperacionPage() {
         : 0;
 
     const detalleEmpaquesLimpio: { [key: string]: number } = {};
-    const perdidasCalculadas: { [key: string]: number } = {};
 
     Object.keys(cantidadesInventario).forEach((key) => {
       if (key !== 'Total Paletas') {
@@ -1249,11 +1267,6 @@ export default function WalersPOSOperacionPage() {
         if (val !== '' && val !== null && val !== undefined) {
           const contadoNum = Number(val);
           detalleEmpaquesLimpio[key] = contadoNum;
-          if (tipoMovimiento === 'apertura') {
-            const stockViejo = obtenerStockActualBD(key);
-            const perdida = stockViejo - contadoNum;
-            perdidasCalculadas[key] = perdida > 0 ? perdida : 0;
-          }
         } else if (tipoMovimiento === 'apertura') {
           detalleEmpaquesLimpio[key] = obtenerStockActualBD(key);
         } else {
@@ -1273,7 +1286,7 @@ export default function WalersPOSOperacionPage() {
     try {
       const { error: errorInsert } = await supabase.from('inventario_diario').insert([
         {
-          sede_id: sedeIdActual,
+          sede_id: idSede,
           usuario_id: Number(usuarioId),
           tipo_movimiento: tipoMovimiento,
           total_paletas: totalPaletasNum,
@@ -1356,6 +1369,7 @@ export default function WalersPOSOperacionPage() {
 
   async function toggleChuloProductoPedido(pedidoId: number, columnaCategoria: string, nombreProducto: string) {
     try {
+      const idSede = Number(sesion?.sede_id || sedeIdActual);
       const pedidoOriginal = historialPedidosBD.find((p) => p.id === pedidoId);
       if (!pedidoOriginal) return;
 
@@ -1378,7 +1392,7 @@ export default function WalersPOSOperacionPage() {
       if (error) {
         alert('Error al actualizar estado del producto: ' + error.message);
       } else {
-        await cargarHistorialPedidos(sedeIdActual);
+        await cargarHistorialPedidos(idSede);
       }
     } catch (e: any) {
       alert('Error: ' + e.message);
@@ -1386,6 +1400,7 @@ export default function WalersPOSOperacionPage() {
   }
 
   async function pasarFaltantesAlListadoActual() {
+    const idSede = Number(sesion?.sede_id || sedeIdActual);
     let agregadosCount = 0;
     const nuevasCategorias: {
       paletas: { [key: string]: number };
@@ -1464,7 +1479,7 @@ export default function WalersPOSOperacionPage() {
       aseo: { ...prev.aseo, ...nuevasCategorias.aseo },
     }));
 
-    await cargarHistorialPedidos(sedeIdActual);
+    await cargarHistorialPedidos(idSede);
     alert(`✅ ¡Se han cargado los ${agregadosCount} producto(s) faltante(s) y se han retirado de la lista de pendientes!`);
   }
 
@@ -1493,7 +1508,8 @@ export default function WalersPOSOperacionPage() {
 
     setGuardandoCierre(true);
     try {
-      const usuarioId = sesion?.usuario_id || sesion?.id || 2;
+      const idSede = Number(sesion?.sede_id || sedeIdActual);
+      const usuarioId = sesion?.usuario_id || sesion?.id;
       const totalPaletasContadas = totalPaletasCierre === '' ? obtenerStockActualBD('Total Paletas') : Number(totalPaletasCierre);
 
       const detalleEmpaquesCierre: { [key: string]: number } = {};
@@ -1514,7 +1530,7 @@ export default function WalersPOSOperacionPage() {
 
       await supabase.from('inventario_diario').insert([
         {
-          sede_id: sedeIdActual,
+          sede_id: idSede,
           usuario_id: Number(usuarioId),
           tipo_movimiento: 'cierre',
           total_paletas: totalPaletasContadas,
@@ -1562,7 +1578,8 @@ export default function WalersPOSOperacionPage() {
 
   async function enviarPedidoBodega() {
     if (enviandoPedido) return;
-    const usuarioId = sesion?.usuario_id || sesion?.id || 2;
+    const idSede = Number(sesion?.sede_id || sedeIdActual);
+    const usuarioId = sesion?.usuario_id || sesion?.id;
 
     const limpiarCategoria = (catObj: { [key: string]: number }) => {
       const res: { [key: string]: any } = {};
@@ -1595,7 +1612,7 @@ export default function WalersPOSOperacionPage() {
     setEnviandoPedido(true);
     try {
       const payload = {
-        sede_id: sedeIdActual,
+        sede_id: idSede,
         usuario_id: usuarioId,
         estado: 'pendiente',
         observaciones: observacionPedido || '',
@@ -1613,7 +1630,7 @@ export default function WalersPOSOperacionPage() {
         alert('¡Pedido enviado a bodega con éxito!');
         limpiarPedidosCat();
         limpiarObsPedido();
-        await cargarHistorialPedidos(sedeIdActual);
+        await cargarHistorialPedidos(idSede);
       } else {
         alert('Error al guardar en la base de datos: ' + error.message);
       }
@@ -1624,6 +1641,7 @@ export default function WalersPOSOperacionPage() {
 
   async function crearNuevoProductoBD() {
     if (guardandoProducto) return;
+    const idSede = Number(sesion?.sede_id || sedeIdActual);
     const nombreLimpio = nuevoProdNombre.trim();
 
     const dondeComprarFinal =
@@ -1649,7 +1667,7 @@ export default function WalersPOSOperacionPage() {
         categoria: nuevoProdCategoria,
         grupo: nuevoProdCategoria,
         donde_comprar: dondeComprarFinal,
-        sede_id: sedeIdActual,
+        sede_id: idSede,
         activo: true,
         stock: 0,
       };
@@ -1708,6 +1726,7 @@ export default function WalersPOSOperacionPage() {
 
     setEliminandoPedido(true);
     try {
+      const idSede = Number(sesion?.sede_id || sedeIdActual);
       const { error } = await supabase
         .from('pedidos_insumos')
         .delete()
@@ -1717,7 +1736,7 @@ export default function WalersPOSOperacionPage() {
         alert('Error al eliminar en la base de datos: ' + error.message);
       } else {
         alert('✅ Pedido eliminado correctamente.');
-        await cargarHistorialPedidos(sedeIdActual);
+        await cargarHistorialPedidos(idSede);
       }
     } finally {
       setEliminandoPedido(false);
@@ -2334,7 +2353,7 @@ export default function WalersPOSOperacionPage() {
         </div>
       )}
 
-      {/* MÓDULO 4: VENTAS Y CANALES DIRECTOS (MESAS, PASILLOS Y RAPPI) */}
+      {/* MÓDULO 4: VENTAS Y CANALES DIRECTOS */}
       {moduloActivo === 'ventas' && (
         <div className="space-y-4">
           <div className="flex flex-wrap gap-3 bg-[#0b2b48] border border-[#0066b3] p-3 rounded-2xl shadow-md items-center justify-between">
@@ -2347,7 +2366,7 @@ export default function WalersPOSOperacionPage() {
               <button
                 type="button"
                 onClick={async () => {
-                  await cargarVentasDiaBD(sedeIdActual);
+                  if (sedeIdActual) await cargarVentasDiaBD(sedeIdActual);
                   setMostrarModalResumenCaja(true);
                 }}
                 className="bg-[#0078d4] hover:bg-[#0086e6] text-white font-black text-xs px-4 py-2 rounded-xl shadow cursor-pointer transition-all flex items-center gap-1.5"
@@ -2357,7 +2376,7 @@ export default function WalersPOSOperacionPage() {
               <button
                 type="button"
                 onClick={async () => {
-                  await cargarVentasDiaBD(sedeIdActual);
+                  if (sedeIdActual) await cargarVentasDiaBD(sedeIdActual);
                   setMostrarModalFacturasPagas(true);
                 }}
                 className="bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs px-4 py-2 rounded-xl shadow cursor-pointer transition-all flex items-center gap-1.5"
@@ -2949,13 +2968,13 @@ export default function WalersPOSOperacionPage() {
 
           <div className="lg:col-span-12 bg-[#0b2b48] border border-[#0066b3] p-5 rounded-2xl space-y-3 shadow-md mt-2">
             <h3 className="text-xs font-black text-sky-200 uppercase flex items-center justify-between">
-              <span>📋 HISTORIAL DE NÓMINAS PAGADAS HOY ({nominasDiaBD.length})</span>
+              <span>📋 HISTORIAL DE NÓMINAS PAGADAS HOY EN ESTA SEDE ({nominasDiaBD.length})</span>
             </h3>
 
             <div className="max-h-60 overflow-y-auto space-y-2 pr-1">
               {nominasDiaBD.length === 0 ? (
                 <p className="text-xs text-rose-300 italic text-center py-6 font-bold">
-                  ⚠️ No hay pagos de nómina registrados el día de hoy (Requerido para el Cierre).
+                  ⚠️ No hay pagos de nómina registrados el día de hoy en esta sede.
                 </p>
               ) : (
                 nominasDiaBD.map((nom) => (
