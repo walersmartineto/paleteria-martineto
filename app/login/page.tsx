@@ -68,7 +68,6 @@ export default function PaginaLoginWalers() {
             ...u,
             nombre: u.nombre_completo || u.nombre || u.nombre_usuario || 'Sin nombre',
             contrasena: u.codigo_acceso || u.contrasena || u.pin || '',
-            tipo_usuario: String(u.tipo_usuario || u.rol || '').toLowerCase().trim()
           })).sort((a, b) => {
             return a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' });
           });
@@ -123,23 +122,8 @@ export default function PaginaLoginWalers() {
         }
       }
 
-      // RESTRICCIONES DE ACCESO POR TIPO DE USUARIO
-      const tipoUsuario = (usuarioObj?.tipo_usuario || '').toLowerCase();
-      const esProductor = tipoUsuario.includes('productor') || tipoUsuario.includes('produccion');
-      const esOperador = tipoUsuario.includes('operador') || tipoUsuario.includes('operaria');
-
       const esSedeProduccion = nombreSedeLower.includes('producción') || nombreSedeLower.includes('produccion');
       const esSedeAdmin = nombreSedeLower.includes('administrador') || nombreSedeLower.includes('admin');
-
-      if (esOperador && (esSedeProduccion || esSedeAdmin)) {
-        setErrorMsg('❌ Acceso denegado: Los operadores solo pueden ingresar a las sedes de atención.');
-        return;
-      }
-
-      if (esProductor && !esSedeProduccion) {
-        setErrorMsg('❌ Acceso denegado: Los productores solo pueden ingresar a Producción.');
-        return;
-      }
 
       if (esSedeAdmin) {
         router.replace('/admin');
@@ -184,26 +168,9 @@ export default function PaginaLoginWalers() {
     }
   };
 
-  const usuarioSeleccionadoObj = usuarios.find(u => String(u.id) === String(usuarioId));
-  const tipoUsrSel = (usuarioSeleccionadoObj?.tipo_usuario || '').toLowerCase();
-  const esProductorSel = tipoUsrSel.includes('productor') || tipoUsrSel.includes('produccion');
-  const esOperadorSel = tipoUsrSel.includes('operador') || tipoUsrSel.includes('operaria');
-
   const sedesFiltradas = sedes.filter(s => {
     const nombre = (s.nombre || s.nombre_sede || '').toLowerCase();
-    const esProdSede = nombre.includes('producción') || nombre.includes('produccion');
     const esGlobalSede = nombre.includes('global');
-
-    if (esGlobalSede) return false;
-
-    if (esProductorSel) {
-      return esProdSede;
-    }
-
-    if (esOperadorSel) {
-      return !esProdSede;
-    }
-
     return !esGlobalSede;
   });
 
@@ -316,7 +283,7 @@ export default function PaginaLoginWalers() {
               </option>
               {usuarios.map(u => (
                 <option key={u.id} value={u.id}>
-                  {obtenerNombreUsuario(u)} {u.tipo_usuario ? `(${u.tipo_usuario})` : ''}
+                  {obtenerNombreUsuario(u)}
                 </option>
               ))}
             </select>
