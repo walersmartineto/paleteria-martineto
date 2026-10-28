@@ -3141,7 +3141,7 @@ export default function PosPage() {
           <div className="bg-[#0b2b48] border-2 border-[#0066b3] w-full max-w-md rounded-2xl p-5 space-y-4 shadow-2xl">
             <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
               <h3 className="text-sm font-black text-white flex items-center gap-1.5">
-                📊 RESUMEN DE CAJA (VENTAS DE HOY)
+                📊 RESUMEN DE CAJA Y MEDIOS DE PAGO
               </h3>
               <button
                 type="button"
@@ -3156,14 +3156,48 @@ export default function PosPage() {
               <p className="text-xs text-sky-300 text-center py-6">Cargando resumen de caja...</p>
             ) : (
               <div className="space-y-2.5 text-xs">
-                {/* TOTAL ESPERADO EN CAJA */}
-                <div className="bg-[#051829] border-2 border-emerald-400 p-3.5 rounded-xl flex justify-between items-center">
-                  <span className="text-emerald-300 font-black uppercase">💵 Total Esperado en Caja:</span>
-                  <span className="font-black text-white text-sm">
-                    {formatearMoneda(efectivoBaseCajaInicial + totalEfectivoVentasPos) || '$ 0'}
-                  </span>
+                {/* APERTURA Y EFECTIVO */}
+                <div className="bg-[#051829] border border-[#0066b3] p-3 rounded-xl space-y-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-emerald-300 font-bold">💵 Base Inicial (Apertura):</span>
+                    <span className="font-black text-white">{formatearMoneda(efectivoBaseCajaInicial) || '$ 0'}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sky-200 font-bold">💵 Ventas en Efectivo:</span>
+                    <span className="font-black text-white">{formatearMoneda(totalEfectivoVentasPos) || '$ 0'}</span>
+                  </div>
+                  <div className="flex justify-between items-center pt-1 border-t border-[#0066b3]/50">
+                    <span className="text-emerald-400 font-black uppercase">💵 Total Esperado en Caja (Efectivo):</span>
+                    <span className="font-black text-emerald-300 text-sm">
+                      {formatearMoneda(efectivoBaseCajaInicial + totalEfectivoVentasPos) || '$ 0'}
+                    </span>
+                  </div>
                 </div>
 
+                {/* MEDIOS DE PAGO DIGITALES */}
+                <div className="bg-[#051829] border border-[#0066b3] p-3 rounded-xl space-y-2">
+                  <span className="text-[10px] text-sky-300 font-bold uppercase block border-b border-[#0066b3]/40 pb-1">
+                    💳 Resumen por Medios de Pago
+                  </span>
+                  <div className="flex justify-between items-center">
+                    <span className="text-purple-300 font-bold">🟣 Nequi:</span>
+                    <span className="font-black text-white">{formatearMoneda(totalNequiVentasPos) || '$ 0'}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-rose-300 font-bold">🔴 Daviplata:</span>
+                    <span className="font-black text-white">{formatearMoneda(totalDaviplataVentasPos) || '$ 0'}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-orange-300 font-bold">🟠 Rappi:</span>
+                    <span className="font-black text-white">{formatearMoneda(totalRappiVentasPos) || '$ 0'}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sky-300 font-bold">💳 Otros / Tarjetas:</span>
+                    <span className="font-black text-white">{formatearMoneda(totalOtrosVentasPos) || '$ 0'}</span>
+                  </div>
+                </div>
+
+                {/* GRAN TOTAL VENTAS */}
                 <div className="bg-[#0e385e] border-2 border-emerald-400 p-3.5 rounded-xl flex justify-between items-center text-sm">
                   <span className="font-black text-emerald-300 uppercase">Gran Total Ventas:</span>
                   <span className="font-black text-white">{formatearMoneda(granTotalVentasBD) || '$ 0'}</span>
