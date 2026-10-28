@@ -61,6 +61,7 @@ export default function PosPage() {
   const [dondeComprarPersonalizado, setDondeComprarPersonalizado] = useState('');
   const [guardandoProducto, setGuardandoProducto] = useState(false);
   const [productosInsumosBD, setProductosInsumosBD] = useState<any[]>([]);
+  const [productosVentaBD, setProductosVentaBD] = useState<any[]>([]);
 
   // Estados Módulo 3: Gastos
   const [descripcionGasto, setDescripcionGasto] = useState('');
@@ -79,7 +80,11 @@ export default function PosPage() {
 
   const [mesasBD, setMesasBD] = useState<any[]>([]);
   const [mesaSeleccionada, setMesaSeleccionada] = useState<number | null>(null);
+
+  // Control de Pagos / Abonos por Mesa
   const [carritosPorMesa, setCarritosPorMesa] = useState<{ [key: number]: any[] }>({});
+  const [pagadoPorMesa, setPagadoPorMesa] = useState<{ [key: number]: number }>({});
+
   const [pedidosRappi, setPedidosRappi] = useState<{ id: number; codigo: string; items: any[] }[]>([]);
   const [rappiSeleccionadoId, setRappiSeleccionadoId] = useState<number | null>(null);
   const [tipoCanalSeleccionado, setTipoCanalSeleccionado] = useState<'mesa' | 'rappi'>('mesa');
@@ -125,23 +130,51 @@ export default function PosPage() {
   const [observacionesCierre, setObservacionesCierre] = useState('');
   const [guardandoCierre, setGuardandoCierre] = useState(false);
 
-  // --- FUNCIONES AUXILIARES ---
+  // FECHAS COLOMBIA
   const obtenerFechaHoraColombia = (): string => {
     const ahora = new Date();
-    const strColombia = ahora.toLocaleString('en-US', { timeZone: 'America/Bogota' });
-    const colDate = new Date(strColombia);
-    const pad = (n: number) => (n < 10 ? '0' + n : n);
-    return `${colDate.getFullYear()}-${pad(colDate.getMonth() + 1)}-${pad(colDate.getDate())} ${pad(
-      colDate.getHours()
-    )}:${pad(colDate.getMinutes())}:${pad(colDate.getSeconds())}`;
+    const opciones: Intl.DateTimeFormatOptions = {
+      timeZone: 'America/Bogota',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    };
+    const partes = new Intl.DateTimeFormat('en-CA', opciones).formatToParts(ahora);
+    const p: Record<string, string> = {};
+    partes.forEach(({ type, value }) => { p[type] = value; });
+    return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}`;
   };
 
   const obtenerInicioDiaColombia = (): string => {
     const ahora = new Date();
-    const strColombia = ahora.toLocaleString('en-US', { timeZone: 'America/Bogota' });
-    const colDate = new Date(strColombia);
-    const pad = (n: number) => (n < 10 ? '0' + n : n);
-    return `${colDate.getFullYear()}-${pad(colDate.getMonth() + 1)}-${pad(colDate.getDate())} 00:00:00`;
+    const opciones: Intl.DateTimeFormatOptions = {
+      timeZone: 'America/Bogota',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    };
+    const partes = new Intl.DateTimeFormat('en-CA', opciones).formatToParts(ahora);
+    const p: Record<string, string> = {};
+    partes.forEach(({ type, value }) => { p[type] = value; });
+    return `${p.year}-${p.month}-${p.day}T00:00:00`;
+  };
+
+  const obtenerFinDiaColombia = (): string => {
+    const ahora = new Date();
+    const opciones: Intl.DateTimeFormatOptions = {
+      timeZone: 'America/Bogota',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    };
+    const partes = new Intl.DateTimeFormat('en-CA', opciones).formatToParts(ahora);
+    const p: Record<string, string> = {};
+    partes.forEach(({ type, value }) => { p[type] = value; });
+    return `${p.year}-${p.month}-${p.day}T23:59:59`;
   };
 
   const formatearMoneda = (val: number | string) => {
@@ -158,7 +191,6 @@ export default function PosPage() {
     return val.replace(/\D/g, '');
   };
 
-  // Helper para leer cantidad tolerando formatos planos u objetos antiguos
   const obtenerCantidadPlana = (val: any): number => {
     if (typeof val === 'number') return val;
     if (typeof val === 'object' && val !== null && 'cantidad' in val) {
@@ -167,7 +199,6 @@ export default function PosPage() {
     return Number(val || 0);
   };
 
-  // Helper para saber si un ítem ya fue entregado
   const obtenerEstadoEntregado = (val: any): boolean => {
     if (typeof val === 'object' && val !== null && 'entregado' in val) {
       return Boolean(val.entregado);
@@ -175,7 +206,21 @@ export default function PosPage() {
     return false;
   };
 
-  // --- CARGA INICIAL ---
+  // Helper para construir la etiqueta únicamente con el nombre del medio de pago
+  const obtenerEtiquetaMediosPago = (venta: any): string => {
+    const medios: string[] = [];
+    if (Number(venta.pago_efectivo) > 0) medios.push('Efectivo');
+    if (Number(venta.pago_nequi) > 0) medios.push('Nequi');
+    if (Number(venta.pago_daviplata) > 0) medios.push('Daviplata');
+    if (Number(venta.rappi) > 0) medios.push('Rappi');
+    if (Number(venta.otros) > 0) {
+      const detalle = venta.detalle_otros ? ` (${venta.detalle_otros})` : '';
+      medios.push(`Otros${detalle}`);
+    }
+    return medios.length > 0 ? medios.join(', ') : 'Sin especificar';
+  };
+
+  // INICIALIZACIÓN
   useEffect(() => {
     const sessionStr = localStorage.getItem('martineto_session');
     if (!sessionStr) {
@@ -235,6 +280,7 @@ export default function PosPage() {
 
       await cargarEmpaquesSede(idSede);
       await cargarProductosInsumos(idSede);
+      await cargarProductosVenta(idSede);
       await cargarGastosDia(idSede);
       await cargarNominasDia(idSede);
 
@@ -296,6 +342,26 @@ export default function PosPage() {
     }
   }
 
+  async function cargarProductosVenta(idSede: number) {
+    const { data } = await supabase
+      .from('productos_para_venta')
+      .select('*')
+      .or(`sede_id.eq.${idSede},sede_id.is.null`)
+      .eq('activo', true);
+
+    if (data) {
+      const formateados = data.map((p) => ({
+        ...p,
+        nombre: p.nombre,
+        categoria: p.categoria || 'General',
+        precio: Number(p.precio) || 0,
+      }));
+      setProductosVentaBD(
+        formateados.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }))
+      );
+    }
+  }
+
   async function cargarGastosDia(idSede: number) {
     const inicioDia = obtenerInicioDiaColombia();
     const { data } = await supabase
@@ -336,11 +402,13 @@ export default function PosPage() {
     setCargandoResumenVentas(true);
     try {
       const inicioDia = obtenerInicioDiaColombia();
+      const finDia = obtenerFinDiaColombia();
       const { data } = await supabase
         .from('venta')
         .select('*')
         .eq('sede_id', idSede)
-        .gte('created_at', inicioDia)
+        .gte('fecha_hora', inicioDia)
+        .lte('fecha_hora', finDia)
         .order('id', { ascending: false });
 
       if (data) setVentasDiaBD(data);
@@ -349,7 +417,7 @@ export default function PosPage() {
     }
   }
 
-  // --- FILTROS ---
+  // FILTROS Y BÚSQUEDAS
   const listaEmpaquesFiltrados = Array.from(
     new Set(
       empaquesBD
@@ -375,10 +443,10 @@ export default function PosPage() {
   });
 
   const categoriasVentaDisponibles = Array.from(
-    new Set(productosInsumosBD.map((p) => p.categoria || 'General'))
+    new Set(productosVentaBD.map((p) => p.categoria || 'General'))
   ).sort();
 
-  const productosVentaFiltrados = productosInsumosBD.filter((p) => {
+  const productosVentaFiltrados = productosVentaBD.filter((p) => {
     const matchCat =
       categoriaVentaFiltro === 'TODAS'
         ? true
@@ -402,7 +470,7 @@ export default function PosPage() {
 
   const bloqueadoPorApertura = !baseGuardada || !aperturaRealizada;
 
-  // --- CARRITO VENTAS ---
+  // CÁLCULOS DEL CARRITO Y SALDOS DE MESA
   const carritoActual =
     tipoCanalSeleccionado === 'mesa' && mesaSeleccionada
       ? carritosPorMesa[mesaSeleccionada] || []
@@ -411,9 +479,13 @@ export default function PosPage() {
       : [];
 
   const rappiActual = pedidosRappi.find((r) => r.id === rappiSeleccionadoId);
-  const subtotalMesaActual = carritoActual.reduce((acc, item) => acc + item.precio * item.cantidad, 0);
+  const totalConsumidoMesa = carritoActual.reduce((acc, item) => acc + item.precio * item.cantidad, 0);
+  const abonosMesaActual = mesaSeleccionada ? pagadoPorMesa[mesaSeleccionada] || 0 : 0;
+
+  const saldoFaltanteMesa = Math.max(0, totalConsumidoMesa - abonosMesaActual);
+
   const numDescuento = Number(descuentoVenta) || 0;
-  const totalACobrar = Math.max(0, subtotalMesaActual - numDescuento);
+  const totalACobrar = Math.max(0, saldoFaltanteMesa - numDescuento);
 
   const numEfectivo = Number(pagoEfectivo) || 0;
   const numNequi = Number(pagoNequi) || 0;
@@ -421,7 +493,7 @@ export default function PosPage() {
   const numOtros = Number(pagoOtros) || 0;
 
   const totalIngresado = numEfectivo + numNequi + numDaviplata + numOtros;
-  const saldoPendiente = Math.max(0, totalACobrar - totalIngresado);
+  const saldoPendienteModal = Math.max(0, totalACobrar - totalIngresado);
 
   function agregarProductoACarrito(prod: any, esParaLlevar: boolean = false) {
     const nombreFinal = esParaLlevar ? `${prod.nombre} (Para Llevar)` : prod.nombre;
@@ -518,18 +590,19 @@ export default function PosPage() {
   }
 
   function agregarPasilloMesa() {
-    const nuevoNum = mesasBD.length + 1;
-    const nuevaMesaObj = { id: Date.now(), nombre: `PASILLO ${nuevoNum}` };
+    const pasillosExistentes = mesasBD.filter((m) => (m.nombre || '').startsWith('PASILLO'));
+    const nuevoNum = pasillosExistentes.length + 1;
+    const nuevaMesaObj = { id: Date.now(), nombre: `PASILLO ${nuevoNum}`, esPasillo: true };
     setMesasBD((prev) => [...prev, nuevaMesaObj]);
     setMesaSeleccionada(nuevaMesaObj.id);
     setTipoCanalSeleccionado('mesa');
   }
 
   function crearNuevoPedidoRappi() {
-    const codigoRappi = prompt('Ingresa el código/número del pedido Rappi:');
-    if (!codigoRappi) return;
+    const nuevoNum = pedidosRappi.length + 1;
+    const codigoRappi = `Rappi ${nuevoNum}`;
 
-    const nuevoRappi = { id: Date.now(), codigo: codigoRappi.trim(), items: [] };
+    const nuevoRappi = { id: Date.now(), codigo: codigoRappi, items: [] };
     setPedidosRappi((prev) => [...prev, nuevoRappi]);
     setRappiSeleccionadoId(nuevoRappi.id);
     setTipoCanalSeleccionado('rappi');
@@ -551,7 +624,7 @@ export default function PosPage() {
   }
 
   async function handleFinalizarVentaBD() {
-    if (guardandoVenta || saldoPendiente > 0) return;
+    if (guardandoVenta || saldoPendienteModal > 0) return;
     const idSede = Number(sesion?.sede_id || sedeIdActual);
     const usuarioId = sesion?.usuario_id || sesion?.id;
 
@@ -565,7 +638,7 @@ export default function PosPage() {
         pago_efectivo: numEfectivo,
         pago_nequi: numNequi,
         pago_daviplata: numDaviplata,
-        pago_rappi: 0,
+        rappi: 0,
         otros: numOtros,
         detalle_otros: numOtros > 0 ? detalleOtro : null,
         tipo_venta: 'local',
@@ -580,10 +653,13 @@ export default function PosPage() {
         return;
       }
 
-      alert('✅ Venta cobrada y registrada exitosamente.');
+      alert('✅ Pago de la mesa registrado con éxito.');
 
       if (mesaSeleccionada) {
-        setCarritosPorMesa((prev) => ({ ...prev, [mesaSeleccionada]: [] }));
+        setPagadoPorMesa((prev) => ({
+          ...prev,
+          [mesaSeleccionada]: (prev[mesaSeleccionada] || 0) + totalACobrar,
+        }));
       }
 
       setMostrarModalPago(false);
@@ -602,6 +678,40 @@ export default function PosPage() {
     }
   }
 
+  function liberarMesaLimpia(idMesa: number) {
+    const pend = Math.max(
+      0,
+      (carritosPorMesa[idMesa] || []).reduce((acc, i) => acc + i.precio * i.cantidad, 0) -
+        (pagadoPorMesa[idMesa] || 0)
+    );
+
+    if (pend > 0) {
+      if (
+        !confirm(
+          `⚠️ Esta mesa aún tiene un saldo pendiente de ${formatearMoneda(
+            pend
+          )}. ¿Seguro que deseas liberarla?`
+        )
+      ) {
+        return;
+      }
+    }
+
+    setCarritosPorMesa((prev) => ({ ...prev, [idMesa]: [] }));
+    setPagadoPorMesa((prev) => ({ ...prev, [idMesa]: 0 }));
+
+    const mesaActualObj = mesasBD.find((m) => m.id === idMesa);
+    if (
+      mesaActualObj &&
+      (mesaActualObj.esPasillo || (mesaActualObj.nombre || '').startsWith('PASILLO'))
+    ) {
+      setMesasBD((prev) => prev.filter((m) => m.id !== idMesa));
+      const primeraMesa =
+        mesasBD.find((m) => !(m.nombre || '').startsWith('PASILLO')) || mesasBD[0];
+      if (primeraMesa) setMesaSeleccionada(primeraMesa.id);
+    }
+  }
+
   async function handleEntregarPedidoRappiDirecto() {
     if (!rappiSeleccionadoId || carritoActual.length === 0 || guardandoVenta) return;
     const idSede = Number(sesion?.sede_id || sedeIdActual);
@@ -612,12 +722,12 @@ export default function PosPage() {
       const payloadVenta = {
         sede_id: idSede,
         usuario_id: Number(usuarioId),
-        monto_total: subtotalMesaActual,
+        monto_total: totalConsumidoMesa,
         descuento: 0,
         pago_efectivo: 0,
         pago_nequi: 0,
         pago_daviplata: 0,
-        pago_rappi: subtotalMesaActual,
+        rappi: totalConsumidoMesa,
         otros: 0,
         tipo_venta: 'rappi',
         items: carritoActual,
@@ -631,7 +741,7 @@ export default function PosPage() {
         return;
       }
 
-      alert(`✅ Pedido Rappi "${rappiActual?.codigo}" registrado en ventas.`);
+      alert(`✅ Pedido Rappi "${rappiActual?.codigo}" entregado y registrado en ventas.`);
 
       setPedidosRappi((prev) => prev.filter((r) => r.id !== rappiSeleccionadoId));
       setRappiSeleccionadoId(null);
@@ -669,7 +779,6 @@ export default function PosPage() {
     }
   }
 
-  // --- NÓMINA Y CAMBIO TURNO ---
   async function handleGuardarNomina() {
     if (guardandoNomina) return;
     const idSede = Number(sesion?.sede_id || sedeIdActual);
@@ -758,7 +867,6 @@ export default function PosPage() {
     }
   }
 
-  // --- GASTOS ---
   async function handleGuardarGasto() {
     if (guardandoGasto) return;
     const idSede = Number(sesion?.sede_id || sedeIdActual);
@@ -864,17 +972,20 @@ export default function PosPage() {
 
     setGuardandoBase(true);
     try {
-      const { data, error } = await supabase.from('caja').insert([
-        {
-          sede_id: idSede,
-          usuario_id: Number(usuarioId),
-          turno_id: turnoId,
-          monto_apertura: monto,
-          diferencia: 0,
-          estado: 'abierta',
-          fecha: obtenerFechaHoraColombia(),
-        },
-      ]).select();
+      const { data, error } = await supabase
+        .from('caja')
+        .insert([
+          {
+            sede_id: idSede,
+            usuario_id: Number(usuarioId),
+            turno_id: turnoId,
+            monto_apertura: monto,
+            diferencia: 0,
+            estado: 'abierta',
+            fecha: obtenerFechaHoraColombia(),
+          },
+        ])
+        .select();
 
       if (error) {
         alert('❌ Error al guardar la base en la caja: ' + error.message);
@@ -951,7 +1062,9 @@ export default function PosPage() {
       ]);
 
       if (errorInsert) {
-        throw new Error('Error al registrar inventario: ' + (errorInsert.message || JSON.stringify(errorInsert)));
+        throw new Error(
+          'Error al registrar inventario: ' + (errorInsert.message || JSON.stringify(errorInsert))
+        );
       }
 
       const stockPaletaViejo = obtenerStockActualBD('Total Paletas');
@@ -985,12 +1098,18 @@ export default function PosPage() {
             .eq('id', empReg.id);
 
           setEmpaquesBD((prev) =>
-            prev.map((e) => (e.id === empReg.id ? { ...e, stock: nuevoStockCalculado, diferencia: diferenciaVal } : e))
+            prev.map((e) =>
+              e.id === empReg.id
+                ? { ...e, stock: nuevoStockCalculado, diferencia: diferenciaVal }
+                : e
+            )
           );
         }
       }
 
-      const paletaReg = empaquesBD.find((e) => (e.nombre || '').toLowerCase().trim() === 'total paletas');
+      const paletaReg = empaquesBD.find(
+        (e) => (e.nombre || '').toLowerCase().trim() === 'total paletas'
+      );
       if (paletaReg) {
         let nuevoStockPaletas = stockPaletaViejo;
         if (tipoMovimiento === 'apertura') {
@@ -1073,7 +1192,6 @@ export default function PosPage() {
     }
   }
 
-  // GUARDA NÚMEROS PLANOS PARA LECTURA LIMPIA DEL ADMINISTRADOR
   async function enviarPedidoBodega() {
     if (enviandoPedido) return;
     const idSede = Number(sesion?.sede_id || sedeIdActual);
@@ -1137,7 +1255,6 @@ export default function PosPage() {
     }
   }
 
-  // AL MARCAR CON CHULO SE GUARDA EL ESTADO Y SE OCULTA DE PENDIENTES
   async function toggleChuloProductoPedido(pedidoId: number, columnaCategoria: string, nombreProducto: string) {
     try {
       const idSede = Number(sesion?.sede_id || sedeIdActual);
@@ -1539,7 +1656,7 @@ export default function PosPage() {
   const totalEfectivoVentasPos = ventasDiaBD.reduce((acc, v) => acc + (Number(v.pago_efectivo) || 0), 0);
   const totalNequiVentasPos = ventasDiaBD.reduce((acc, v) => acc + (Number(v.pago_nequi) || 0), 0);
   const totalDaviplataVentasPos = ventasDiaBD.reduce((acc, v) => acc + (Number(v.pago_daviplata) || 0), 0);
-  const totalRappiVentasPos = ventasDiaBD.reduce((acc, v) => acc + (Number(v.pago_rappi) || 0), 0);
+  const totalRappiVentasPos = ventasDiaBD.reduce((acc, v) => acc + (Number(v.rappi) || 0), 0);
   const totalOtrosVentasPos = ventasDiaBD.reduce((acc, v) => acc + (Number(v.otros) || 0), 0);
 
   const efectivoBaseCajaInicial = Number(baseCaja || cajaDataActual?.monto_apertura || 0);
@@ -2000,7 +2117,6 @@ export default function PosPage() {
                     minute: '2-digit',
                   });
 
-                  // Recopilar solo los ítems que AÚN NO han sido entregados
                   const itemsPendientes: { colCat: string; nom: string; cant: number }[] = [];
 
                   (['pedidos_paletas', 'pedidos_richi', 'pedidos_produccion', 'pedidos_insumos', 'pedidos_aseo'] as const).forEach((colCat) => {
@@ -2016,7 +2132,6 @@ export default function PosPage() {
                     }
                   });
 
-                  // Si todos los ítems fueron marcados con chulo, la tarjeta desaparece del listado
                   if (itemsPendientes.length === 0) return null;
 
                   return (
@@ -2343,7 +2458,12 @@ export default function PosPage() {
                     {mesasBD.map((mesa) => {
                       const esActiva = tipoCanalSeleccionado === 'mesa' && mesaSeleccionada === mesa.id;
                       const itemsMesa = carritosPorMesa[mesa.id] || [];
-                      const subtotalMesa = itemsMesa.reduce((acc, i) => acc + i.precio * i.cantidad, 0);
+                      const totalMesa = itemsMesa.reduce((acc, i) => acc + i.precio * i.cantidad, 0);
+                      const abonadoMesa = pagadoPorMesa[mesa.id] || 0;
+                      const saldoMesa = Math.max(0, totalMesa - abonadoMesa);
+
+                      const estaPagadaTotal = totalMesa > 0 && saldoMesa === 0;
+                      const estaOcupadaConDeuda = saldoMesa > 0;
 
                       return (
                         <div
@@ -2355,14 +2475,26 @@ export default function PosPage() {
                           className={`p-2.5 rounded-xl border cursor-pointer transition-all ${
                             esActiva
                               ? 'bg-[#0078d4] border-white text-white shadow-lg'
+                              : estaOcupadaConDeuda
+                              ? 'bg-rose-950/40 border-rose-500/60 text-rose-200'
+                              : estaPagadaTotal
+                              ? 'bg-sky-900/60 border-sky-400/80 text-sky-100'
                               : 'bg-[#051829] border-[#0066b3] text-sky-200 hover:border-sky-400'
                           }`}
                         >
                           <div className="flex justify-between items-center font-black text-xs">
-                            <span>{mesa.nombre || `MESA ${mesa.id}`}</span>
-                            <span className={subtotalMesa > 0 ? 'text-emerald-300' : 'text-sky-400'}>
-                              {formatearMoneda(subtotalMesa) || '$ 0'}
-                            </span>
+                            <div className="flex items-center gap-1.5">
+                              <span>{estaOcupadaConDeuda ? '🔴' : estaPagadaTotal ? '🔵' : '🟢'}</span>
+                              <span>{mesa.nombre || `MESA ${mesa.id}`}</span>
+                              <span className="text-[10px] opacity-80">
+                                ({estaOcupadaConDeuda ? 'PENDIENTE' : estaPagadaTotal ? 'PAGADO (EN MESA)' : 'LIBRE'})
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className={saldoMesa > 0 ? 'text-amber-300' : 'text-emerald-300'}>
+                                {saldoMesa > 0 ? `Falta: ${formatearMoneda(saldoMesa)}` : formatearMoneda(totalMesa) || '$ 0'}
+                              </span>
+                            </div>
                           </div>
                         </div>
                       );
@@ -2425,7 +2557,7 @@ export default function PosPage() {
               <div className="lg:col-span-6 bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md">
                 <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
                   <span className="text-xs font-black uppercase text-white">
-                    📁 Catálogo de Productos
+                    📁 Catálogo de Productos para Venta
                   </span>
                   <button
                     type="button"
@@ -2538,6 +2670,17 @@ export default function PosPage() {
                       ? `🛒 ${mesasBD.find((m) => m.id === mesaSeleccionada)?.nombre || 'MESA'}`
                       : `🛵 RAPPI: ${rappiActual ? rappiActual.codigo : 'NINGUNO'}`}
                   </span>
+
+                  {tipoCanalSeleccionado === 'mesa' && mesaSeleccionada && (carritoActual.length > 0 || abonosMesaActual > 0) && (
+                    <button
+                      type="button"
+                      onClick={() => liberarMesaLimpia(mesaSeleccionada)}
+                      className="bg-rose-700 hover:bg-rose-600 text-white font-bold text-[10px] px-2 py-1 rounded-lg transition-all"
+                      title="Haz clic cuando el cliente se retire del local"
+                    >
+                      🚪 LIBERAR MESA
+                    </button>
+                  )}
                 </div>
 
                 <div className="max-h-[220px] overflow-y-auto space-y-2 pr-1 bg-[#051829] p-2.5 rounded-xl border border-[#0066b3]">
@@ -2599,12 +2742,18 @@ export default function PosPage() {
 
                 <div className="bg-[#051829] border border-[#0066b3] p-3 rounded-xl space-y-1 text-xs">
                   <div className="flex justify-between items-center text-sky-200">
-                    <span>Subtotal:</span>
-                    <span className="font-bold text-white">{formatearMoneda(subtotalMesaActual) || '$ 0'}</span>
+                    <span>Consumo Total:</span>
+                    <span className="font-bold text-white">{formatearMoneda(totalConsumidoMesa) || '$ 0'}</span>
                   </div>
+                  {tipoCanalSeleccionado === 'mesa' && abonosMesaActual > 0 && (
+                    <div className="flex justify-between items-center text-sky-300">
+                      <span>Abonado / Pagado:</span>
+                      <span className="font-bold text-sky-200">{formatearMoneda(abonosMesaActual)}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between items-center text-emerald-300 font-black text-sm pt-1 border-t border-[#0066b3]/50">
-                    <span>Total:</span>
-                    <span>{formatearMoneda(subtotalMesaActual) || '$ 0'}</span>
+                    <span>Saldo Pendiente:</span>
+                    <span>{formatearMoneda(saldoFaltanteMesa) || '$ 0'}</span>
                   </div>
                 </div>
 
@@ -2612,16 +2761,16 @@ export default function PosPage() {
                   <button
                     type="button"
                     onClick={() => {
-                      if (carritoActual.length === 0) {
-                        alert('⚠️ Agrega al menos un producto al carrito para cobrar.');
+                      if (saldoFaltanteMesa <= 0) {
+                        alert('ℹ️ Esta mesa no tiene saldo pendiente por cobrar.');
                         return;
                       }
                       setMostrarModalPago(true);
                     }}
-                    disabled={carritoActual.length === 0}
+                    disabled={saldoFaltanteMesa <= 0}
                     className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs py-3 rounded-xl uppercase shadow cursor-pointer disabled:opacity-50"
                   >
-                    💳 COBRAR Y REGISTRAR PAGO
+                    💳 COBRAR SALDO ({formatearMoneda(saldoFaltanteMesa) || '$ 0'})
                   </button>
                 ) : (
                   <button
@@ -3007,25 +3156,12 @@ export default function PosPage() {
               <p className="text-xs text-sky-300 text-center py-6">Cargando resumen de caja...</p>
             ) : (
               <div className="space-y-2.5 text-xs">
-                <div className="bg-[#051829] border border-[#0066b3] p-3 rounded-xl flex justify-between items-center">
-                  <span className="text-emerald-300 font-bold">💵 Total Efectivo:</span>
-                  <span className="font-black text-white">{formatearMoneda(totalEfectivoVentasPos) || '$ 0'}</span>
-                </div>
-                <div className="bg-[#051829] border border-[#0066b3] p-3 rounded-xl flex justify-between items-center">
-                  <span className="text-purple-300 font-bold">🟣 Total Nequi:</span>
-                  <span className="font-black text-white">{formatearMoneda(totalNequiVentasPos) || '$ 0'}</span>
-                </div>
-                <div className="bg-[#051829] border border-[#0066b3] p-3 rounded-xl flex justify-between items-center">
-                  <span className="text-rose-300 font-bold">🔴 Total Daviplata:</span>
-                  <span className="font-black text-white">{formatearMoneda(totalDaviplataVentasPos) || '$ 0'}</span>
-                </div>
-                <div className="bg-[#051829] border border-[#0066b3] p-3 rounded-xl flex justify-between items-center">
-                  <span className="text-orange-300 font-bold">🟠 Total Rappi:</span>
-                  <span className="font-black text-white">{formatearMoneda(totalRappiVentasPos) || '$ 0'}</span>
-                </div>
-                <div className="bg-[#051829] border border-[#0066b3] p-3 rounded-xl flex justify-between items-center">
-                  <span className="text-sky-200 font-bold">💳 Total Tarjetas / Otros:</span>
-                  <span className="font-black text-white">{formatearMoneda(totalOtrosVentasPos) || '$ 0'}</span>
+                {/* TOTAL ESPERADO EN CAJA */}
+                <div className="bg-[#051829] border-2 border-emerald-400 p-3.5 rounded-xl flex justify-between items-center">
+                  <span className="text-emerald-300 font-black uppercase">💵 Total Esperado en Caja:</span>
+                  <span className="font-black text-white text-sm">
+                    {formatearMoneda(efectivoBaseCajaInicial + totalEfectivoVentasPos) || '$ 0'}
+                  </span>
                 </div>
 
                 <div className="bg-[#0e385e] border-2 border-emerald-400 p-3.5 rounded-xl flex justify-between items-center text-sm">
@@ -3087,6 +3223,14 @@ export default function PosPage() {
                             {formatearMoneda(venta.monto_total)}
                           </span>
                         </div>
+                      </div>
+
+                      {/* MEDIO DE PAGO DE LA FACTURA */}
+                      <div className="bg-[#0e385e]/80 border border-[#0066b3]/40 p-2 rounded flex justify-between items-center">
+                        <span className="text-[10px] text-sky-300 font-bold uppercase">💳 Medio de Pago:</span>
+                        <span className="text-xs font-black text-amber-300">
+                          {obtenerEtiquetaMediosPago(venta)}
+                        </span>
                       </div>
 
                       <div className="space-y-1">
@@ -3181,13 +3325,13 @@ export default function PosPage() {
         </div>
       )}
 
-      {/* MODAL COBRAR / REGISTRAR PAGO */}
+      {/* MODAL COBRAR / REGISTRAR PAGO DE MESA */}
       {mostrarModalPago && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-[#0b2b48] border-2 border-[#0066b3] w-full max-w-lg rounded-2xl p-5 space-y-4 shadow-2xl">
             <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
               <h3 className="text-sm font-black text-white flex items-center gap-1.5">
-                💳 COBRAR VENTA ({formatearMoneda(totalACobrar)})
+                💳 COBRAR SALDO DE MESA ({formatearMoneda(totalACobrar)})
               </h3>
               <button
                 type="button"
@@ -3199,9 +3343,21 @@ export default function PosPage() {
             </div>
 
             <div className="space-y-3 text-xs">
-              <div className="bg-[#051829] border border-[#0066b3] p-3 rounded-xl flex justify-between items-center">
-                <span className="font-bold text-sky-200">Total Venta:</span>
-                <span className="font-black text-white text-sm">{formatearMoneda(subtotalMesaActual)}</span>
+              <div className="bg-[#051829] border border-[#0066b3] p-3 rounded-xl space-y-1">
+                <div className="flex justify-between items-center text-sky-200">
+                  <span>Consumo Total Mesa:</span>
+                  <span className="font-bold text-white">{formatearMoneda(totalConsumidoMesa)}</span>
+                </div>
+                {abonosMesaActual > 0 && (
+                  <div className="flex justify-between items-center text-sky-300">
+                    <span>Abonado Previamente:</span>
+                    <span className="font-bold text-sky-200">{formatearMoneda(abonosMesaActual)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between items-center text-emerald-300 font-black text-sm pt-1 border-t border-[#0066b3]/50">
+                  <span>Saldo a Cobrar Hoy:</span>
+                  <span>{formatearMoneda(saldoFaltanteMesa)}</span>
+                </div>
               </div>
 
               <div>
@@ -3216,7 +3372,7 @@ export default function PosPage() {
               </div>
 
               <div className="space-y-2 border-t border-[#0066b3]/50 pt-2">
-                <span className="font-black text-sky-200 block">MÉTODOS DE PAGO (HAZ CLIC EN CADA UNO PARA AUTOCOMPLETAR):</span>
+                <span className="font-black text-sky-200 block">MÉTODOS DE PAGO (CLIC PARA LLENAR):</span>
 
                 <div className="grid grid-cols-2 gap-2">
                   <div>
@@ -3305,11 +3461,11 @@ export default function PosPage() {
                   <span className="font-bold text-white">{formatearMoneda(totalIngresado) || '$ 0'}</span>
                 </div>
                 <div className="flex justify-between items-center text-xs font-black">
-                  <span className={saldoPendiente > 0 ? 'text-amber-400' : 'text-emerald-400'}>
-                    {saldoPendiente > 0 ? 'Falta por Cubrir:' : '✓ Cubierto:'}
+                  <span className={saldoPendienteModal > 0 ? 'text-amber-400' : 'text-emerald-400'}>
+                    {saldoPendienteModal > 0 ? 'Falta por Cubrir:' : '✓ Cubierto:'}
                   </span>
-                  <span className={saldoPendiente > 0 ? 'text-amber-400' : 'text-emerald-400'}>
-                    {formatearMoneda(saldoPendiente) || '$ 0'}
+                  <span className={saldoPendienteModal > 0 ? 'text-amber-400' : 'text-emerald-400'}>
+                    {formatearMoneda(saldoPendienteModal) || '$ 0'}
                   </span>
                 </div>
               </div>
@@ -3326,10 +3482,10 @@ export default function PosPage() {
               <button
                 type="button"
                 onClick={handleFinalizarVentaBD}
-                disabled={guardandoVenta || saldoPendiente > 0}
+                disabled={guardandoVenta || saldoPendienteModal > 0}
                 className="w-1/2 bg-emerald-600 hover:bg-emerald-500 text-white font-black py-2.5 rounded-xl text-xs uppercase shadow cursor-pointer disabled:opacity-50"
               >
-                {guardandoVenta ? '⏳ REGISTRANDO...' : 'REGISTRAR VENTA'}
+                {guardandoVenta ? '⏳ REGISTRANDO...' : 'REGISTRAR PAGO'}
               </button>
             </div>
           </div>
