@@ -1,1079 +1,644 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import { useAutoSave } from '@/hooks/useAutoSave';
-
-const obtenerFechaHoraColombia = () => {
-  const fechaHoraLocal = new Date().toLocaleString("en-US", {
-    timeZone: "America/Bogota",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false
-  });
-  const [datePart, timePart] = fechaHoraLocal.split(', ');
-  const [month, day, year] = datePart.split('/');
-  return `${year}-${month}-${day} ${timePart}`;
-};
-
-const obtenerFechaCortaColombia = () => {
-  const fechaHoraLocal = new Date().toLocaleString("en-US", {
-    timeZone: "America/Bogota",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  });
-  const [datePart] = fechaHoraLocal.split(', ');
-  const [month, day, year] = datePart.split('/');
-  return `${year}-${month}-${day}`;
-};
-
-const obtenerInicioDiaColombia = () => {
-  const fechaHoraLocal = new Date().toLocaleString("en-US", {
-    timeZone: "America/Bogota",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  });
-  const [datePart] = fechaHoraLocal.split(', ');
-  const [month, day, year] = datePart.split('/');
-  return `${year}-${month}-${day}T00:00:00`;
-};
-
-const formatearMoneda = (val: number | string): string => {
-  if (val === '' || val === null || val === undefined) return '';
-  const num = typeof val === 'string' ? Number(val.replace(/\D/g, '')) : val;
-  if (isNaN(num)) return '';
-  return `$ ${num.toLocaleString('es-CO')}`;
-};
-
-const desformatearMoneda = (val: string): number | '' => {
-  const soloNumeros = String(val).replace(/\D/g, '');
-  return soloNumeros === '' ? '' : Number(soloNumeros);
-};
 
 type CategoriaTab = 'paletas' | 'richi' | 'produccion' | 'insumos' | 'aseo';
-type ModuloPrincipal = 'movimientos' | 'pedidos' | 'gastos' | 'ventas' | 'nomina' | 'cierre';
 
-interface ItemCarrito {
-  id: number | string;
-  nombre: string;
-  precio: number;
-  cantidad: number;
-  esAdicion?: boolean;
-  paraLlevar?: boolean;
-}
-
-interface PedidoRappi {
-  id: string;
-  codigo: string;
-  items: ItemCarrito[];
-  fechaHora: string;
-}
-
-export default function WalersPOSOperacionPage() {
+export default function PosPage() {
   const router = useRouter();
+
+  // Estados de Sesión y Navegación
   const [sesion, setSesion] = useState<any>(null);
+  const [cargando, setCargando] = useState(true);
   const [sedeIdActual, setSedeIdActual] = useState<number | null>(null);
-  const [nombreSedeActual, setNombreSedeActual] = useState<string>('');
+  const [nombreSedeActual, setNombreSedeActual] = useState('Cargando Sede...');
+  const [moduloActivo, setModuloActivo] = useState<
+    'movimientos' | 'pedidos' | 'gastos' | 'ventas' | 'nomina' | 'cierre'
+  >('movimientos');
 
-  const [moduloActivo, setModuloActivo] = useState<ModuloPrincipal>('movimientos');
-
-  // ESTADOS MÓDULO 1
-  const [baseCaja, setBaseCaja, limpiarBaseCaja] = useAutoSave<number | ''>('walers_baseCaja', '');
+  // Estados Módulo 1: Apertura e Inventario
+  const [baseCaja, setBaseCaja] = useState<string>('');
   const [baseGuardada, setBaseGuardada] = useState(false);
-  const [guardandoBase, setGuardandoBase] = useState(false);
   const [cajaIdActual, setCajaIdActual] = useState<number | null>(null);
-  const [aperturaRealizada, setAperturaRealizada] = useState(false);
   const [cajaDataActual, setCajaDataActual] = useState<any>(null);
-
-  const [empaquesBD, setEmpaquesBD] = useState<any[]>([]);
+  const [aperturaRealizada, setAperturaRealizada] = useState(false);
   const [tipoMovimiento, setTipoMovimiento] = useState<string>('apertura');
-  const [totalPaletasInventario, setTotalPaletasInventario, limpiarTotalPaletasInv] = useAutoSave<number | ''>('walers_totalPaletasInv', '');
-  const [cantidadesInventario, setCantidadesInventario, limpiarCantidadesInv] = useAutoSave<{ [item: string]: number | '' }>('walers_cantidadesInv', {});
-  const [observacionesInventario, setObservacionesInventario, limpiarObsInv] = useAutoSave<string>('walers_obsInv', '');
+  const [totalPaletasInventario, setTotalPaletasInventario] = useState<number | ''>('');
+  const [cantidadesInventario, setCantidadesInventario] = useState<{ [key: string]: number | '' }>({});
+  const [observacionesInventario, setObservacionesInventario] = useState('');
+  const [guardandoBase, setGuardandoBase] = useState(false);
   const [guardandoMovimiento, setGuardandoMovimiento] = useState(false);
+  const [empaquesBD, setEmpaquesBD] = useState<any[]>([]);
 
-  // ESTADOS MÓDULO 2 (PEDIDOS)
-  const [productosInsumosBD, setProductosInsumosBD] = useState<any[]>([]);
-  const [busquedaInsumoPedido, setBusquedaInsumoPedido] = useState<string>('');
-  const [historialPedidosBD, setHistorialPedidosBD] = useState<any[]>([]);
+  // Estados Módulo 2: Pedidos
   const [tabPedido, setTabPedido] = useState<CategoriaTab>('paletas');
-  const [enviandoPedido, setEnviandoPedido] = useState(false);
-  const [eliminandoPedido, setEliminandoPedido] = useState(false);
-
-  const [pedidosCategorias, setPedidosCategorias, limpiarPedidosCat] = useAutoSave<{
+  const [busquedaInsumoPedido, setBusquedaInsumoPedido] = useState('');
+  const [pedidosCategorias, setPedidosCategorias] = useState<{
     paletas: { [key: string]: number };
     richi: { [key: string]: number };
     produccion: { [key: string]: number };
     insumos: { [key: string]: number };
     aseo: { [key: string]: number };
-  }>('walers_pedidosCategorias', {
+  }>({
     paletas: {},
     richi: {},
     produccion: {},
     insumos: {},
     aseo: {},
   });
+  const [observacionPedido, setObservacionPedido] = useState('');
+  const [enviandoPedido, setEnviandoPedido] = useState(false);
+  const [historialPedidosBD, setHistorialPedidosBD] = useState<any[]>([]);
+  const [eliminandoPedido, setEliminandoPedido] = useState(false);
 
-  const [observacionPedido, setObservacionPedido, limpiarObsPedido] = useAutoSave<string>('walers_obsPedido', '');
-
-  // ESTADOS MÓDULO 3 (GASTOS)
-  const [descripcionGasto, setDescripcionGasto] = useState('');
-  const [montoGasto, setMontoGasto] = useState<number | ''>('');
-  const [guardandoGasto, setGuardandoGasto] = useState(false);
-  const [gastosDiaBD, setGastosDiaBD] = useState<any[]>([]);
-
-  // ESTADOS MÓDULO 4 (VENTAS / RAPPI)
-  const [modoVentas, setModoVentas] = useState<'pregunta' | 'pos_propio' | 'externo'>('pregunta');
-  const [productosVentaBD, setProductosVentaBD] = useState<any[]>([]);
-  const [mesasBD, setMesasBD] = useState<any[]>([]);
-  const [mesaSeleccionada, setMesaSeleccionada] = useState<number | null>(null);
-  const [busquedaProductoVenta, setBusquedaProductoVenta] = useState('');
-  const [categoriaVentaFiltro, setCategoriaVentaFiltro] = useState<string>('TODAS');
-
-  const [pedidosRappi, setPedidosRappi] = useState<PedidoRappi[]>([]);
-  const [rappiSeleccionadoId, setRappiSeleccionadoId] = useState<string | null>(null);
-  const [tipoCanalSeleccionado, setTipoCanalSeleccionado] = useState<'mesa' | 'rappi'>('mesa');
-
-  const [carritosPorMesa, setCarritosPorMesa] = useState<{ [mesaId: number]: ItemCarrito[] }>({});
-  const [mostrarModalPago, setMostrarModalPago] = useState(false);
-  const [valorAdicionInput, setValorAdicionInput] = useState<number | ''>('');
-
-  const [pagoEfectivo, setPagoEfectivo] = useState<number | ''>('');
-  const [pagoNequi, setPagoNequi] = useState<number | ''>('');
-  const [pagoDaviplata, setPagoDaviplata] = useState<number | ''>('');
-  const [pagoOtros, setPagoOtros] = useState<number | ''>('');
-  const [detalleOtro, setDetalleOtro] = useState('');
-  const [descuentoVenta, setDescuentoVenta] = useState<number | ''>('');
-  const [guardandoVenta, setGuardandoVenta] = useState(false);
-
-  const [externoEfectivo, setExternoEfectivo] = useState<number | ''>('');
-  const [externoNequi, setExternoNequi] = useState<number | ''>('');
-  const [externoDaviplata, setExternoDaviplata] = useState<number | ''>('');
-  const [externoRappi, setExternoRappi] = useState<number | ''>('');
-  const [externoOtros, setExternoOtros] = useState<number | ''>('');
-  const [guardandoExterno, setGuardandoExterno] = useState(false);
-
-  // ESTADOS RESÚMENES DESDE BD
-  const [mostrarModalResumenCaja, setMostrarModalResumenCaja] = useState(false);
-  const [mostrarModalFacturasPagas, setMostrarModalFacturasPagas] = useState(false);
-  const [ventasDiaBD, setVentasDiaBD] = useState<any[]>([]);
-  const [cargandoResumenVentas, setCargandoResumenVentas] = useState(false);
-
+  // Modal Nuevo Producto
   const [mostrarModalNuevoProd, setMostrarModalNuevoProd] = useState(false);
   const [nuevoProdNombre, setNuevoProdNombre] = useState('');
   const [nuevoProdCategoria, setNuevoProdCategoria] = useState('Paleta');
   const [nuevoProdDondeComprar, setNuevoProdDondeComprar] = useState('');
   const [dondeComprarPersonalizado, setDondeComprarPersonalizado] = useState('');
   const [guardandoProducto, setGuardandoProducto] = useState(false);
+  const [productosInsumosBD, setProductosInsumosBD] = useState<any[]>([]);
 
-  // ESTADOS MÓDULO 5 (NÓMINA Y TURNO)
+  // Estados Módulo 3: Gastos
+  const [descripcionGasto, setDescripcionGasto] = useState('');
+  const [montoGasto, setMontoGasto] = useState('');
+  const [guardandoGasto, setGuardandoGasto] = useState(false);
+  const [gastosDiaBD, setGastosDiaBD] = useState<any[]>([]);
+
+  // Estados Módulo 4: Ventas
+  const [modoVentas, setModoVentas] = useState<'pregunta' | 'externo' | 'pos_propio'>('pregunta');
+  const [externoEfectivo, setExternoEfectivo] = useState('');
+  const [externoNequi, setExternoNequi] = useState('');
+  const [externoDaviplata, setExternoDaviplata] = useState('');
+  const [externoRappi, setExternoRappi] = useState('');
+  const [externoOtros, setExternoOtros] = useState('');
+  const [guardandoExterno, setGuardandoExterno] = useState(false);
+
+  const [mesasBD, setMesasBD] = useState<any[]>([]);
+  const [mesaSeleccionada, setMesaSeleccionada] = useState<number | null>(null);
+  const [carritosPorMesa, setCarritosPorMesa] = useState<{ [key: number]: any[] }>({});
+  const [pedidosRappi, setPedidosRappi] = useState<{ id: number; codigo: string; items: any[] }[]>([]);
+  const [rappiSeleccionadoId, setRappiSeleccionadoId] = useState<number | null>(null);
+  const [tipoCanalSeleccionado, setTipoCanalSeleccionado] = useState<'mesa' | 'rappi'>('mesa');
+
+  const [busquedaProductoVenta, setBusquedaProductoVenta] = useState('');
+  const [categoriaVentaFiltro, setCategoriaVentaFiltro] = useState('TODAS');
+  const [valorAdicionInput, setValorAdicionInput] = useState('');
+
+  const [mostrarModalPago, setMostrarModalPago] = useState(false);
+  const [descuentoVenta, setDescuentoVenta] = useState('');
+  const [pagoEfectivo, setPagoEfectivo] = useState('');
+  const [pagoNequi, setPagoNequi] = useState('');
+  const [pagoDaviplata, setPagoDaviplata] = useState('');
+  const [pagoOtros, setPagoOtros] = useState('');
+  const [detalleOtro, setDetalleOtro] = useState('');
+  const [guardandoVenta, setGuardandoVenta] = useState(false);
+
+  const [mostrarModalResumenCaja, setMostrarModalResumenCaja] = useState(false);
+  const [mostrarModalFacturasPagas, setMostrarModalFacturasPagas] = useState(false);
+  const [cargandoResumenVentas, setCargandoResumenVentas] = useState(false);
+  const [ventasDiaBD, setVentasDiaBD] = useState<any[]>([]);
+
+  // Estados Módulo 5: Nómina y Cambio de Turno
   const [tipoPersonaNomina, setTipoPersonaNomina] = useState<'operador' | 'ayudante'>('operador');
-  const [ayudanteSeleccionadoId, setAyudanteSeleccionadoId] = useState<number | string>('');
-  const [horasDiaNomina, setHorasDiaNomina] = useState<string>('');
-  const [horasNocheNomina, setHorasNocheNomina] = useState<string>('');
-  const [montoTotalNomina, setMontoTotalNomina] = useState<number | ''>('');
+  const [ayudanteSeleccionadoId, setAyudanteSeleccionadoId] = useState<string>('');
+  const [horasDiaNomina, setHorasDiaNomina] = useState('');
+  const [horasNocheNomina, setHorasNocheNomina] = useState('');
+  const [montoTotalNomina, setMontoTotalNomina] = useState('');
   const [guardandoNomina, setGuardandoNomina] = useState(false);
   const [nominasDiaBD, setNominasDiaBD] = useState<any[]>([]);
-
-  // ESTADOS MÓDULO 6 (CIERRE)
-  const [totalPaletasCierre, setTotalPaletasCierre] = useState<number | ''>('');
-  const [cantidadesCierre, setCantidadesCierre] = useState<{ [item: string]: number | '' }>({});
-  const [observacionesCierre, setObservacionesCierre] = useState('');
-  const [dineroFisicoCierre, setDineroFisicoCierre] = useState<number | ''>('');
-  const [guardandoCierre, setGuardandoCierre] = useState(false);
-
-  // CAMBIO DE TURNO
-  const [plataDejaEnCaja, setPlataDejaEnCaja] = useState<number | ''>('');
-  const [mostrarModalCambioTurno, setMostrarModalCambioTurno] = useState(false);
   const [usuariosBD, setUsuariosBD] = useState<any[]>([]);
-  const [usuarioEntranteId, setUsuarioEntranteId] = useState<number | string>('');
+
+  const [plataDejaEnCaja, setPlataDejaEnCaja] = useState('');
+  const [mostrarModalCambioTurno, setMostrarModalCambioTurno] = useState(false);
+  const [usuarioEntranteId, setUsuarioEntranteId] = useState('');
   const [claveUsuarioEntrante, setClaveUsuarioEntrante] = useState('');
   const [verificandoCambioTurno, setVerificandoCambioTurno] = useState(false);
 
-  const [cargando, setCargando] = useState(true);
+  // Estados Módulo 6: Cierre
+  const [totalPaletasCierre, setTotalPaletasCierre] = useState<number | ''>('');
+  const [cantidadesCierre, setCantidadesCierre] = useState<{ [key: string]: number | '' }>({});
+  const [dineroFisicoCierre, setDineroFisicoCierre] = useState('');
+  const [observacionesCierre, setObservacionesCierre] = useState('');
+  const [guardandoCierre, setGuardandoCierre] = useState(false);
 
-  const bloqueadoPorApertura = !baseGuardada || !aperturaRealizada;
+  // --- FUNCIONES AUXILIARES ---
+  const obtenerFechaHoraColombia = (): string => {
+    const ahora = new Date();
+    const strColombia = ahora.toLocaleString('en-US', { timeZone: 'America/Bogota' });
+    const colDate = new Date(strColombia);
+    const pad = (n: number) => (n < 10 ? '0' + n : n);
+    return `${colDate.getFullYear()}-${pad(colDate.getMonth() + 1)}-${pad(colDate.getDate())} ${pad(
+      colDate.getHours()
+    )}:${pad(colDate.getMinutes())}:${pad(colDate.getSeconds())}`;
+  };
 
-  // Listado de empaques filtrados
-  const listaEmpaquesFiltrados = Array.from(
-    new Set(
-      empaquesBD
-        .map((e) => e.nombre)
-        .filter((nombre): nombre is string => Boolean(nombre && nombre.toLowerCase() !== 'total paletas'))
-    )
-  ).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+  const obtenerInicioDiaColombia = (): string => {
+    const ahora = new Date();
+    const strColombia = ahora.toLocaleString('en-US', { timeZone: 'America/Bogota' });
+    const colDate = new Date(strColombia);
+    const pad = (n: number) => (n < 10 ? '0' + n : n);
+    return `${colDate.getFullYear()}-${pad(colDate.getMonth() + 1)}-${pad(colDate.getDate())} 00:00:00`;
+  };
 
-  // Insumos filtrados
-  const insumosFiltrados = productosInsumosBD
-    .filter((prod) => {
-      const cat = String(prod?.categoriaLimpia || '');
-      const nombre = String(prod?.nombre || '').toLowerCase();
+  const formatearMoneda = (val: number | string) => {
+    const num = Number(val);
+    if (isNaN(num) || val === '') return '';
+    return new Intl.NumberFormat('es-CO', {
+      style: 'currency',
+      currency: 'COP',
+      maximumFractionDigits: 0,
+    }).format(num);
+  };
 
-      const esRichi = cat.includes('richi') || cat.includes('empaque') || cat.includes('plástico');
-      const esProduccion = cat.includes('produccion') || cat.includes('prod');
-      const esInsumos = cat.includes('insumo') || cat.includes('topping');
-      const esAseo = cat.includes('aseo') || cat.includes('limpieza');
+  const desformatearMoneda = (val: string): string => {
+    return val.replace(/\D/g, '');
+  };
 
-      let coincideCat = false;
-      if (tabPedido === 'paletas') {
-        coincideCat = cat.includes('paleta') || (!esRichi && !esProduccion && !esInsumos && !esAseo);
-      } else if (tabPedido === 'richi') {
-        coincideCat = esRichi;
-      } else if (tabPedido === 'produccion') {
-        coincideCat = esProduccion;
-      } else if (tabPedido === 'insumos') {
-        coincideCat = esInsumos;
-      } else if (tabPedido === 'aseo') {
-        coincideCat = esAseo;
-      }
+  // Helper para leer cantidad tolerando formatos planos u objetos antiguos
+  const obtenerCantidadPlana = (val: any): number => {
+    if (typeof val === 'number') return val;
+    if (typeof val === 'object' && val !== null && 'cantidad' in val) {
+      return Number(val.cantidad || 0);
+    }
+    return Number(val || 0);
+  };
 
-      const coincideTexto =
-        !busquedaInsumoPedido.trim() ||
-        nombre.includes(busquedaInsumoPedido.toLowerCase().trim());
+  // Helper para saber si un ítem ya fue entregado
+  const obtenerEstadoEntregado = (val: any): boolean => {
+    if (typeof val === 'object' && val !== null && 'entregado' in val) {
+      return Boolean(val.entregado);
+    }
+    return false;
+  };
 
-      return coincideCat && coincideTexto && prod.activo !== false;
-    })
-    .sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'es', { sensitivity: 'base' }));
-
-  const listaLugaresCompraUnica = Array.from(
-    new Set(
-      productosInsumosBD
-        .map((p) => p.donde_comprar)
-        .filter((lugar): lugar is string => Boolean(lugar && lugar.trim() !== ''))
-    )
-  ).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
-
-  const categoriasVentaDisponibles = Array.from(
-    new Set(productosVentaBD.map((p) => p.categoria || 'General').filter(Boolean))
-  ).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
-
-  const productosVentaFiltrados = productosVentaBD.filter((prod) => {
-    const coincideTexto =
-      !busquedaProductoVenta.trim() ||
-      (prod.nombre || '').toLowerCase().includes(busquedaProductoVenta.toLowerCase().trim());
-
-    const coincideCat =
-      categoriaVentaFiltro === 'TODAS' ||
-      (prod.categoria || '').toLowerCase() === categoriaVentaFiltro.toLowerCase();
-
-    return coincideTexto && coincideCat && prod.activo !== false;
-  }).sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'es', { sensitivity: 'base' }));
-
+  // --- CARGA INICIAL ---
   useEffect(() => {
-    const sesionLocal = localStorage.getItem('martineto_session');
-    if (!sesionLocal) {
+    const sessionStr = localStorage.getItem('martineto_session');
+    if (!sessionStr) {
       router.replace('/login');
       return;
     }
-    const ses = JSON.parse(sesionLocal);
-    setSesion(ses);
 
-    const sId = Number(ses.sede_id);
-    const sNombre = ses.sede_nombre || 'Sede';
-    
-    setSedeIdActual(sId);
-    setNombreSedeActual(sNombre);
+    try {
+      const parsedSession = JSON.parse(sessionStr);
+      setSesion(parsedSession);
+      const idSede = Number(parsedSession.sede_id || parsedSession.id_sede);
+      setSedeIdActual(idSede);
 
-    cargarInicial(ses, sId);
+      inicializarPOS(idSede);
+    } catch (e) {
+      console.error(e);
+      router.replace('/login');
+    }
   }, [router]);
 
-  async function cargarGastosDia(sId: number) {
-    const inicioDia = obtenerInicioDiaColombia();
-
-    const { data, error } = await supabase
-      .from('gasto')
-      .select('*')
-      .eq('sede_id', Number(sId))
-      .gte('fecha', inicioDia)
-      .order('id', { ascending: false });
-
-    if (!error && data) {
-      setGastosDiaBD(data);
-    }
-  }
-
-  async function cargarVentasDiaBD(sId: number) {
-    setCargandoResumenVentas(true);
-    const inicioDia = obtenerInicioDiaColombia();
-
-    const { data, error } = await supabase
-      .from('venta')
-      .select('*')
-      .eq('sede_id', Number(sId))
-      .gte('fecha_hora', inicioDia)
-      .order('id', { ascending: false });
-
-    if (!error && data) {
-      setVentasDiaBD(data);
-    }
-    setCargandoResumenVentas(false);
-  }
-
-  async function cargarHistorialPedidos(sId: number) {
-    const inicioDia = obtenerInicioDiaColombia();
-
-    const { data, error } = await supabase
-      .from('pedidos_insumos')
-      .select('*')
-      .eq('sede_id', Number(sId))
-      .gte('fecha', inicioDia)
-      .order('id', { ascending: false });
-
-    if (!error && data) {
-      setHistorialPedidosBD(data);
-    }
-  }
-
-  async function cargarProductosParaVenta(sId: number) {
-    const { data, error } = await supabase
-      .from('productos_para_venta')
-      .select('*')
-      .eq('sede_id', Number(sId))
-      .order('nombre', { ascending: true });
-
-    if (!error && data) {
-      setProductosVentaBD(data.sort((a: any, b: any) => (a.nombre || '').localeCompare(b.nombre || '', 'es', { sensitivity: 'base' })));
-    }
-  }
-
-  async function cargarMesas(sId: number) {
-    const { data, error } = await supabase
-      .from('mesa')
-      .select('*')
-      .eq('sede_id', Number(sId))
-      .order('id', { ascending: true });
-
-    if (!error && data && data.length > 0) {
-      const mesasOrdenadas = data.sort((a: any, b: any) => (a.nombre || '').localeCompare(b.nombre || '', 'es', { sensitivity: 'base' }));
-      setMesasBD(mesasOrdenadas);
-      if (!mesaSeleccionada) {
-        setMesaSeleccionada(mesasOrdenadas[0].id);
-        setTipoCanalSeleccionado('mesa');
-      }
-    } else {
-      setMesasBD([]);
-    }
-  }
-
-  async function cargarUsuarios() {
-    const { data, error } = await supabase
-      .from('usuario')
-      .select('id, nombre_completo, codigo_acceso, tipo_usuario')
-      .order('nombre_completo', { ascending: true });
-
-    if (!error && data) {
-      const usuariosMapeados = data.map((u: any) => ({
-        ...u,
-        nombre: u.nombre_completo || u.nombre || '',
-        contrasena: u.codigo_acceso || u.contrasena || '',
-      })).sort((a: any, b: any) => (a.nombre || '').localeCompare(b.nombre || '', 'es', { sensitivity: 'base' }));
-      
-      setUsuariosBD(usuariosMapeados);
-      if (usuariosMapeados.length > 0) {
-        setUsuarioEntranteId(usuariosMapeados[0].id);
-        setAyudanteSeleccionadoId(usuariosMapeados[0].id);
-      }
-    }
-  }
-
-  async function cargarNominasDia(sId: number) {
-    const sedeNum = Number(sId || sesion?.sede_id || sedeIdActual);
-    if (!sedeNum) return;
-
-    const fechaHoyCorta = obtenerFechaCortaColombia();
-
-    const { data, error } = await supabase
-      .from('nomina')
-      .select('*')
-      .eq('sede_id', sedeNum)
-      .eq('fecha_pago', fechaHoyCorta)
-      .order('id', { ascending: false });
-
-    if (!error && data) {
-      const nominasExclusivasSede = data.filter((n: any) => Number(n.sede_id) === sedeNum);
-      setNominasDiaBD(nominasExclusivasSede);
-    }
-  }
-
-  async function agregarPasilloMesa() {
-    const idSede = Number(sedeIdActual || sesion?.sede_id);
-    const totalPasillos = mesasBD.filter((m) => (m.nombre || '').toUpperCase().includes('PASILLO')).length + 1;
-    const nombreNuevo = `PASILLO ${totalPasillos < 10 ? '0' + totalPasillos : totalPasillos}`;
-
-    try {
-      const { data, error } = await supabase
-        .from('mesa')
-        .insert([{ sede_id: idSede, nombre: nombreNuevo }])
-        .select();
-
-      if (!error && data && data.length > 0) {
-        setMesasBD((prev) => [...prev, ...data].sort((a: any, b: any) => (a.nombre || '').localeCompare(b.nombre || '', 'es', { sensitivity: 'base' })));
-        setMesaSeleccionada(data[0].id);
-        setTipoCanalSeleccionado('mesa');
-      } else {
-        alert('Error al agregar pasillo: ' + (error?.message || 'Error desconocido'));
-      }
-    } catch (e: any) {
-      alert('Error: ' + e.message);
-    }
-  }
-
-  function crearNuevoPedidoRappi() {
-    const numRappi = pedidosRappi.length + 1;
-    const codigoRappi = `#R-${numRappi < 10 ? '0' + numRappi : numRappi}`;
-    const nuevoId = `rappi_${Date.now()}`;
-
-    const nuevoPed: PedidoRappi = {
-      id: nuevoId,
-      codigo: codigoRappi,
-      items: [],
-      fechaHora: obtenerFechaHoraColombia(),
-    };
-
-    setPedidosRappi((prev) => [...prev, nuevoPed]);
-    setRappiSeleccionadoId(nuevoId);
-    setTipoCanalSeleccionado('rappi');
-  }
-
-  async function cargarInicial(sesionActual: any, sId: number) {
+  async function inicializarPOS(idSede: number) {
     setCargando(true);
-    const idSedeNumerico = Number(sId || sesionActual?.sede_id);
-
     try {
-      let turnoIdActual = sesionActual?.turno_id;
-      if (!turnoIdActual) {
-        const { data: turnoData } = await supabase
-          .from('turno_trabajo')
-          .select('id, nombre')
-          .eq('sede_id', idSedeNumerico)
-          .order('id', { ascending: false })
-          .limit(1);
-
-        if (turnoData && turnoData.length > 0) {
-          turnoIdActual = turnoData[0].id;
-          sesionActual.turno_id = turnoIdActual;
-          sesionActual.turno_nombre = turnoData[0].nombre;
-          setSesion({ ...sesionActual });
-        }
-      }
-
-      const { data: empaquesData } = await supabase
-        .from('inventario_empaques_sedes')
-        .select('*')
-        .eq('sede_id', idSedeNumerico)
-        .order('nombre', { ascending: true });
-
-      if (empaquesData) {
-        setEmpaquesBD(empaquesData.sort((a: any, b: any) => (a.nombre || '').localeCompare(b.nombre || '', 'es', { sensitivity: 'base' })));
-      }
+      const { data: sedeData } = await supabase.from('sede').select('nombre').eq('id', idSede).single();
+      if (sedeData) setNombreSedeActual(sedeData.nombre);
 
       const inicioDia = obtenerInicioDiaColombia();
-      const usuarioId = sesionActual?.usuario_id || sesionActual?.id;
-
-      const { data: cajaHoyBD } = await supabase
+      const { data: cajaHoy } = await supabase
         .from('caja')
         .select('*')
-        .eq('sede_id', idSedeNumerico)
-        .eq('usuario_id', usuarioId)
+        .eq('sede_id', idSede)
         .gte('fecha', inicioDia)
         .order('id', { ascending: false })
         .limit(1)
         .maybeSingle();
 
-      if (cajaHoyBD) {
-        setBaseCaja(Number(cajaHoyBD.monto_apertura) || 0);
+      if (cajaHoy) {
+        setCajaIdActual(cajaHoy.id);
+        setCajaDataActual(cajaHoy);
+        setBaseCaja(String(cajaHoy.monto_apertura || 0));
         setBaseGuardada(true);
-        setCajaIdActual(cajaHoyBD.id);
-        setCajaDataActual(cajaHoyBD);
-      } else {
-        limpiarBaseCaja();
-        setBaseCaja('');
-        setBaseGuardada(false);
-        setCajaIdActual(null);
-        setCajaDataActual(null);
       }
 
-      const { data: invHoyBD } = await supabase
+      const { data: invApertura } = await supabase
         .from('inventario_diario')
-        .select('*')
-        .eq('sede_id', idSedeNumerico)
+        .select('id')
+        .eq('sede_id', idSede)
+        .eq('tipo_movimiento', 'apertura')
         .gte('fecha_registro', inicioDia)
-        .ilike('tipo_movimiento', 'apertura')
-        .order('id', { ascending: false })
         .limit(1)
         .maybeSingle();
 
-      if (invHoyBD) {
+      if (invApertura) {
         setAperturaRealizada(true);
         setTipoMovimiento('nuevas');
       }
 
-      const { data: prodsInsumosBD } = await supabase
-        .from('producto')
-        .select('*')
-        .eq('sede_id', idSedeNumerico);
+      await cargarEmpaquesSede(idSede);
+      await cargarProductosInsumos(idSede);
+      await cargarGastosDia(idSede);
+      await cargarNominasDia(idSede);
 
-      if (prodsInsumosBD) {
-        const productosMapeados = prodsInsumosBD.map((p: any) => ({
-          ...p,
-          nombre: p.nombre || p.Nombre || '',
-          categoriaLimpia: String(p.categoria || p.Categoria || 'paleta').trim().toLowerCase(),
-          donde_comprar: p.donde_comprar || '',
-          activo: p.activo !== false,
-        })).sort((a: any, b: any) => (a.nombre || '').localeCompare(b.nombre || '', 'es', { sensitivity: 'base' }));
-
-        setProductosInsumosBD(productosMapeados);
-
-        const lugaresUnicosBD = Array.from(
-          new Set(
-            productosMapeados
-              .map((p) => p.donde_comprar)
-              .filter((lugar): lugar is string => Boolean(lugar && lugar.trim() !== ''))
-          )
-        ).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
-
-        if (lugaresUnicosBD.length > 0) {
-          setNuevoProdDondeComprar(lugaresUnicosBD[0]);
+      const { data: usuarios } = await supabase.from('usuario').select('*').eq('activo', true);
+      if (usuarios) {
+        setUsuariosBD(usuarios);
+        if (usuarios.length > 0) {
+          setAyudanteSeleccionadoId(String(usuarios[0].id));
+          setUsuarioEntranteId(String(usuarios[0].id));
         }
       }
 
-      await cargarHistorialPedidos(idSedeNumerico);
-      await cargarGastosDia(idSedeNumerico);
-      await cargarVentasDiaBD(idSedeNumerico);
-      await cargarProductosParaVenta(idSedeNumerico);
-      await cargarMesas(idSedeNumerico);
-      await cargarUsuarios();
-      await cargarNominasDia(idSedeNumerico);
-    } catch (e: any) {
-      console.error(e);
+      const { data: mesasData } = await supabase
+        .from('mesa')
+        .select('*')
+        .eq('sede_id', idSede)
+        .order('id', { ascending: true });
+
+      if (mesasData && mesasData.length > 0) {
+        setMesasBD(mesasData);
+        setMesaSeleccionada(mesasData[0].id);
+      } else {
+        setMesasBD([{ id: 1, nombre: 'MESA 1' }, { id: 2, nombre: 'MESA 2' }]);
+        setMesaSeleccionada(1);
+      }
+
+      await cargarHistorialPedidos(idSede);
+      await cargarVentasDiaBD(idSede);
+    } catch (err) {
+      console.error('Error al inicializar POS:', err);
     } finally {
       setCargando(false);
     }
   }
 
-  const rappiActual = pedidosRappi.find((r) => r.id === rappiSeleccionadoId);
-  const carritoActual =
-    tipoCanalSeleccionado === 'mesa'
-      ? mesaSeleccionada
-        ? carritosPorMesa[mesaSeleccionada] || []
-        : []
-      : rappiActual
-      ? rappiActual.items
-      : [];
+  async function cargarEmpaquesSede(idSede: number) {
+    const { data } = await supabase.from('inventario_empaques_sedes').select('*').eq('sede_id', idSede);
+    if (data) setEmpaquesBD(data);
+  }
 
-  // FUNCIONALIDAD: DESCUENTO DE EMPAQUES EN STOCK
-  async function procesarDescuentoEmpaques(itemsVendidos: ItemCarrito[]) {
-    const idSede = Number(sesion?.sede_id || sedeIdActual);
+  async function cargarProductosInsumos(idSede: number) {
+    const { data } = await supabase
+      .from('producto')
+      .select('*')
+      .or(`sede_id.eq.${idSede},sede_id.is.null`)
+      .eq('activo', true);
 
-    for (const item of itemsVendidos) {
-      if (item.esAdicion) continue;
-
-      const { data: prodData, error: prodErr } = await supabase
-        .from('productos_para_venta')
-        .select('empaque_id, nombre')
-        .eq('id', item.id)
-        .maybeSingle();
-
-      if (prodErr || !prodData) continue;
-
-      const empaqueId = prodData.empaque_id;
-
-      if (empaqueId === null || empaqueId === undefined) {
-        continue;
-      }
-
-      const { data: empaqueData, error: empErr } = await supabase
-        .from('inventario_empaques_sedes')
-        .select('id, stock, nombre')
-        .eq('id', empaqueId)
-        .eq('sede_id', idSede)
-        .maybeSingle();
-
-      if (empErr || !empaqueData) {
-        alert(`⚠️ ADVERTENCIA: El empaque configurado para "${item.nombre}" (ID Empaque: ${empaqueId}) no existe en la sede actual.`);
-        continue;
-      }
-
-      let cantidadADescontar = item.cantidad;
-
-      const esCorralito = item.nombre.toLowerCase().includes('corralito');
-      if (esCorralito && item.paraLlevar) {
-        cantidadADescontar = item.cantidad * 2;
-      }
-
-      const nuevoStock = Math.max(0, Number(empaqueData.stock || 0) - cantidadADescontar);
-
-      const { error: updateErr } = await supabase
-        .from('inventario_empaques_sedes')
-        .update({ stock: nuevoStock })
-        .eq('id', empaqueData.id);
-
-      if (updateErr) {
-        console.error(`Error actualizando empaque ${empaqueData.nombre}:`, updateErr);
-      } else {
-        setEmpaquesBD((prev) =>
-          prev.map((e) => (e.id === empaqueData.id ? { ...e, stock: nuevoStock } : e))
-        );
-      }
+    if (data) {
+      const formateados = data.map((p) => ({
+        ...p,
+        nombre: p.nombre,
+        categoriaLimpia: String(p.categoria || '').trim().toLowerCase(),
+        donde_comprar: p.donde_comprar || '',
+        precio: Number(p.precio) || 0,
+      }));
+      setProductosInsumosBD(
+        formateados.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }))
+      );
     }
   }
 
-  function agregarProductoACarrito(prod: any, esParaLlevar: boolean = false) {
-    if (tipoCanalSeleccionado === 'mesa') {
-      if (!mesaSeleccionada) {
-        alert('⚠️ Selecciona primero una mesa o pasillo.');
-        return;
-      }
+  async function cargarGastosDia(idSede: number) {
+    const inicioDia = obtenerInicioDiaColombia();
+    const { data } = await supabase
+      .from('gasto')
+      .select('*')
+      .eq('sede_id', idSede)
+      .gte('fecha', inicioDia)
+      .order('id', { ascending: false });
 
+    if (data) setGastosDiaBD(data);
+  }
+
+  async function cargarNominasDia(idSede: number) {
+    const inicioDia = obtenerInicioDiaColombia();
+    const { data } = await supabase
+      .from('nomina')
+      .select('*')
+      .eq('sede_id', idSede)
+      .gte('fecha_pago', inicioDia)
+      .order('id', { ascending: false });
+
+    if (data) setNominasDiaBD(data);
+  }
+
+  async function cargarHistorialPedidos(idSede: number) {
+    const inicioDia = obtenerInicioDiaColombia();
+    const { data } = await supabase
+      .from('pedidos_insumos')
+      .select('*')
+      .eq('sede_id', idSede)
+      .gte('fecha', inicioDia)
+      .order('id', { ascending: false });
+
+    if (data) setHistorialPedidosBD(data);
+  }
+
+  async function cargarVentasDiaBD(idSede: number) {
+    setCargandoResumenVentas(true);
+    try {
+      const inicioDia = obtenerInicioDiaColombia();
+      const { data } = await supabase
+        .from('venta')
+        .select('*')
+        .eq('sede_id', idSede)
+        .gte('created_at', inicioDia)
+        .order('id', { ascending: false });
+
+      if (data) setVentasDiaBD(data);
+    } finally {
+      setCargandoResumenVentas(false);
+    }
+  }
+
+  // --- FILTROS ---
+  const listaEmpaquesFiltrados = Array.from(
+    new Set(
+      empaquesBD
+        .map((e) => e.nombre)
+        .filter((nom) => nom && nom.toLowerCase().trim() !== 'total paletas')
+    )
+  ).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+
+  const insumosFiltrados = productosInsumosBD.filter((p) => {
+    const cat = p.categoriaLimpia;
+    const matchTab =
+      (tabPedido === 'paletas' && (cat.includes('paleta') || cat.includes('helado'))) ||
+      (tabPedido === 'richi' && (cat.includes('richi') || cat.includes('empaque'))) ||
+      (tabPedido === 'produccion' && cat.includes('produccion')) ||
+      (tabPedido === 'insumos' && (cat.includes('insumo') || cat.includes('topping'))) ||
+      (tabPedido === 'aseo' && cat.includes('aseo'));
+
+    const matchBusqueda = busquedaInsumoPedido
+      ? p.nombre.toLowerCase().includes(busquedaInsumoPedido.toLowerCase())
+      : true;
+
+    return matchTab && matchBusqueda;
+  });
+
+  const categoriasVentaDisponibles = Array.from(
+    new Set(productosInsumosBD.map((p) => p.categoria || 'General'))
+  ).sort();
+
+  const productosVentaFiltrados = productosInsumosBD.filter((p) => {
+    const matchCat =
+      categoriaVentaFiltro === 'TODAS'
+        ? true
+        : String(p.categoria || '').toLowerCase() === categoriaVentaFiltro.toLowerCase();
+    const matchBusqueda = busquedaProductoVenta
+      ? p.nombre.toLowerCase().includes(busquedaProductoVenta.toLowerCase())
+      : true;
+    return matchCat && matchBusqueda;
+  });
+
+  const listaLugaresCompraUnica = Array.from(
+    new Set(productosInsumosBD.map((p) => p.donde_comprar).filter((d) => d && d.trim() !== ''))
+  ).sort();
+
+  const limpiarTotalPaletasInv = () => setTotalPaletasInventario('');
+  const limpiarCantidadesInv = () => setCantidadesInventario({});
+  const limpiarObsInv = () => setObservacionesInventario('');
+  const limpiarPedidosCat = () =>
+    setPedidosCategorias({ paletas: {}, richi: {}, produccion: {}, insumos: {}, aseo: {} });
+  const limpiarObsPedido = () => setObservacionPedido('');
+
+  const bloqueadoPorApertura = !baseGuardada || !aperturaRealizada;
+
+  // --- CARRITO VENTAS ---
+  const carritoActual =
+    tipoCanalSeleccionado === 'mesa' && mesaSeleccionada
+      ? carritosPorMesa[mesaSeleccionada] || []
+      : tipoCanalSeleccionado === 'rappi' && rappiSeleccionadoId
+      ? pedidosRappi.find((r) => r.id === rappiSeleccionadoId)?.items || []
+      : [];
+
+  const rappiActual = pedidosRappi.find((r) => r.id === rappiSeleccionadoId);
+  const subtotalMesaActual = carritoActual.reduce((acc, item) => acc + item.precio * item.cantidad, 0);
+  const numDescuento = Number(descuentoVenta) || 0;
+  const totalACobrar = Math.max(0, subtotalMesaActual - numDescuento);
+
+  const numEfectivo = Number(pagoEfectivo) || 0;
+  const numNequi = Number(pagoNequi) || 0;
+  const numDaviplata = Number(pagoDaviplata) || 0;
+  const numOtros = Number(pagoOtros) || 0;
+
+  const totalIngresado = numEfectivo + numNequi + numDaviplata + numOtros;
+  const saldoPendiente = Math.max(0, totalACobrar - totalIngresado);
+
+  function agregarProductoACarrito(prod: any, esParaLlevar: boolean = false) {
+    const nombreFinal = esParaLlevar ? `${prod.nombre} (Para Llevar)` : prod.nombre;
+    const precioFinal = Number(prod.precio) || 0;
+
+    if (tipoCanalSeleccionado === 'mesa') {
+      if (!mesaSeleccionada) return;
       setCarritosPorMesa((prev) => {
         const actual = prev[mesaSeleccionada] || [];
-        const existeIdx = actual.findIndex(
-          (i) => i.id === prod.id && !i.esAdicion && i.paraLlevar === esParaLlevar
-        );
-
-        if (existeIdx >= 0) {
+        const index = actual.findIndex((i) => i.nombre === nombreFinal);
+        if (index >= 0) {
           const copia = [...actual];
-          copia[existeIdx] = { ...copia[existeIdx], cantidad: copia[existeIdx].cantidad + 1 };
+          copia[index].cantidad += 1;
           return { ...prev, [mesaSeleccionada]: copia };
         } else {
           return {
             ...prev,
             [mesaSeleccionada]: [
               ...actual,
-              {
-                id: prod.id,
-                nombre: `${prod.nombre}${esParaLlevar ? ' (Para Llevar)' : ''}`,
-                precio: Number(prod.precio) || 0,
-                cantidad: 1,
-                paraLlevar: esParaLlevar,
-              },
+              { id: prod.id, nombre: nombreFinal, precio: precioFinal, cantidad: 1 },
             ],
           };
         }
       });
-    } else {
-      if (!rappiSeleccionadoId) {
-        alert('⚠️ Crea o selecciona primero un pedido de Rappi.');
-        return;
-      }
-
+    } else if (tipoCanalSeleccionado === 'rappi') {
+      if (!rappiSeleccionadoId) return;
       setPedidosRappi((prev) =>
-        prev.map((r) => {
-          if (r.id === rappiSeleccionadoId) {
-            const actual = r.items || [];
-            const existeIdx = actual.findIndex(
-              (i) => i.id === prod.id && !i.esAdicion && i.paraLlevar === esParaLlevar
-            );
-            let nuevosItems = [];
-
-            if (existeIdx >= 0) {
-              nuevosItems = [...actual];
-              nuevosItems[existeIdx] = {
-                ...nuevosItems[existeIdx],
-                cantidad: nuevosItems[existeIdx].cantidad + 1,
-              };
+        prev.map((rap) => {
+          if (rap.id === rappiSeleccionadoId) {
+            const index = rap.items.findIndex((i) => i.nombre === nombreFinal);
+            let nuevosItems = [...rap.items];
+            if (index >= 0) {
+              nuevosItems[index].cantidad += 1;
             } else {
-              nuevosItems = [
-                ...actual,
-                {
-                  id: prod.id,
-                  nombre: `${prod.nombre}${esParaLlevar ? ' (Para Llevar)' : ''}`,
-                  precio: Number(prod.precio) || 0,
-                  cantidad: 1,
-                  paraLlevar: esParaLlevar,
-                },
-              ];
+              nuevosItems.push({ id: prod.id, nombre: nombreFinal, precio: precioFinal, cantidad: 1 });
             }
-            return { ...r, items: nuevosItems };
+            return { ...rap, items: nuevosItems };
           }
-          return r;
+          return rap;
+        })
+      );
+    }
+  }
+
+  function cambiarCantidadItem(idProd: number, delta: number) {
+    if (tipoCanalSeleccionado === 'mesa' && mesaSeleccionada) {
+      setCarritosPorMesa((prev) => {
+        const actual = prev[mesaSeleccionada] || [];
+        const copia = actual
+          .map((i) => (i.id === idProd ? { ...i, cantidad: i.cantidad + delta } : i))
+          .filter((i) => i.cantidad > 0);
+        return { ...prev, [mesaSeleccionada]: copia };
+      });
+    } else if (tipoCanalSeleccionado === 'rappi' && rappiSeleccionadoId) {
+      setPedidosRappi((prev) =>
+        prev.map((rap) => {
+          if (rap.id === rappiSeleccionadoId) {
+            const nuevosItems = rap.items
+              .map((i) => (i.id === idProd ? { ...i, cantidad: i.cantidad + delta } : i))
+              .filter((i) => i.cantidad > 0);
+            return { ...rap, items: nuevosItems };
+          }
+          return rap;
         })
       );
     }
   }
 
   function agregarAdicionDirecta() {
-    const val = valorAdicionInput === '' ? 0 : Number(valorAdicionInput);
-    if (val <= 0) {
-      alert('⚠️ Ingresa un valor válido para la adición.');
-      return;
-    }
+    const val = Number(valorAdicionInput);
+    if (!val || val <= 0) return;
 
-    if (tipoCanalSeleccionado === 'mesa') {
-      if (!mesaSeleccionada) {
-        alert('⚠️ Selecciona una mesa primero.');
-        return;
-      }
-      setCarritosPorMesa((prev) => {
-        const actual = prev[mesaSeleccionada] || [];
-        return {
-          ...prev,
-          [mesaSeleccionada]: [
-            ...actual,
-            { id: `adicion_${Date.now()}`, nombre: '➕ Adición', precio: val, cantidad: 1, esAdicion: true },
-          ],
-        };
-      });
-    } else {
-      if (!rappiSeleccionadoId) {
-        alert('⚠️ Selecciona un pedido de Rappi primero.');
-        return;
-      }
+    const itemAdicion = {
+      id: Date.now(),
+      nombre: `Adición ($ ${formatearMoneda(val)})`,
+      precio: val,
+      cantidad: 1,
+    };
+
+    if (tipoCanalSeleccionado === 'mesa' && mesaSeleccionada) {
+      setCarritosPorMesa((prev) => ({
+        ...prev,
+        [mesaSeleccionada]: [...(prev[mesaSeleccionada] || []), itemAdicion],
+      }));
+    } else if (tipoCanalSeleccionado === 'rappi' && rappiSeleccionadoId) {
       setPedidosRappi((prev) =>
-        prev.map((r) => {
-          if (r.id === rappiSeleccionadoId) {
-            return {
-              ...r,
-              items: [
-                ...r.items,
-                { id: `adicion_${Date.now()}`, nombre: '➕ Adición', precio: val, cantidad: 1, esAdicion: true },
-              ],
-            };
-          }
-          return r;
-        })
+        prev.map((rap) =>
+          rap.id === rappiSeleccionadoId ? { ...rap, items: [...rap.items, itemAdicion] } : rap
+        )
       );
     }
 
     setValorAdicionInput('');
   }
 
-  function cambiarCantidadItem(id: number | string, delta: number) {
-    if (tipoCanalSeleccionado === 'mesa') {
-      if (!mesaSeleccionada) return;
-      setCarritosPorMesa((prev) => {
-        const actual = prev[mesaSeleccionada] || [];
-        const mod = actual
-          .map((i) => {
-            if (i.id === id) {
-              const nuevaCant = i.cantidad + delta;
-              return nuevaCant > 0 ? { ...i, cantidad: nuevaCant } : null;
-            }
-            return i;
-          })
-          .filter(Boolean) as ItemCarrito[];
-
-        return { ...prev, [mesaSeleccionada]: mod };
-      });
-    } else {
-      if (!rappiSeleccionadoId) return;
-      setPedidosRappi((prev) =>
-        prev.map((r) => {
-          if (r.id === rappiSeleccionadoId) {
-            const mod = r.items
-              .map((i) => {
-                if (i.id === id) {
-                  const nuevaCant = i.cantidad + delta;
-                  return nuevaCant > 0 ? { ...i, cantidad: nuevaCant } : null;
-                }
-                return i;
-              })
-              .filter(Boolean) as ItemCarrito[];
-            return { ...r, items: mod };
-          }
-          return r;
-        })
-      );
-    }
+  function agregarPasilloMesa() {
+    const nuevoNum = mesasBD.length + 1;
+    const nuevaMesaObj = { id: Date.now(), nombre: `PASILLO ${nuevoNum}` };
+    setMesasBD((prev) => [...prev, nuevaMesaObj]);
+    setMesaSeleccionada(nuevaMesaObj.id);
+    setTipoCanalSeleccionado('mesa');
   }
 
-  const subtotalMesaActual = carritoActual.reduce((acc, item) => acc + item.precio * item.cantidad, 0);
-  const descuentoNum = descuentoVenta === '' ? 0 : Number(descuentoVenta);
-  const totalACobrar = Math.max(0, subtotalMesaActual - descuentoNum);
+  function crearNuevoPedidoRappi() {
+    const codigoRappi = prompt('Ingresa el código/número del pedido Rappi:');
+    if (!codigoRappi) return;
 
-  const numEfectivo = pagoEfectivo === '' ? 0 : Number(pagoEfectivo);
-  const numNequi = pagoNequi === '' ? 0 : Number(pagoNequi);
-  const numDavi = pagoDaviplata === '' ? 0 : Number(pagoDaviplata);
-  const numOtros = pagoOtros === '' ? 0 : Number(pagoOtros);
-
-  const totalIngresado = numEfectivo + numNequi + numDavi + numOtros;
-  const saldoPendiente = Math.max(0, totalACobrar - totalIngresado);
+    const nuevoRappi = { id: Date.now(), codigo: codigoRappi.trim(), items: [] };
+    setPedidosRappi((prev) => [...prev, nuevoRappi]);
+    setRappiSeleccionadoId(nuevoRappi.id);
+    setTipoCanalSeleccionado('rappi');
+  }
 
   function autocompletarMetodoPago(metodo: 'efectivo' | 'nequi' | 'daviplata' | 'otros') {
-    const saldoRestanteSinMetodoActual =
-      totalACobrar -
-      (metodo === 'efectivo' ? 0 : numEfectivo) -
-      (metodo === 'nequi' ? 0 : numNequi) -
-      (metodo === 'daviplata' ? 0 : numDavi) -
+    const yaIngresado =
+      (metodo === 'efectivo' ? 0 : numEfectivo) +
+      (metodo === 'nequi' ? 0 : numNequi) +
+      (metodo === 'daviplata' ? 0 : numDaviplata) +
       (metodo === 'otros' ? 0 : numOtros);
 
-    const aCubrir = Math.max(0, saldoRestanteSinMetodoActual);
+    const faltante = Math.max(0, totalACobrar - yaIngresado);
 
-    if (metodo === 'efectivo') setPagoEfectivo(aCubrir);
-    if (metodo === 'nequi') setPagoNequi(aCubrir);
-    if (metodo === 'daviplata') setPagoDaviplata(aCubrir);
-    if (metodo === 'otros') setPagoOtros(aCubrir);
-  }
-
-  async function handleGuardarNomina() {
-    if (guardandoNomina) return;
-
-    const monto = montoTotalNomina === '' ? 0 : Number(montoTotalNomina);
-
-    if (monto <= 0) {
-      alert('⚠️ Ingresa el total a pagar de nómina.');
-      return;
-    }
-
-    const sedeActual = Number(sesion?.sede_id || sedeIdActual);
-
-    if (!sedeActual) {
-      alert('❌ Error: No se encontró la sede de la sesión activa.');
-      return;
-    }
-
-    setGuardandoNomina(true);
-
-    try {
-      const usuarioLogueadoId = Number(sesion?.usuario_id || sesion?.id);
-
-      let nombreBeneficiario = '';
-      let usuarioIdGuardar = usuarioLogueadoId;
-
-      if (tipoPersonaNomina === 'operador') {
-        nombreBeneficiario = sesion?.nombre || 'Operador Actual';
-      } else {
-        const uAyudante = usuariosBD.find((u) => String(u.id) === String(ayudanteSeleccionadoId));
-        nombreBeneficiario = uAyudante ? uAyudante.nombre : 'Ayudante';
-        usuarioIdGuardar = ayudanteSeleccionadoId ? Number(ayudanteSeleccionadoId) : usuarioLogueadoId;
-      }
-
-      const payload = {
-        sede_id: sedeActual,
-        usuario_id: usuarioIdGuardar,
-        monto: monto,
-        concepto: `Pago de turno (${nombreBeneficiario})`,
-        fecha_pago: obtenerFechaCortaColombia(),
-        fecha: obtenerFechaCortaColombia(),
-      };
-
-      const { error } = await supabase.from('nomina').insert([payload]);
-
-      if (error) {
-        alert('❌ Error al guardar la nómina: ' + error.message);
-        return;
-      }
-
-      alert('✅ Nómina registrada exitosamente.');
-      setHorasDiaNomina('');
-      setHorasNocheNomina('');
-      setMontoTotalNomina('');
-      
-      await cargarNominasDia(sedeActual);
-    } finally {
-      setGuardandoNomina(false);
-    }
-  }
-
-  async function handleConfirmarCambioTurno() {
-    if (verificandoCambioTurno) return;
-
-    if (!usuarioEntranteId) {
-      alert('⚠️ Selecciona el operario que recibe el turno.');
-      return;
-    }
-
-    if (!claveUsuarioEntrante.trim()) {
-      alert('⚠️ Ingresa la clave del operario entrante.');
-      return;
-    }
-
-    const dejandoCajaNum = plataDejaEnCaja === '' ? 0 : Number(plataDejaEnCaja);
-    if (dejandoCajaNum < 0) {
-      alert('⚠️ La plata que deja en caja no puede ser negativa.');
-      return;
-    }
-
-    setVerificandoCambioTurno(true);
-
-    try {
-      const idSede = Number(sesion?.sede_id || sedeIdActual);
-      const uEntrante = usuariosBD.find((u) => String(u.id) === String(usuarioEntranteId));
-
-      if (!uEntrante || String(uEntrante.contrasena || '') !== String(claveUsuarioEntrante.trim())) {
-        alert('❌ Contraseña incorrecta. Verifica la clave ingresada.');
-        return;
-      }
-
-      if (cajaIdActual) {
-        await supabase
-          .from('caja')
-          .update({
-            efectivo_cierre: dejandoCajaNum,
-            estado: 'cerrada'
-          })
-          .eq('id', cajaIdActual);
-      }
-
-      const { data: nuevaCajaData, error: errorNuevaCaja } = await supabase
-        .from('caja')
-        .insert([
-          {
-            sede_id: idSede,
-            usuario_id: Number(uEntrante.id),
-            monto_apertura: dejandoCajaNum,
-            diferencia: 0,
-            estado: 'abierta',
-            fecha: obtenerFechaHoraColombia()
-          }
-        ])
-        .select();
-
-      if (errorNuevaCaja) {
-        alert('❌ Error al abrir caja para el operario entrante: ' + errorNuevaCaja.message);
-        return;
-      }
-
-      const nuevaSesion = {
-        ...sesion,
-        usuario_id: uEntrante.id,
-        id: uEntrante.id,
-        nombre: uEntrante.nombre,
-        turno_nombre: 'TURNO TARDE',
-      };
-
-      localStorage.setItem('martineto_session', JSON.stringify(nuevaSesion));
-      setSesion(nuevaSesion);
-      if (nuevaCajaData && nuevaCajaData.length > 0) {
-        setCajaIdActual(nuevaCajaData[0].id);
-      }
-
-      alert(`✅ Cambio de turno exitoso. Cierre de caja registrado y turno abierto para ${uEntrante.nombre} con $ ${dejandoCajaNum.toLocaleString('es-CO')} en caja.`);
-      setMostrarModalCambioTurno(false);
-      setClaveUsuarioEntrante('');
-      setPlataDejaEnCaja('');
-      window.location.reload();
-    } finally {
-      setVerificandoCambioTurno(false);
-    }
-  }
-
-  async function handleEntregarPedidoRappiDirecto() {
-    if (guardandoVenta) return;
-
-    if (!rappiSeleccionadoId || !rappiActual || rappiActual.items.length === 0) {
-      alert('⚠️ El pedido de Rappi no contiene productos.');
-      return;
-    }
-
-    setGuardandoVenta(true);
-
-    try {
-      const idSede = Number(sesion?.sede_id || sedeIdActual);
-      const usuarioId = sesion?.usuario_id || sesion?.id;
-      const turnoId = sesion?.turno_id ? Number(sesion.turno_id) : null;
-      const totalRappi = rappiActual.items.reduce((a, b) => a + b.precio * b.cantidad, 0);
-
-      const payloadVenta = {
-        sede_id: idSede,
-        mesa_id: null,
-        usuario_id: usuarioId,
-        turno_id: turnoId,
-        monto_total: totalRappi,
-        pago_efectivo: 0,
-        pago_nequi: 0,
-        pago_daviplata: 0,
-        pago_rappi: totalRappi,
-        otros: 0,
-        detalle_otro: `Entrega Directa Rappi ${rappiActual.codigo}`,
-        descuento: 0,
-        items: rappiActual.items,
-        estado: 'pagado',
-        tipo_venta: 'rappi',
-        fecha_hora: obtenerFechaHoraColombia(),
-      };
-
-      const { error } = await supabase.from('venta').insert([payloadVenta]);
-
-      if (error) {
-        alert('❌ Error al entregar el pedido de Rappi: ' + error.message);
-        return;
-      }
-
-      await procesarDescuentoEmpaques(rappiActual.items);
-
-      alert(`✅ Pedido ${rappiActual.codigo} entregado y registrado como venta Rappi.`);
-
-      setPedidosRappi((prev) => prev.filter((r) => r.id !== rappiSeleccionadoId));
-      setRappiSeleccionadoId(null);
-      await cargarVentasDiaBD(idSede);
-      if (mesasBD.length > 0) {
-        setMesaSeleccionada(mesasBD[0].id);
-        setTipoCanalSeleccionado('mesa');
-      }
-    } finally {
-      setGuardandoVenta(false);
-    }
+    if (metodo === 'efectivo') setPagoEfectivo(String(faltante));
+    if (metodo === 'nequi') setPagoNequi(String(faltante));
+    if (metodo === 'daviplata') setPagoDaviplata(String(faltante));
+    if (metodo === 'otros') setPagoOtros(String(faltante));
   }
 
   async function handleFinalizarVentaBD() {
-    if (guardandoVenta) return;
-
-    if (carritoActual.length === 0) {
-      alert('⚠️ El carrito está vacío.');
-      return;
-    }
-
-    if (totalIngresado < totalACobrar) {
-      alert(`⚠️ Falta por cubrir ${formatearMoneda(saldoPendiente)} para completar la venta.`);
-      return;
-    }
+    if (guardandoVenta || saldoPendiente > 0) return;
+    const idSede = Number(sesion?.sede_id || sedeIdActual);
+    const usuarioId = sesion?.usuario_id || sesion?.id;
 
     setGuardandoVenta(true);
-
     try {
-      const idSede = Number(sesion?.sede_id || sedeIdActual);
-      const usuarioId = sesion?.usuario_id || sesion?.id;
-      const turnoId = sesion?.turno_id ? Number(sesion.turno_id) : null;
-
       const payloadVenta = {
         sede_id: idSede,
-        mesa_id: mesaSeleccionada,
-        usuario_id: usuarioId,
-        turno_id: turnoId,
+        usuario_id: Number(usuarioId),
         monto_total: totalACobrar,
+        descuento: numDescuento,
         pago_efectivo: numEfectivo,
         pago_nequi: numNequi,
-        pago_daviplata: numDavi,
+        pago_daviplata: numDaviplata,
+        pago_rappi: 0,
         otros: numOtros,
-        detalle_otro: detalleOtro || null,
-        descuento: descuentoNum,
-        items: carritoActual,
-        estado: 'pagado',
+        detalle_otros: numOtros > 0 ? detalleOtro : null,
         tipo_venta: 'local',
+        items: carritoActual,
         fecha_hora: obtenerFechaHoraColombia(),
       };
 
       const { error } = await supabase.from('venta').insert([payloadVenta]);
 
       if (error) {
-        alert('❌ Error al registrar la venta: ' + error.message);
+        alert('Error al registrar venta: ' + error.message);
         return;
       }
 
-      await procesarDescuentoEmpaques(carritoActual);
-
-      alert('✅ ¡Venta registrada exitosamente!');
+      alert('✅ Venta cobrada y registrada exitosamente.');
 
       if (mesaSeleccionada) {
         setCarritosPorMesa((prev) => ({ ...prev, [mesaSeleccionada]: [] }));
       }
 
+      setMostrarModalPago(false);
       setPagoEfectivo('');
       setPagoNequi('');
       setPagoDaviplata('');
       setPagoOtros('');
       setDetalleOtro('');
       setDescuentoVenta('');
-      setMostrarModalPago(false);
+
       await cargarVentasDiaBD(idSede);
+    } catch (e: any) {
+      alert('Error en la venta: ' + e.message);
+    } finally {
+      setGuardandoVenta(false);
+    }
+  }
+
+  async function handleEntregarPedidoRappiDirecto() {
+    if (!rappiSeleccionadoId || carritoActual.length === 0 || guardandoVenta) return;
+    const idSede = Number(sesion?.sede_id || sedeIdActual);
+    const usuarioId = sesion?.usuario_id || sesion?.id;
+
+    setGuardandoVenta(true);
+    try {
+      const payloadVenta = {
+        sede_id: idSede,
+        usuario_id: Number(usuarioId),
+        monto_total: subtotalMesaActual,
+        descuento: 0,
+        pago_efectivo: 0,
+        pago_nequi: 0,
+        pago_daviplata: 0,
+        pago_rappi: subtotalMesaActual,
+        otros: 0,
+        tipo_venta: 'rappi',
+        items: carritoActual,
+        fecha_hora: obtenerFechaHoraColombia(),
+      };
+
+      const { error } = await supabase.from('venta').insert([payloadVenta]);
+
+      if (error) {
+        alert('Error al registrar pedido Rappi: ' + error.message);
+        return;
+      }
+
+      alert(`✅ Pedido Rappi "${rappiActual?.codigo}" registrado en ventas.`);
+
+      setPedidosRappi((prev) => prev.filter((r) => r.id !== rappiSeleccionadoId));
+      setRappiSeleccionadoId(null);
+
+      await cargarVentasDiaBD(idSede);
+    } catch (e: any) {
+      alert('Error en el pedido Rappi: ' + e.message);
     } finally {
       setGuardandoVenta(false);
     }
@@ -1082,142 +647,154 @@ export default function WalersPOSOperacionPage() {
   async function handleGuardarVentasExternas() {
     if (guardandoExterno) return;
 
-    const idSede = Number(sesion?.sede_id || sedeIdActual);
-    const usuarioId = sesion?.usuario_id || sesion?.id;
-    const efec = externoEfectivo === '' ? 0 : Number(externoEfectivo);
-    const neq = externoNequi === '' ? 0 : Number(externoNequi);
-    const davi = externoDaviplata === '' ? 0 : Number(externoDaviplata);
-    const rap = externoRappi === '' ? 0 : Number(externoRappi);
-    const otr = externoOtros === '' ? 0 : Number(externoOtros);
-
-    if (efec < 0 || neq < 0 || davi < 0 || rap < 0 || otr < 0) {
-      alert('⚠️ Los valores no pueden ser negativos.');
-      return;
-    }
-
     setGuardandoExterno(true);
-
     try {
-      let targetCajaId = cajaIdActual;
-
-      if (!targetCajaId) {
-        const inicioDia = obtenerInicioDiaColombia();
-        const { data: cajaBD } = await supabase
-          .from('caja')
-          .select('*')
-          .eq('sede_id', idSede)
-          .eq('usuario_id', usuarioId)
-          .gte('fecha', inicioDia)
-          .order('id', { ascending: false })
-          .limit(1)
-          .maybeSingle();
-
-        if (cajaBD) {
-          targetCajaId = cajaBD.id;
-          setCajaIdActual(cajaBD.id);
-          setCajaDataActual(cajaBD);
-        }
-      }
-
-      if (targetCajaId) {
-        const { data, error } = await supabase
+      if (cajaIdActual) {
+        const { error } = await supabase
           .from('caja')
           .update({
-            efectivo_cierre: efec,
-            nequi: neq,
-            daviplata: davi,
-            rappi: rap,
-            otros: otr,
+            efectivo_cierre: Number(externoEfectivo) || 0,
+            nequi: Number(externoNequi) || 0,
+            daviplata: Number(externoDaviplata) || 0,
+            rappi: Number(externoRappi) || 0,
+            otros: Number(externoOtros) || 0,
           })
-          .eq('id', targetCajaId)
-          .select()
-          .single();
+          .eq('id', cajaIdActual);
 
-        if (error) {
-          alert('❌ Error al actualizar las ventas en caja: ' + error.message);
-          return;
-        }
-        if (data) setCajaDataActual(data);
-      } else {
-        const { data, error } = await supabase
-          .from('caja')
-          .insert([
-            {
-              sede_id: idSede,
-              usuario_id: usuarioId,
-              monto_apertura: baseCaja === '' ? 0 : Number(baseCaja),
-              efectivo_cierre: efec,
-              nequi: neq,
-              daviplata: davi,
-              rappi: rap,
-              otros: otr,
-              fecha: obtenerFechaHoraColombia(),
-              estado: 'abierta'
-            }
-          ])
-          .select()
-          .single();
-
-        if (error) {
-          alert('❌ Error al registrar ventas en caja: ' + error.message);
-          return;
-        }
-
-        if (data) {
-          setCajaIdActual(data.id);
-          setCajaDataActual(data);
-        }
+        if (error) alert('Error al actualizar totales de caja: ' + error.message);
+        else alert('✅ Totales guardados correctamente en la caja actual.');
       }
-
-      alert('✅ Totales de ventas guardados en Caja correctamente.');
     } finally {
       setGuardandoExterno(false);
     }
   }
 
-  async function handleGuardarGasto() {
-    if (guardandoGasto) return;
-
+  // --- NÓMINA Y CAMBIO TURNO ---
+  async function handleGuardarNomina() {
+    if (guardandoNomina) return;
     const idSede = Number(sesion?.sede_id || sedeIdActual);
-    const descLimpia = descripcionGasto.trim();
-    const montoNum = montoGasto === '' ? 0 : Number(montoGasto);
+    const montoNum = Number(montoTotalNomina);
 
-    if (!descLimpia) {
-      alert('⚠️ Escribe el concepto o descripción del gasto.');
+    if (!montoNum || montoNum <= 0) {
+      alert('⚠️ Ingresa un monto válido para el pago de nómina.');
       return;
     }
 
-    if (montoNum <= 0) {
-      alert('⚠️ Ingresa un monto de gasto válido mayor a 0.');
+    setGuardandoNomina(true);
+    try {
+      const usuarioNominaId =
+        tipoPersonaNomina === 'operador'
+          ? sesion?.usuario_id || sesion?.id
+          : Number(ayudanteSeleccionadoId);
+
+      const payload = {
+        sede_id: idSede,
+        usuario_id: Number(usuarioNominaId),
+        monto: montoNum,
+        horas_dia: Number(horasDiaNomina) || 0,
+        horas_noche: Number(horasNocheNomina) || 0,
+        concepto: `Pago Turno ${
+          tipoPersonaNomina === 'operador' ? 'Operador' : 'Ayudante'
+        } (${sesion?.turno_nombre || 'General'})`,
+        fecha_pago: obtenerFechaHoraColombia(),
+      };
+
+      const { error } = await supabase.from('nomina').insert([payload]);
+
+      if (error) {
+        alert('Error al guardar la nómina: ' + error.message);
+      } else {
+        alert('✅ Pago de nómina registrado con éxito.');
+        setHorasDiaNomina('');
+        setHorasNocheNomina('');
+        setMontoTotalNomina('');
+        await cargarNominasDia(idSede);
+      }
+    } finally {
+      setGuardandoNomina(false);
+    }
+  }
+
+  async function handleConfirmarCambioTurno() {
+    if (verificandoCambioTurno) return;
+    if (!claveUsuarioEntrante) {
+      alert('⚠️ Digita la contraseña del operario entrante.');
+      return;
+    }
+
+    setVerificandoCambioTurno(true);
+    try {
+      const { data: usrEntrante } = await supabase
+        .from('usuario')
+        .select('*')
+        .eq('id', Number(usuarioEntranteId))
+        .single();
+
+      if (!usrEntrante || usrEntrante.contrasena !== claveUsuarioEntrante) {
+        alert('❌ Contraseña incorrecta para el operario entrante.');
+        return;
+      }
+
+      const nuevaSesion = {
+        ...sesion,
+        usuario_id: usrEntrante.id,
+        nombre: usrEntrante.nombre,
+        usuario_nombre: usrEntrante.nombre,
+      };
+
+      localStorage.setItem('martineto_session', JSON.stringify(nuevaSesion));
+      setSesion(nuevaSesion);
+
+      if (plataDejaEnCaja) {
+        setBaseCaja(plataDejaEnCaja);
+        setBaseGuardada(true);
+      }
+
+      alert(`✅ Cambio de turno exitoso. ¡Bienvenido/a ${usrEntrante.nombre}!`);
+      setMostrarModalCambioTurno(false);
+      setClaveUsuarioEntrante('');
+    } finally {
+      setVerificandoCambioTurno(false);
+    }
+  }
+
+  // --- GASTOS ---
+  async function handleGuardarGasto() {
+    if (guardandoGasto) return;
+    const idSede = Number(sesion?.sede_id || sedeIdActual);
+    const usuarioId = sesion?.usuario_id || sesion?.id;
+    const montoNum = Number(montoGasto);
+
+    if (!descripcionGasto.trim()) {
+      alert('⚠️ Debes ingresar una descripción para el gasto.');
+      return;
+    }
+
+    if (!montoNum || montoNum <= 0) {
+      alert('⚠️ Ingresa un monto válido mayor a 0.');
       return;
     }
 
     setGuardandoGasto(true);
-
     try {
-      const usuarioId = sesion?.usuario_id || sesion?.id;
-      const turnoId = sesion?.turno_id ? Number(sesion.turno_id) : null;
-
-      const payload = {
-        sede_id: idSede,
-        usuario_id: usuarioId ? Number(usuarioId) : null,
-        turno_id: turnoId,
-        descripcion: descLimpia,
-        monto: montoNum,
-        fecha: obtenerFechaHoraColombia(),
-      };
-
-      const { error } = await supabase.from('gasto').insert([payload]);
+      const { error } = await supabase.from('gasto').insert([
+        {
+          sede_id: idSede,
+          usuario_id: Number(usuarioId),
+          descripcion: descripcionGasto.trim(),
+          monto: montoNum,
+          fecha: obtenerFechaHoraColombia(),
+        },
+      ]);
 
       if (error) {
-        alert('❌ Error al registrar el gasto: ' + error.message);
-        return;
+        alert('Error al guardar el gasto: ' + error.message);
+      } else {
+        alert('✅ Gasto de insumos registrado.');
+        setDescripcionGasto('');
+        setMontoGasto('');
+        await cargarGastosDia(idSede);
       }
-
-      alert('✅ Gasto registrado correctamente.');
-      setDescripcionGasto('');
-      setMontoGasto('');
-      await cargarGastosDia(idSede);
     } finally {
       setGuardandoGasto(false);
     }
@@ -1253,10 +830,7 @@ export default function WalersPOSOperacionPage() {
     if (!confirm(`¿Deseas eliminar permanentemente "${nombreProd}" del catálogo?`)) return;
 
     try {
-      const { error } = await supabase
-        .from('producto')
-        .update({ activo: false })
-        .eq('id', idProducto);
+      const { error } = await supabase.from('producto').update({ activo: false }).eq('id', idProducto);
 
       if (error) {
         alert('Error al desactivar el producto: ' + error.message);
@@ -1298,8 +872,8 @@ export default function WalersPOSOperacionPage() {
           monto_apertura: monto,
           diferencia: 0,
           estado: 'abierta',
-          fecha: obtenerFechaHoraColombia()
-        }
+          fecha: obtenerFechaHoraColombia(),
+        },
       ]).select();
 
       if (error) {
@@ -1344,8 +918,7 @@ export default function WalersPOSOperacionPage() {
       if (key !== 'Total Paletas') {
         const val = cantidadesInventario[key];
         if (val !== '' && val !== null && val !== undefined) {
-          const contadoNum = Number(val);
-          detalleEmpaquesLimpio[key] = contadoNum;
+          detalleEmpaquesLimpio[key] = Number(val);
         } else if (tipoMovimiento === 'apertura') {
           detalleEmpaquesLimpio[key] = obtenerStockActualBD(key);
         } else {
@@ -1373,8 +946,8 @@ export default function WalersPOSOperacionPage() {
           detalle_empaques: detalleEmpaquesLimpio,
           observaciones: observacionesInventario,
           turno_id: sesion?.turno_id ? Number(sesion.turno_id) : null,
-          fecha_registro: fechaRealSQL
-        }
+          fecha_registro: fechaRealSQL,
+        },
       ]);
 
       if (errorInsert) {
@@ -1404,10 +977,10 @@ export default function WalersPOSOperacionPage() {
 
           await supabase
             .from('inventario_empaques_sedes')
-            .update({ 
+            .update({
               stock: nuevoStockCalculado,
               diferencia: diferenciaVal,
-              fecha_actualizacion: fechaRealSQL
+              fecha_actualizacion: fechaRealSQL,
             })
             .eq('id', empReg.id);
 
@@ -1429,15 +1002,14 @@ export default function WalersPOSOperacionPage() {
         }
         await supabase
           .from('inventario_empaques_sedes')
-          .update({ 
+          .update({
             stock: nuevoStockPaletas,
             diferencia: totalPaletasNum - stockPaletaViejo,
-            fecha_actualizacion: fechaRealSQL
+            fecha_actualizacion: fechaRealSQL,
           })
           .eq('id', paletaReg.id);
       }
 
-      // EN APERTURA: LLENAR/ACTUALIZAR TABLA diferencia_inventARIO (1 REGISTRO POR DÍA)
       if (tipoMovimiento === 'apertura') {
         const { data: empaquesSedeData } = await supabase
           .from('inventario_empaques_sedes')
@@ -1456,7 +1028,7 @@ export default function WalersPOSOperacionPage() {
         }
 
         const mapaDiferenciaPaletas: { [key: string]: number } = {
-          "Total Paletas": totalPaletasNum - stockPaletaViejo
+          'Total Paletas': totalPaletasNum - stockPaletaViejo,
         };
 
         const { data: registroDifExistente } = await supabase
@@ -1472,18 +1044,13 @@ export default function WalersPOSOperacionPage() {
           diferencia_paletas: mapaDiferenciaPaletas,
           diferencia_empaques: mapaDiferenciaEmpaques,
           total_diferencia: sumaDiferencias,
-          fecha: fechaRealSQL
+          fecha: fechaRealSQL,
         };
 
         if (registroDifExistente) {
-          await supabase
-            .from('diferencia_inventario')
-            .update(payloadDif)
-            .eq('id', registroDifExistente.id);
+          await supabase.from('diferencia_inventario').update(payloadDif).eq('id', registroDifExistente.id);
         } else {
-          await supabase
-            .from('diferencia_inventario')
-            .insert([payloadDif]);
+          await supabase.from('diferencia_inventario').insert([payloadDif]);
         }
       }
 
@@ -1506,6 +1073,71 @@ export default function WalersPOSOperacionPage() {
     }
   }
 
+  // GUARDA NÚMEROS PLANOS PARA LECTURA LIMPIA DEL ADMINISTRADOR
+  async function enviarPedidoBodega() {
+    if (enviandoPedido) return;
+    const idSede = Number(sesion?.sede_id || sedeIdActual);
+    const usuarioId = sesion?.usuario_id || sesion?.id;
+
+    const limpiarCategoriaPlana = (catObj: { [key: string]: number }) => {
+      const res: { [key: string]: number } = {};
+      Object.entries(catObj || {}).forEach(([nom, cant]) => {
+        if (typeof cant === 'number' && cant > 0) {
+          res[nom] = cant;
+        }
+      });
+      return res;
+    };
+
+    const paletasLimpias = limpiarCategoriaPlana(pedidosCategorias.paletas);
+    const richiLimpias = limpiarCategoriaPlana(pedidosCategorias.richi);
+    const produccionLimpias = limpiarCategoriaPlana(pedidosCategorias.produccion);
+    const insumosLimpias = limpiarCategoriaPlana(pedidosCategorias.insumos);
+    const aseoLimpias = limpiarCategoriaPlana(pedidosCategorias.aseo);
+
+    const totalItems =
+      Object.keys(paletasLimpias).length +
+      Object.keys(richiLimpias).length +
+      Object.keys(produccionLimpias).length +
+      Object.keys(insumosLimpias).length +
+      Object.keys(aseoLimpias).length;
+
+    if (totalItems === 0) {
+      alert('⚠️ Por favor ingresa al menos un producto con cantidad mayor a 0.');
+      return;
+    }
+
+    setEnviandoPedido(true);
+    try {
+      const payload = {
+        sede_id: idSede,
+        usuario_id: usuarioId,
+        estado: 'pendiente',
+        observaciones: observacionPedido || '',
+        pedidos_paletas: paletasLimpias,
+        pedidos_richi: richiLimpias,
+        pedidos_produccion: produccionLimpias,
+        pedidos_insumos: insumosLimpias,
+        pedidos_aseo: aseoLimpias,
+        fecha: obtenerFechaHoraColombia(),
+      };
+
+      const { error } = await supabase.from('pedidos_insumos').insert([payload]);
+
+      if (!error) {
+        alert('¡Pedido enviado a bodega con éxito!');
+        limpiarPedidosCat();
+        limpiarObsPedido();
+        await cargarHistorialPedidos(idSede);
+      } else {
+        alert('Error al guardar en la base de datos: ' + error.message);
+      }
+    } finally {
+      setEnviandoPedido(false);
+    }
+  }
+
+  // AL MARCAR CON CHULO SE GUARDA EL ESTADO Y SE OCULTA DE PENDIENTES
   async function toggleChuloProductoPedido(pedidoId: number, columnaCategoria: string, nombreProducto: string) {
     try {
       const idSede = Number(sesion?.sede_id || sedeIdActual);
@@ -1516,16 +1148,50 @@ export default function WalersPOSOperacionPage() {
       if (!mapaCat[nombreProducto]) return;
 
       const itemActual = mapaCat[nombreProducto];
-      const yaEntregado = typeof itemActual === 'object' && itemActual !== null ? itemActual.entregado : false;
+      const cantidad = obtenerCantidadPlana(itemActual);
+      const yaEntregado = obtenerEstadoEntregado(itemActual);
 
       mapaCat[nombreProducto] = {
-        cantidad: typeof itemActual === 'object' && itemActual !== null ? itemActual.cantidad : itemActual,
+        cantidad: cantidad,
         entregado: !yaEntregado,
       };
 
+      const pedidoActualizado = { ...pedidoOriginal, [columnaCategoria]: mapaCat };
+
+      const columnasCategorias = [
+        'pedidos_paletas',
+        'pedidos_richi',
+        'pedidos_produccion',
+        'pedidos_insumos',
+        'pedidos_aseo',
+      ] as const;
+
+      let todosEntregados = true;
+
+      for (const col of columnasCategorias) {
+        const mapa = pedidoActualizado[col];
+        if (mapa && typeof mapa === 'object') {
+          for (const item of Object.values(mapa)) {
+            const entregado = obtenerEstadoEntregado(item);
+            const cant = obtenerCantidadPlana(item);
+
+            if (cant > 0 && !entregado) {
+              todosEntregados = false;
+              break;
+            }
+          }
+        }
+        if (!todosEntregados) break;
+      }
+
+      const nuevoEstado = todosEntregados ? 'entregado' : 'pendiente';
+
       const { error } = await supabase
         .from('pedidos_insumos')
-        .update({ [columnaCategoria]: mapaCat })
+        .update({
+          [columnaCategoria]: mapaCat,
+          estado: nuevoEstado,
+        })
         .eq('id', pedidoId);
 
       if (error) {
@@ -1575,8 +1241,8 @@ export default function WalersPOSOperacionPage() {
           let colModificada = false;
 
           Object.entries(mapa).forEach(([nomProd, val]: [string, any]) => {
-            const entregado = typeof val === 'object' && val !== null ? val.entregado : false;
-            const cant = typeof val === 'object' && val !== null ? Number(val.cantidad || 0) : Number(val || 0);
+            const entregado = obtenerEstadoEntregado(val);
+            const cant = obtenerCantidadPlana(val);
 
             if (!entregado && cant > 0) {
               nuevasCategorias[tabDestino][nomProd] = (nuevasCategorias[tabDestino][nomProd] || 0) + cant;
@@ -1598,6 +1264,8 @@ export default function WalersPOSOperacionPage() {
       });
 
       if (pedidoModificado) {
+        actualizacionesBD.estado = 'entregado';
+
         await supabase
           .from('pedidos_insumos')
           .update(actualizacionesBD)
@@ -1680,8 +1348,8 @@ export default function WalersPOSOperacionPage() {
           detalle_vendidas: unidadesVendidas,
           observaciones: observacionesCierre || 'Cierre de turno',
           turno_id: sesion?.turno_id ? Number(sesion.turno_id) : null,
-          fecha_registro: fechaRealSQL
-        }
+          fecha_registro: fechaRealSQL,
+        },
       ]);
 
       for (const [nombreEmp, cantContada] of Object.entries(detalleEmpaquesCierre)) {
@@ -1690,10 +1358,10 @@ export default function WalersPOSOperacionPage() {
           const vendidasEmp = unidadesVendidas[nombreEmp] || 0;
           await supabase
             .from('inventario_empaques_sedes')
-            .update({ 
+            .update({
               stock: cantContada,
               vendidas: vendidasEmp,
-              fecha_actualizacion: fechaRealSQL
+              fecha_actualizacion: fechaRealSQL,
             })
             .eq('id', empReg.id);
         }
@@ -1703,15 +1371,14 @@ export default function WalersPOSOperacionPage() {
       if (paletaReg) {
         await supabase
           .from('inventario_empaques_sedes')
-          .update({ 
+          .update({
             stock: totalPaletasContadas,
             vendidas: paletasVendidas,
-            fecha_actualizacion: fechaRealSQL
+            fecha_actualizacion: fechaRealSQL,
           })
           .eq('id', paletaReg.id);
       }
 
-      // EN CIERRE: LLENAR/ACTUALIZAR TABLA historico_ventas (1 REGISTRO POR DÍA)
       const { data: empaquesSedeData } = await supabase
         .from('inventario_empaques_sedes')
         .select('nombre, vendidas')
@@ -1735,18 +1402,13 @@ export default function WalersPOSOperacionPage() {
       const payloadHistorico = {
         sede_id: idSede,
         productos: mapaProductosVendidos,
-        fecha: fechaRealSQL
+        fecha: fechaRealSQL,
       };
 
       if (registroHistExistente) {
-        await supabase
-          .from('historico_ventas')
-          .update(payloadHistorico)
-          .eq('id', registroHistExistente.id);
+        await supabase.from('historico_ventas').update(payloadHistorico).eq('id', registroHistExistente.id);
       } else {
-        await supabase
-          .from('historico_ventas')
-          .insert([payloadHistorico]);
+        await supabase.from('historico_ventas').insert([payloadHistorico]);
       }
 
       if (cajaIdActual) {
@@ -1754,7 +1416,7 @@ export default function WalersPOSOperacionPage() {
           .from('caja')
           .update({
             diferencia: diferenciaCalculada,
-            estado: 'cerrada'
+            estado: 'cerrada',
           })
           .eq('id', cajaIdActual);
       }
@@ -1767,69 +1429,6 @@ export default function WalersPOSOperacionPage() {
       alert('Error al guardar el cierre: ' + e.message);
     } finally {
       setGuardandoCierre(false);
-    }
-  }
-
-  async function enviarPedidoBodega() {
-    if (enviandoPedido) return;
-    const idSede = Number(sesion?.sede_id || sedeIdActual);
-    const usuarioId = sesion?.usuario_id || sesion?.id;
-
-    const limpiarCategoria = (catObj: { [key: string]: number }) => {
-      const res: { [key: string]: any } = {};
-      Object.entries(catObj || {}).forEach(([nom, cant]) => {
-        if (typeof cant === 'number' && cant > 0) {
-          res[nom] = { cantidad: cant, entregado: false };
-        }
-      });
-      return res;
-    };
-
-    const paletasLimpias = limpiarCategoria(pedidosCategorias.paletas);
-    const richiLimpias = limpiarCategoria(pedidosCategorias.richi);
-    const produccionLimpias = limpiarCategoria(pedidosCategorias.produccion);
-    const insumosLimpias = limpiarCategoria(pedidosCategorias.insumos);
-    const aseoLimpias = limpiarCategoria(pedidosCategorias.aseo);
-
-    const totalItems =
-      Object.keys(paletasLimpias).length +
-      Object.keys(richiLimpias).length +
-      Object.keys(produccionLimpias).length +
-      Object.keys(insumosLimpias).length +
-      Object.keys(aseoLimpias).length;
-
-    if (totalItems === 0) {
-      alert('⚠️ Por favor ingresa al menos un producto con cantidad mayor a 0.');
-      return;
-    }
-
-    setEnviandoPedido(true);
-    try {
-      const payload = {
-        sede_id: idSede,
-        usuario_id: usuarioId,
-        estado: 'pendiente',
-        observaciones: observacionPedido || '',
-        pedidos_paletas: paletasLimpias,
-        pedidos_richi: richiLimpias,
-        pedidos_produccion: produccionLimpias,
-        pedidos_insumos: insumosLimpias,
-        pedidos_aseo: aseoLimpias,
-        fecha: obtenerFechaHoraColombia()
-      };
-
-      const { error } = await supabase.from('pedidos_insumos').insert([payload]);
-
-      if (!error) {
-        alert('¡Pedido enviado a bodega con éxito!');
-        limpiarPedidosCat();
-        limpiarObsPedido();
-        await cargarHistorialPedidos(idSede);
-      } else {
-        alert('Error al guardar en la base de datos: ' + error.message);
-      }
-    } finally {
-      setEnviandoPedido(false);
     }
   }
 
@@ -2097,7 +1696,13 @@ export default function WalersPOSOperacionPage() {
                 type="button"
                 onClick={handleGuardarBase}
                 disabled={baseGuardada || guardandoBase}
-                className={`font-bold px-6 rounded-xl text-xs transition-all ${baseGuardada ? 'bg-emerald-950 text-emerald-300 border border-emerald-500 cursor-default' : guardandoBase ? 'bg-emerald-800 text-white cursor-not-allowed opacity-75' : 'bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer'}`}
+                className={`font-bold px-6 rounded-xl text-xs transition-all ${
+                  baseGuardada
+                    ? 'bg-emerald-950 text-emerald-300 border border-emerald-500 cursor-default'
+                    : guardandoBase
+                    ? 'bg-emerald-800 text-white cursor-not-allowed opacity-75'
+                    : 'bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer'
+                }`}
               >
                 {baseGuardada ? '✓ Base Guardada' : guardandoBase ? '⏳ Guardando...' : 'Guardar Base'}
               </button>
@@ -2108,7 +1713,9 @@ export default function WalersPOSOperacionPage() {
             <h2 className="text-sm font-black text-white flex items-center gap-1.5">
               📦 Conteo Físico de Productos y Movimientos de Inventario
             </h2>
-            <span className="bg-[#0078d4] text-white font-black text-[10px] px-3 py-1 rounded-full uppercase">{tipoMovimiento}</span>
+            <span className="bg-[#0078d4] text-white font-black text-[10px] px-3 py-1 rounded-full uppercase">
+              {tipoMovimiento}
+            </span>
           </div>
 
           <div className="space-y-1">
@@ -2189,8 +1796,8 @@ export default function WalersPOSOperacionPage() {
             onClick={handleGuardarInventario}
             disabled={!baseGuardada || guardandoMovimiento}
             className={`w-full text-white font-black py-3 rounded-xl text-xs uppercase shadow-md transition-all ${
-              guardandoMovimiento 
-                ? 'bg-sky-900 cursor-not-allowed opacity-75' 
+              guardandoMovimiento
+                ? 'bg-sky-900 cursor-not-allowed opacity-75'
                 : 'bg-[#0078d4] hover:bg-[#0086e6] cursor-pointer disabled:opacity-50'
             }`}
           >
@@ -2231,7 +1838,9 @@ export default function WalersPOSOperacionPage() {
                     key={tab.id}
                     onClick={() => setTabPedido(tab.id)}
                     disabled={enviandoPedido}
-                    className={`py-2 rounded-xl text-xs font-black uppercase cursor-pointer transition-all ${tabPedido === tab.id ? 'bg-[#00a4ef] text-white shadow-md' : 'bg-[#051829] text-sky-300 border border-[#0066b3]'}`}
+                    className={`py-2 rounded-xl text-xs font-black uppercase cursor-pointer transition-all ${
+                      tabPedido === tab.id ? 'bg-[#00a4ef] text-white shadow-md' : 'bg-[#051829] text-sky-300 border border-[#0066b3]'
+                    }`}
                   >
                     {tab.label}
                   </button>
@@ -2385,26 +1994,42 @@ export default function WalersPOSOperacionPage() {
                 </p>
               ) : (
                 historialPedidosBD.map((ped) => {
-                  const horaPed = new Date(ped.fecha).toLocaleTimeString('es-CO', { timeZone: 'America/Bogota', hour: '2-digit', minute: '2-digit' });
-
-                  const tienePendientes = (['pedidos_paletas', 'pedidos_richi', 'pedidos_produccion', 'pedidos_insumos', 'pedidos_aseo'] as const).some((colCat) => {
-                    const mapa = ped[colCat];
-                    if (!mapa || typeof mapa !== 'object') return false;
-                    return Object.values(mapa).some((val: any) => {
-                      const entregado = typeof val === 'object' && val !== null ? val.entregado : false;
-                      const cant = typeof val === 'object' && val !== null ? Number(val.cantidad || 0) : Number(val || 0);
-                      return !entregado && cant > 0;
-                    });
+                  const horaPed = new Date(ped.fecha).toLocaleTimeString('es-CO', {
+                    timeZone: 'America/Bogota',
+                    hour: '2-digit',
+                    minute: '2-digit',
                   });
 
-                  if (!tienePendientes) return null;
+                  // Recopilar solo los ítems que AÚN NO han sido entregados
+                  const itemsPendientes: { colCat: string; nom: string; cant: number }[] = [];
+
+                  (['pedidos_paletas', 'pedidos_richi', 'pedidos_produccion', 'pedidos_insumos', 'pedidos_aseo'] as const).forEach((colCat) => {
+                    const mapa = ped[colCat];
+                    if (mapa && typeof mapa === 'object') {
+                      Object.entries(mapa).forEach(([nom, val]: [string, any]) => {
+                        const cant = obtenerCantidadPlana(val);
+                        const entregado = obtenerEstadoEntregado(val);
+                        if (!entregado && cant > 0) {
+                          itemsPendientes.push({ colCat, nom, cant });
+                        }
+                      });
+                    }
+                  });
+
+                  // Si todos los ítems fueron marcados con chulo, la tarjeta desaparece del listado
+                  if (itemsPendientes.length === 0) return null;
 
                   return (
                     <div key={ped.id} className="bg-[#051829] border border-[#0066b3] p-3.5 rounded-xl space-y-2.5">
                       <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
-                        <span className="font-black text-white text-xs">
-                          Pedido #{ped.id} ({horaPed}) - Haz clic en el chulo de cada producto cuando llegue.
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-black text-white text-xs">
+                            Pedido #{ped.id} ({horaPed}) - PENDIENTES POR ENTREGAR ({itemsPendientes.length}):
+                          </span>
+                          <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-amber-900 text-amber-300 border border-amber-500">
+                            PENDIENTE
+                          </span>
+                        </div>
                         <button
                           type="button"
                           onClick={() => borrarPedidosBD([ped.id])}
@@ -2415,38 +2040,26 @@ export default function WalersPOSOperacionPage() {
                       </div>
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 pt-1">
-                        {(['pedidos_paletas', 'pedidos_richi', 'pedidos_produccion', 'pedidos_insumos', 'pedidos_aseo'] as const).map((colCat) => {
-                          const mapa = ped[colCat];
-                          if (!mapa || Object.keys(mapa).length === 0) return null;
-
-                          return Object.entries(mapa).map(([nom, val]: [string, any]) => {
-                            const cant = typeof val === 'object' && val !== null ? val.cantidad : val;
-                            const entregado = typeof val === 'object' && val !== null ? val.entregado : false;
-
-                            if (entregado) return null;
-
-                            return (
-                              <div key={`${ped.id}_${nom}`} className="border p-2 rounded-lg flex justify-between items-center text-xs bg-[#0e385e] border-[#0066b3]">
-                                <div className="flex items-center gap-2">
-                                  <button
-                                    type="button"
-                                    onClick={() => toggleChuloProductoPedido(ped.id, colCat, nom)}
-                                    title="Marcar como entregado"
-                                    className="w-5 h-5 rounded font-black text-xs flex items-center justify-center cursor-pointer transition-all bg-[#051829] border border-sky-400 text-sky-300"
-                                  >
-                                    ✓
-                                  </button>
-                                  <span className="font-bold truncate max-w-[130px] text-white">
-                                    {nom}
-                                  </span>
-                                </div>
-                                <span className="bg-emerald-600 text-white font-black text-[11px] px-2 py-0.5 rounded-md">
-                                  {cant} un.
-                                </span>
-                              </div>
-                            );
-                          });
-                        })}
+                        {itemsPendientes.map(({ colCat, nom, cant }) => (
+                          <div key={`${ped.id}_${nom}`} className="bg-[#0e385e] border border-[#0066b3] p-2 rounded-lg flex justify-between items-center text-xs">
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => toggleChuloProductoPedido(ped.id, colCat, nom)}
+                                title="Marcar como entregado y ocultar"
+                                className="w-5 h-5 rounded font-black text-xs flex items-center justify-center cursor-pointer transition-all bg-[#051829] border border-sky-400 text-transparent hover:text-sky-300"
+                              >
+                                ✓
+                              </button>
+                              <span className="font-bold truncate max-w-[130px] text-white">
+                                {nom}
+                              </span>
+                            </div>
+                            <span className="bg-emerald-600 text-white font-black text-[11px] px-2 py-0.5 rounded-md">
+                              {cant} un.
+                            </span>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   );
@@ -2547,7 +2160,7 @@ export default function WalersPOSOperacionPage() {
         </div>
       )}
 
-      {/* MÓDULO 4: VENTAS Y CANALES DIRECTOS */}
+      {/* MÓDULO 4: VENTAS */}
       {moduloActivo === 'ventas' && (
         <div className="space-y-4">
           <div className="flex flex-wrap gap-3 bg-[#0b2b48] border border-[#0066b3] p-3 rounded-2xl shadow-md items-center justify-between">
@@ -3433,7 +3046,7 @@ export default function WalersPOSOperacionPage() {
         </div>
       )}
 
-      {/* MODAL RESUMEN FACTURAS PAGAS */}
+      {/* MODAL FACTURAS PAGAS */}
       {mostrarModalFacturasPagas && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-[#0b2b48] border-2 border-[#0066b3] w-full max-w-2xl rounded-2xl p-5 space-y-4 shadow-2xl">
@@ -3568,7 +3181,7 @@ export default function WalersPOSOperacionPage() {
         </div>
       )}
 
-      {/* MODAL COBRAR / REGISTRAR PAGO (VENTA LOCAL) */}
+      {/* MODAL COBRAR / REGISTRAR PAGO */}
       {mostrarModalPago && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-[#0b2b48] border-2 border-[#0066b3] w-full max-w-lg rounded-2xl p-5 space-y-4 shadow-2xl">
