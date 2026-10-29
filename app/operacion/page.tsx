@@ -387,16 +387,18 @@ export default function PosPage() {
   }
 
   async function cargarHistorialPedidos(idSede: number) {
-    const inicioDia = obtenerInicioDiaColombia();
-    const { data } = await supabase
-      .from('pedidos_insumos')
-      .select('*')
-      .eq('sede_id', idSede)
-      .gte('fecha', inicioDia)
-      .order('id', { ascending: false });
+  const inicioDia = obtenerInicioDiaColombia();
+  
+  // Consulta pedidos que sean de HOY O que sigan PENDIENTES de días anteriores
+  const { data } = await supabase
+    .from('pedidos_insumos')
+    .select('*')
+    .eq('sede_id', idSede)
+    .or(`fecha.gte.${inicioDia},estado.eq.pendiente`)
+    .order('id', { ascending: false });
 
-    if (data) setHistorialPedidosBD(data);
-  }
+  if (data) setHistorialPedidosBD(data);
+}
 
   async function cargarVentasDiaBD(idSede: number) {
     setCargandoResumenVentas(true);
