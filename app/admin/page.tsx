@@ -45,53 +45,47 @@ export default function AdminPage() {
 
   const [fechaInicio, setFechaInicio] = useState<string>(fechaHoy);
   const [fechaFin, setFechaFin] = useState<string>(fechaHoy);
-  const [sedeSeleccionada, setSedeSeleccionada] = useState<string>('todos');
 
-  const [acordeonAperturaAbierto, setAcordeonAperturaAbierto] = useState<boolean>(true);
-  const [moduloAbierto, setModuloAbierto] = useState<string | null>('cierres');
-  const [subPestanaLogistica, setSubPestanaLogistica] = useState<'compras' | 'despachos'>('compras');
+  // ACORDEONES PRINCIPALES Y SUB-ACORDEONES
+  const [acordeonAperturaAbierto, setAcordeonAperturaAbierto] = useState<boolean>(false);
+  const [moduloAbierto, setModuloAbierto] = useState<string | null>(null);
+  
+  // SUBPESTAÑAS
+  const [subPestanaLogistica, setSubPestanaLogistica] = useState<'por_sede' | 'por_proveedor'>('por_sede');
   const [subPestanaCierres, setSubPestanaCierres] = useState<'caja' | 'descuadres'>('caja');
-  const [acordeonBISedeAbierto, setAcordeonBISedeAbierto] = useState<{ [nombreSede: string]: boolean }>({});
+
+  // SUB-ACORDEONES INTERNOS
+  const [subAcordeonesSedesLogistica, setSubAcordeonesSedesLogistica] = useState<{ [key: string]: boolean }>({});
+  const [subAcordeonesProvLogistica, setSubAcordeonesProvLogistica] = useState<{ [key: string]: boolean }>({});
+  const [subAcordeonesDescuadres, setSubAcordeonesDescuadres] = useState<{ [key: string]: boolean }>({});
+  const [acordeonesCierres, setAcordeonesCierres] = useState<{ [key: string]: boolean }>({});
+  const [subAcordeonesStock, setSubAcordeonesStock] = useState<{ [key: string]: boolean }>({});
+  const [acordeonesVentasAbanico, setAcordeonesVentasAbanico] = useState<{ [key: string]: boolean }>({});
+  const [subAcordeonesBISedes, setSubAcordeonesBISedes] = useState<{ [key: string]: boolean }>({});
 
   const [resumenNominaOperarios, setResumenNominaOperarios] = useState<any[]>([]);
   const [sedesBD, setSedesBD] = useState<any[]>([]);
   const [mapaSedes, setMapaSedes] = useState<{ [id: number]: string }>({});
   const [usuariosBD, setUsuariosBD] = useState<{ [id: number]: string }>({});
   const [pedidos, setPedidos] = useState<any[]>([]);
-  const [pedidos30Dias, setPedidos30Dias] = useState<any[]>([]);
-  const [pedidosPendientesGlobal, setPedidosPendientesGlobal] = useState<any[]>([]);
   const [productosBD, setProductosBD] = useState<any[]>([]);
   const [registrosCaja, setRegistrosCaja] = useState<any[]>([]);
   const [registrosNomina, setRegistrosNomina] = useState<any[]>([]);
   const [inventarioMovimientos, setInventarioMovimientos] = useState<any[]>([]);
   const [inventarioMovsDia, setInventarioMovsDia] = useState<any[]>([]);
   const [inventarioEmpaquesSedesBD, setInventarioEmpaquesSedesBD] = useState<any[]>([]);
-  const [empaquesMartinetoBD, setEmpaquesMartinetoBD] = useState<any[]>([]);
   const [historicoVentasBD, setHistoricoVentasBD] = useState<any[]>([]);
   const [historicoVentas30DiasBD, setHistoricoVentas30DiasBD] = useState<any[]>([]);
   const [cargando, setCargando] = useState<boolean>(true);
-  const [editandoProveedor, setEditandoProveedor] = useState<{ [nombre: string]: string }>({});
-
-  const [itemsChequeados, setItemsChequeados] = useState<{ [key: string]: boolean }>({});
-
-  const [acordeonesCompras, setAcordeonesCompras] = useState<{ [key: string]: boolean }>({});
-  const [acordeonesDespachos, setAcordeonesDespachos] = useState<{ [key: string]: boolean }>({});
-  const [acordeonesCierres, setAcordeonesCierres] = useState<{ [key: string]: boolean }>({ global: true });
-  const [acordeonesDescuadres, setAcordeonesDescuadres] = useState<{ [key: string]: boolean }>({});
-  const [acordeonesInventario, setAcordeonesInventario] = useState<{ [key: string]: boolean }>({});
-  const [acordeonesResumenSedes, setAcordeonesResumenSedes] = useState<{ [key: string]: boolean }>({ global: true });
-  const [acordeonesConsolidadoCompras, setAcordeonesConsolidadoCompras] = useState<{ [key: string]: boolean }>({ global: true });
-  const [acordeonesVentasAbanico, setAcordeonesVentasAbanico] = useState<{ [key: string]: boolean }>({});
-  const [acordeonesMixViva, setAcordeonesMixViva] = useState<{ [key: string]: boolean }>({});
-  const [acordeonesRappi, setAcordeonesRappi] = useState<{ [key: string]: boolean }>({ global: true });
-  const [acordeonesProyeccionSedes, setAcordeonesProyeccionSedes] = useState<{ [key: string]: boolean }>({});
 
   // ESTADOS MÓDULO 10: GESTIÓN DEL SISTEMA
   const [subPestanaGestion, setSubPestanaGestion] = useState<'productos_venta' | 'usuarios'>('productos_venta');
-  const [tablaProductoSeleccionada, setTablaProductoSeleccionada] = useState<'produc_ven_martineto' | 'produc_ven_ositos'>('produc_ven_martineto');
+  const [sedeSeleccionadaId, setSedeSeleccionadaId] = useState<number | null>(null);
   const [listaProductosVenta, setListaProductosVenta] = useState<any[]>([]);
   const [listaUsuariosGestion, setListaUsuariosGestion] = useState<any[]>([]);
+  const [cargandoModulo10, setCargandoModulo10] = useState<boolean>(false);
   const [preciosEditados, setPreciosEditados] = useState<{ [id: number]: number }>({});
+  const [pinesEditados, setPinesEditados] = useState<{ [id: number]: string }>({});
   const [mostrarModalNuevoUsuario, setMostrarModalNuevoUsuario] = useState<boolean>(false);
   const [nuevoUsuarioNombre, setNuevoUsuarioNombre] = useState<string>('');
   const [nuevoUsuarioCodigo, setNuevoUsuarioCodigo] = useState<string>('');
@@ -100,7 +94,6 @@ export default function AdminPage() {
   const [nuevoProdVentaNombre, setNuevoProdVentaNombre] = useState<string>('');
   const [nuevoProdVentaPrecio, setNuevoProdVentaPrecio] = useState<number | ''>('');
   const [nuevoProdVentaCategoria, setNuevoProdVentaCategoria] = useState<string>('');
-  const [nuevoProdEsInventario, setNuevoProdEsInventario] = useState<boolean>(false);
 
   useEffect(() => {
     cargarDatosAdmin();
@@ -110,19 +103,37 @@ export default function AdminPage() {
     if (moduloAbierto === 'gestion_sistema') {
       cargarGestionSistema();
     }
-  }, [moduloAbierto, subPestanaGestion, tablaProductoSeleccionada]);
+  }, [moduloAbierto, subPestanaGestion, sedeSeleccionadaId]);
 
   async function cargarGestionSistema() {
+    setCargandoModulo10(true);
     try {
       if (subPestanaGestion === 'productos_venta') {
-        const { data } = await supabase.from(tablaProductoSeleccionada).select('*');
-        setListaProductosVenta(data || []);
+        let query = supabase.from('productos_para_venta').select('*');
+        if (sedeSeleccionadaId !== null) {
+          query = query.eq('sede_id', sedeSeleccionadaId);
+        }
+        const { data, error } = await query;
+        if (error) {
+          console.error('Error consultando productos_para_venta:', error.message);
+          setListaProductosVenta([]);
+        } else {
+          setListaProductosVenta(data || []);
+        }
       } else {
-        const { data } = await supabase.from('usuario').select('*');
-        setListaUsuariosGestion(data || []);
+        const { data, error } = await supabase.from('usuario').select('*');
+        if (error) {
+          console.error('Error consultando usuario:', error.message);
+          setListaUsuariosGestion([]);
+        } else {
+          setListaUsuariosGestion(data || []);
+        }
       }
     } catch (err) {
-      console.error('Error cargando gestión del sistema:', err);
+      console.error('Error procesando gestión del sistema:', err);
+      setListaProductosVenta([]);
+    } finally {
+      setCargandoModulo10(false);
     }
   }
 
@@ -141,6 +152,10 @@ export default function AdminPage() {
         const mapa: { [id: number]: string } = {};
         sedesReales.forEach((s) => { mapa[s.id] = s.nombre; });
         setMapaSedes(mapa);
+
+        if (sedesReales.length > 0 && sedeSeleccionadaId === null) {
+          setSedeSeleccionadaId(sedesReales[0].id);
+        }
       }
 
       const { data: usuariosData } = await supabase.from('usuario').select('id, nombre_completo');
@@ -156,21 +171,11 @@ export default function AdminPage() {
       const fechaHace30DiasStr = hace30DiasObj.toISOString().split('T')[0];
 
       const { data: pedidosDataRaw } = await supabase.from('pedidos_insumos').select('*');
-      
       const pedidosData = (pedidosDataRaw || []).filter(row => {
         if (!row.fecha) return false;
         const fRow = obtenerFechaLocalStr(row.fecha);
         return fRow >= fechaInicio && fRow <= fechaFin;
       });
-
-      const pedidos30DiasFiltrado = (pedidosDataRaw || []).filter(row => {
-        if (!row.fecha) return false;
-        const fRow = obtenerFechaLocalStr(row.fecha);
-        return fRow >= fechaHace30DiasStr;
-      });
-
-      const pendientesGlobales = (pedidosDataRaw || []).filter(row => row.estado === 'pendiente' || row.estado === 'comprado');
-      setPedidosPendientesGlobal(pendientesGlobales);
 
       const { data: prodData } = await supabase.from('producto').select('id, nombre, donde_comprar, categoria');
 
@@ -186,7 +191,6 @@ export default function AdminPage() {
           apertura: row.monto_apertura ?? row.base_inicial ?? 0
         }));
 
-      // FILTRADO DE NÓMINA POR CAMPO fecha_pago
       const { data: nominaDataRaw } = await supabase.from('nomina').select('*');
       const nominaData = (nominaDataRaw || []).filter(row => {
         if (!row.fecha_pago) return false;
@@ -251,19 +255,15 @@ export default function AdminPage() {
       setInventarioMovsDia(invDiarioRaw || []);
 
       const { data: empaquesSedesData } = await supabase.from('inventario_empaques_sedes').select('*');
-      const { data: empaquesMartinetoData } = await supabase.from('empaques_martineto').select('*');
 
       setPedidos(pedidosData);
-      setPedidos30Dias(pedidos30DiasFiltrado);
       setProductosBD(prodData || []);
       setRegistrosCaja(registrosCajaFinales);
       setRegistrosNomina(nominaData);
       setInventarioMovimientos(diffDataFiltrado);
       setInventarioEmpaquesSedesBD(empaquesSedesData || []);
-      setEmpaquesMartinetoBD(empaquesMartinetoData || []);
       setHistoricoVentasBD(historicoVentasFiltrado);
       setHistoricoVentas30DiasBD(historicoVentas30DiasFiltrado);
-      setItemsChequeados({});
     } catch (err) {
       console.error('Error cargando datos:', err);
     } finally {
@@ -284,7 +284,9 @@ export default function AdminPage() {
         .sort((a, b) => new Date(b.created_at || b.fecha || 0).getTime() - new Date(a.created_at || a.fecha || 0).getTime());
 
       const regCajaActual = registrosCajaSede[0];
-      const regInvApertura = inventarioMovsDia.find(m => Number(m.sede_id) === idSede && String(m.tipo_movimiento || '').toLowerCase().trim() === 'apertura' && obtenerFechaLocalStr(m.fecha_registro) === fechaInicio);
+      const regInvApertura = inventarioMovsDia
+        .filter(m => Number(m.sede_id) === idSede)
+        .sort((a, b) => new Date(b.created_at || b.fecha_registro || 0).getTime() - new Date(a.created_at || a.fecha_registro || 0).getTime())[0];
 
       const estaAbierta = regCajaActual ? (regCajaActual.estado === 'abierta' || regCajaActual.tipo === 'apertura') : false;
       const estadoCaja = regCajaActual 
@@ -317,50 +319,13 @@ export default function AdminPage() {
   })();
 
   const pedidosPendientesCompra = pedidos.filter(p => p.estado === 'pendiente');
-  const pedidosListosParaEntrega = pedidos.filter(p => p.estado === 'comprado');
 
-  const consolidadoCompras = (() => {
-    const mapaProveedores: { [prov: string]: { items: any; idsPedidosSet: Set<number> } } = {};
-    pedidosPendientesCompra.forEach(p => {
-      if (sedeSeleccionada !== 'todos' && String(p.sede_id) !== sedeSeleccionada) return;
-      if (!mapaSedes[p.sede_id]) return;
-
-      const jsonItems = { 
-        ...(p.pedidos_paletas || {}), 
-        ...(p.pedidos_richi || {}), 
-        ...(p.pedidos_produccion || {}), 
-        ...(p.pedidos_insumos || {}), 
-        ...(p.pedidos_aseo || {}) 
-      };
-
-      Object.entries(jsonItems).forEach(([nombreProd, cantidad]) => {
-        const cantNum = Number(cantidad) || 0;
-        if (cantNum <= 0) return;
-
-        const prodEnBD = productosBD.find(item => String(item.nombre).trim().toLowerCase() === String(nombreProd).trim().toLowerCase());
-        const prov = prodEnBD?.donde_comprar && prodEnBD.donde_comprar.trim() !== '' ? prodEnBD.donde_comprar : '⚠️ Faltan datos de dónde comprar';
-
-        if (!mapaProveedores[prov]) mapaProveedores[prov] = { items: {}, idsPedidosSet: new Set() };
-        mapaProveedores[prov].idsPedidosSet.add(p.id);
-
-        if (!mapaProveedores[prov].items[nombreProd]) {
-          mapaProveedores[prov].items[nombreProd] = { cantidad: 0, idProd: prodEnBD?.id, idsPedidos: [] };
-        }
-        mapaProveedores[prov].items[nombreProd].cantidad += cantNum;
-        if (!mapaProveedores[prov].items[nombreProd].idsPedidos.includes(p.id)) {
-          mapaProveedores[prov].items[nombreProd].idsPedidos.push(p.id);
-        }
-      });
-    });
-    return mapaProveedores;
-  })();
-
+  // RESUMEN DE COMPRAS POR SEDE
   const resumenComprasPorSede = (() => {
     const mapa: { [nombreSede: string]: { [prod: string]: number } } = {};
     pedidosPendientesCompra.forEach(p => {
       if (!mapaSedes[p.sede_id]) return;
       const nombreSede = getNombreSede(p.sede_id);
-      if (sedeSeleccionada !== 'todos' && String(p.sede_id) !== sedeSeleccionada) return;
 
       if (!mapa[nombreSede]) mapa[nombreSede] = {};
       const jsonItems = { 
@@ -381,33 +346,24 @@ export default function AdminPage() {
     return mapa;
   })();
 
-  const despachosPorSede = (() => {
-    const mapaSedesObj: { [sede: string]: { productos: any; idsPedidos: number[] } } = {};
-    pedidosListosParaEntrega.forEach(p => {
-      if (!mapaSedes[p.sede_id]) return;
-      const nombreSede = getNombreSede(p.sede_id);
-      if (sedeSeleccionada !== 'todos' && String(p.sede_id) !== sedeSeleccionada) return;
-      if (!mapaSedesObj[nombreSede]) mapaSedesObj[nombreSede] = { productos: {}, idsPedidos: [] };
-      if (!mapaSedesObj[nombreSede].idsPedidos.includes(p.id)) mapaSedesObj[nombreSede].idsPedidos.push(p.id);
+  // RESUMEN DE COMPRAS POR PROVEEDOR -> SEDE
+  const resumenComprasPorProveedor = (() => {
+    const mapa: { [lugar: string]: { [nombreSede: string]: { [prod: string]: number } } } = {};
 
-      const jsonItems = { 
-        ...(p.pedidos_paletas || {}), 
-        ...(p.pedidos_richi || {}), 
-        ...(p.pedidos_produccion || {}), 
-        ...(p.pedidos_insumos || {}), 
-        ...(p.pedidos_aseo || {}) 
-      };
+    Object.entries(resumenComprasPorSede).forEach(([nombreSede, prodsSede]) => {
+      Object.entries(prodsSede).forEach(([nombreProd, cant]) => {
+        const prodEnBD = productosBD.find(item => String(item.nombre).trim().toLowerCase() === String(nombreProd).trim().toLowerCase());
+        const lugar = prodEnBD?.donde_comprar && prodEnBD.donde_comprar.trim() !== '' ? prodEnBD.donde_comprar : '⚠️ Dónde Comprar No Asignado';
 
-      Object.entries(jsonItems).forEach(([k, v]) => {
-        const cant = Number(v) || 0;
-        if (cant > 0) mapaSedesObj[nombreSede].productos[k] = (mapaSedesObj[nombreSede].productos[k] || 0) + cant;
+        if (!mapa[lugar]) mapa[lugar] = {};
+        if (!mapa[lugar][nombreSede]) mapa[lugar][nombreSede] = {};
+
+        mapa[lugar][nombreSede][nombreProd] = (mapa[lugar][nombreSede][nombreProd] || 0) + cant;
       });
     });
-    return mapaSedesObj;
-  })();
 
-  const tieneProductosPorComprar = Object.keys(consolidadoCompras).length > 0;
-  const tieneProductosPorEntregar = Object.keys(despachosPorSede).length > 0;
+    return mapa;
+  })();
 
   const CierreGlobal = (() => {
     const totalCaja = registrosCaja.reduce((acc, row) => {
@@ -451,7 +407,6 @@ export default function AdminPage() {
     registrosCaja.forEach(row => {
       if (!mapaSedes[row.sede_id]) return;
       const nombreSede = getNombreSede(row.sede_id);
-      if (sedeSeleccionada !== 'todos' && String(row.sede_id) !== sedeSeleccionada) return;
 
       const efec = Number(row.efectivo_recibido !== undefined && row.efectivo_recibido !== null ? row.efectivo_recibido : (row.efectivo_cierre !== undefined && row.efectivo_cierre !== null ? row.efectivo_cierre : row.efectivo)) || 0;
       const neq = Number(row.nequi) || 0;
@@ -472,44 +427,32 @@ export default function AdminPage() {
       porSede[nombreSede].total += sumaFila;
     });
 
-    const maxPago = totalGeneralPagos > 0 ? totalGeneralPagos : 1;
-    const porcEfectivo = Math.round((efectivoTotal / maxPago) * 100);
-    const porcNequi = Math.round((nequiTotal / maxPago) * 100);
-    const porcDaviplata = Math.round((daviplataTotal / maxPago) * 100);
-
     return {
       efectivoTotal,
       nequiTotal,
       daviplataTotal,
       totalGeneralPagos,
-      porcEfectivo,
-      porcNequi,
-      porcDaviplata,
       porSede
     };
   })();
 
-  // CIERRES POR SEDE
   const cierresPorSede = (() => {
     const mapa: { [sede: string]: any } = {};
 
-    const registrosOrdenados = [...registrosCaja].sort((a, b) => {
-      return (a.id || 0) - (b.id || 0);
-    });
+    const registrosOrdenados = [...registrosCaja].sort((a, b) => (a.id || 0) - (b.id || 0));
 
     registrosOrdenados.forEach(row => {
       if (!mapaSedes[row.sede_id]) return;
       const nombreSede = getNombreSede(row.sede_id);
-      if (sedeSeleccionada !== 'todos' && String(row.sede_id) !== sedeSeleccionada) return;
 
       const aperturaVal = Number(row.apertura || 0);
-      
       const efecRecibido = Number(row.efectivo_recibido !== undefined && row.efectivo_recibido !== null ? row.efectivo_recibido : (row.efectivo_cierre !== undefined && row.efectivo_cierre !== null ? row.efectivo_cierre : row.efectivo)) || 0;
       const neq = Number(row.nequi) || 0;
       const dav = Number(row.daviplata) || 0;
       const gas = Number(row.monto_gasto) || 0;
       const rappiVal = Number(row.rappi) || 0;
       const descuentoVal = Number(row.descuento) || 0;
+      const difCaja = Number(row.diferencia || 0);
 
       if (!mapa[nombreSede]) {
         mapa[nombreSede] = {
@@ -525,6 +468,7 @@ export default function AdminPage() {
           totalVenta: 0,
           efectivoFisicoContado: 0,
           descuadreCaja: 0,
+          diferenciaTablaCaja: 0,
           motivoDescuadre: [],
           motivosGastos: [],
           notasNomina: [],
@@ -542,6 +486,7 @@ export default function AdminPage() {
       mapa[nombreSede].gastos += gas;
       mapa[nombreSede].rappi += rappiVal;
       mapa[nombreSede].descuentos += descuentoVal;
+      mapa[nombreSede].diferenciaTablaCaja += difCaja;
       
       if (row.motivo_gasto) mapa[nombreSede].motivosGastos.push(row.motivo_gasto);
       if (row.motivo_descuadre) mapa[nombreSede].motivoDescuadre.push(row.motivo_descuadre);
@@ -559,12 +504,10 @@ export default function AdminPage() {
       }
     });
 
-    // PROCESAMIENTO EXCLUSIVO DE LA TABLA NOMINA
     registrosNomina.forEach(n => {
       const idSede = Number(n.sede_id);
       if (!mapaSedes[idSede]) return;
       const nombreSede = mapaSedes[idSede] || getNombreSede(idSede);
-      if (sedeSeleccionada !== 'todos' && String(n.sede_id) !== sedeSeleccionada) return;
 
       const montoPago = Number(n.monto || 0);
 
@@ -582,6 +525,7 @@ export default function AdminPage() {
           totalVenta: 0,
           efectivoFisicoContado: 0,
           descuadreCaja: 0,
+          diferenciaTablaCaja: 0,
           motivoDescuadre: [],
           motivosGastos: [],
           notasNomina: [],
@@ -597,8 +541,7 @@ export default function AdminPage() {
     Object.keys(mapa).forEach(sKey => {
       const item = mapa[sKey];
       item.efectivoTotal = item.efectivoRecibido;
-      item.descuadreCaja = Number(item.diferencia || 0);
-      
+      item.descuadreCaja = Number(item.diferenciaTablaCaja || 0);
       item.totalVenta = item.efectivoRecibido + item.nequi + item.daviplata + item.rappi + item.gastos + item.nomina;
     });
 
@@ -619,7 +562,6 @@ export default function AdminPage() {
     registrosCaja.forEach(row => {
       if (!mapaSedes[row.sede_id]) return;
       const nombreSede = getNombreSede(row.sede_id);
-      if (sedeSeleccionada !== 'todos' && String(row.sede_id) !== sedeSeleccionada) return;
 
       const valRappi = Number(row.rappi) || 0;
       const valDescuento = Number(row.descuento) || 0;
@@ -640,53 +582,12 @@ export default function AdminPage() {
     return { totalRappiGlobal, totalDescuentosGlobal, porSede };
   })();
 
-  const historicoMermasCriticas = (() => {
-    const mapaMermas: { 
-      [nombreSede: string]: { 
-        totalDiferenciaAcumulada: number; 
-        registros: any[];
-        frecuenciaItems: { [producto: string]: number };
-      } 
-    } = {};
-
-    inventarioMovimientos.forEach(row => {
-      const idSede = row.sede_id;
-      if (!mapaSedes[idSede]) return;
-      const nombreSede = getNombreSede(idSede);
-      if (sedeSeleccionada !== 'todos' && String(idSede) !== sedeSeleccionada) return;
-
-      const totalDif = Number(row.total_diferencia) || 0;
-      const jsonPaletas = row.diferencia_paletas || {};
-      const jsonEmpaques = row.diferencia_empaques || {};
-      const combinados = { ...jsonPaletas, ...jsonEmpaques };
-
-      if (!mapaMermas[nombreSede]) {
-        mapaMermas[nombreSede] = {
-          totalDiferenciaAcumulada: 0,
-          registros: [],
-          frecuenciaItems: {}
-        };
-      }
-
-      mapaMermas[nombreSede].totalDiferenciaAcumulada += totalDif;
-      mapaMermas[nombreSede].registros.push(row);
-
-      Object.entries(combinados).forEach(([prod, cant]) => {
-        const cNum = Number(cant) || 0;
-        if (cNum !== 0) {
-          mapaMermas[nombreSede].frecuenciaItems[prod] = (mapaMermas[nombreSede].frecuenciaItems[prod] || 0) + Math.abs(cNum);
-        }
-      });
-    });
-
-    return mapaMermas;
-  })();
-
+  // AUDITORÍA DE DESCUADRES DESDE INVENTARIO_EMPAQUES_SEDES
   const auditoriaDescuadres = (() => {
     const mapaSedDescuadres: { 
       [sedeName: string]: { 
         sedeId: number; 
-        diferencias: { producto: string; cierreAyer: number; aperturaHoy: number; dif: number }[];
+        diferencias: { producto: string; dif: number }[];
         totalDiferencia: number;
       } 
     } = {};
@@ -694,34 +595,31 @@ export default function AdminPage() {
     sedesBD.forEach(s => {
       const idSede = s.id;
       const nombreSede = getNombreSede(idSede);
-      if (sedeSeleccionada !== 'todos' && String(idSede) !== sedeSeleccionada) return;
 
-      const registroDiff = inventarioMovimientos.find(m => Number(m.sede_id) === idSede);
+      const registrosEmpaquesSede = inventarioEmpaquesSedesBD.filter(item => Number(item.sede_id) === idSede);
 
-      if (registroDiff) {
-        const diferenciasLista: { producto: string; cierreAyer: number; aperturaHoy: number; dif: number }[] = [];
-        
-        const jsonPaletas = registroDiff.diferencia_paletas || {};
-        const jsonEmpaques = registroDiff.diferencia_empaques || {};
-        const jsonGeneral = { ...jsonPaletas, ...jsonEmpaques };
+      const diferenciasLista: { producto: string; dif: number }[] = [];
+      let sumaTotalDif = 0;
 
-        Object.entries(jsonGeneral).forEach(([prodName, val]: [string, any]) => {
-          const cantidadDif = Number(val) || 0;
+      registrosEmpaquesSede.forEach(item => {
+        const difVal = Number(item.diferencia ?? 0);
+        const prodNombre = String(item.nombre || item.producto || `Item #${item.id}`).trim();
+
+        if (difVal !== 0) {
           diferenciasLista.push({
-            producto: prodName,
-            cierreAyer: 0,
-            aperturaHoy: 0,
-            dif: cantidadDif
+            producto: prodNombre,
+            dif: difVal
           });
-        });
-
-        if (diferenciasLista.length > 0 || Number(registroDiff.total_diferencia) !== 0) {
-          mapaSedDescuadres[nombreSede] = {
-            sedeId: idSede,
-            diferencias: diferenciasLista,
-            totalDiferencia: Number(registroDiff.total_diferencia || 0)
-          };
+          sumaTotalDif += difVal;
         }
+      });
+
+      if (diferenciasLista.length > 0) {
+        mapaSedDescuadres[nombreSede] = {
+          sedeId: idSede,
+          diferencias: diferenciasLista,
+          totalDiferencia: sumaTotalDif
+        };
       }
     });
 
@@ -731,8 +629,6 @@ export default function AdminPage() {
   const inventarioStockGeneralPorSede = (() => {
     const mapa: { 
       [sedeName: string]: { 
-        totalPaletas: number; 
-        detallePaletas: { [k: string]: number }; 
         detalleEmpaques: { [k: string]: number }; 
       } 
     } = {};
@@ -740,57 +636,20 @@ export default function AdminPage() {
     sedesBD.forEach(s => {
       const idSede = s.id;
       const nombreSede = getNombreSede(idSede);
-      if (sedeSeleccionada !== 'todos' && String(idSede) !== sedeSeleccionada) return;
-
-      const esViva = nombreSede.toLowerCase().includes('viva');
-
-      const movimientosSede = inventarioMovsDia
-        .filter(m => Number(m.sede_id) === idSede)
-        .sort((a, b) => new Date(b.fecha_registro || 0).getTime() - new Date(a.fecha_registro || 0).getTime());
-
-      let totalPaletasBD = 0;
-
-      if (esViva) {
-        const registroPaletasViva = inventarioEmpaquesSedesBD.find(item => Number(item.sede_id) === idSede && String(item.nombre || item.producto || '').toLowerCase() === 'total paletas');
-        if (registroPaletasViva) {
-          totalPaletasBD = Number(registroPaletasViva.stok ?? registroPaletasViva.stock ?? 0);
-        } else {
-          const ultimoMov = movimientosSede.find(m => m.total_paletas !== undefined && m.total_paletas !== null);
-          totalPaletasBD = ultimoMov ? Number(ultimoMov.total_paletas || 0) : 0;
-        }
-      } else {
-        const ultimoRegistroPaletas = movimientosSede.find(m => m.total_paletas !== undefined && m.total_paletas !== null);
-        totalPaletasBD = ultimoRegistroPaletas ? Number(ultimoRegistroPaletas.total_paletas || 0) : 0;
-      }
 
       const detalleEmpaques: { [k: string]: number } = {};
-      const esMartineto = nombreSede.toLowerCase().includes('martineto');
+      const registrosSedeEmpaques = inventarioEmpaquesSedesBD.filter(item => Number(item.sede_id) === idSede);
+      
+      registrosSedeEmpaques.forEach(item => {
+        const nombreItem = String(item.nombre || item.producto || '').trim();
+        const stockVal = Number(item.stok ?? item.stock ?? 0);
 
-      if (esMartineto) {
-        empaquesMartinetoBD.forEach(item => {
-          const nombreItem = String(item.nombre || item.producto || '').trim();
-          const stockVal = Number(item.stok ?? item.stock ?? 0);
-          if (nombreItem && nombreItem.toLowerCase() !== 'total paletas') {
-            detalleEmpaques[nombreItem] = stockVal;
-          }
-        });
-      } else {
-        const registrosSedeEmpaques = inventarioEmpaquesSedesBD.filter(item => Number(item.sede_id) === idSede);
-        registrosSedeEmpaques.forEach(item => {
-          const nombreItem = String(item.nombre || item.producto || '').trim();
-          const stockVal = Number(item.stok ?? item.stock ?? 0);
+        if (nombreItem) {
+          detalleEmpaques[nombreItem] = stockVal;
+        }
+      });
 
-          if (nombreItem && nombreItem.toLowerCase() !== 'total paletas') {
-            detalleEmpaques[nombreItem] = stockVal;
-          }
-        });
-      }
-
-      mapa[nombreSede] = {
-        totalPaletas: totalPaletasBD,
-        detallePaletas: {},
-        detalleEmpaques
-      };
+      mapa[nombreSede] = { detalleEmpaques };
     });
 
     return mapa;
@@ -803,7 +662,6 @@ export default function AdminPage() {
       const idSede = row.sede_id;
       if (!mapaSedes[idSede]) return;
       const nombreSede = getNombreSede(idSede);
-      if (sedeSeleccionada !== 'todos' && String(idSede) !== sedeSeleccionada) return;
 
       const productosJson = row.productos || {};
       if (!mapa[nombreSede]) mapa[nombreSede] = {};
@@ -819,285 +677,121 @@ export default function AdminPage() {
     return mapa;
   })();
 
-  const mixSaboresSedeViva = (() => {
-    const sedeVivaObj = sedesBD.find(s => String(s.nombre || '').toLowerCase().includes('viva'));
-    const vivaId = sedeVivaObj ? sedeVivaObj.id : null;
-
-    const categoriasMap: { [categoria: string]: { [producto: string]: number } } = {};
-    let totalUnidadesViva = 0;
-
-    historicoVentasBD.forEach(row => {
-      if (vivaId !== null && Number(row.sede_id) !== Number(vivaId)) return;
-
-      const prods = row.productos || {};
-      Object.entries(prods).forEach(([prodName, cant]) => {
-        const cNum = Number(cant) || 0;
-        if (cNum > 0) {
-          totalUnidadesViva += cNum;
-          const prodEnBD = productosBD.find(p => String(p.nombre).trim().toLowerCase() === String(prodName).trim().toLowerCase());
-          const categoria = prodEnBD?.categoria && prodEnBD.categoria.trim() !== '' ? prodEnBD.categoria : 'General / Sin Categoría';
-
-          if (!categoriasMap[categoria]) {
-            categoriasMap[categoria] = {};
-          }
-          categoriasMap[categoria][prodName] = (categoriasMap[categoria][prodName] || 0) + cNum;
-        }
-      });
-    });
-
-    return { categoriasMap, totalUnidadesViva, vivaEncontrado: vivaId !== null };
-  })();
-
-  const proyeccionDemandaTodasSedes = (() => {
-    const resultadoPorSede: { 
-      [nombreSede: string]: { 
-        sugeridos: { [prod: string]: { sugerido: number; teorico: number; stock: number; enCamino: number } };
-        numDias: number;
-        origenDatos: string;
+  // INTELIGENCIA DE NEGOCIO AMPLIADA Y COMPARATIVO DE SEDES
+  const datosBIAmpliados = (() => {
+    const totalProductos: { [prod: string]: number } = {};
+    const totalCategorias: { [cat: string]: number } = {};
+    const ventasPorFechaGlobal: { [fecha: string]: number } = {};
+    
+    // ANALÍTICA COMPARATIVA POR SEDE
+    const analiticaPorSede: { 
+      [nombreSede: string]: {
+        totalUnidades: number;
+        productos: { [p: string]: number };
+        categorias: { [c: string]: number };
       } 
     } = {};
 
-    sedesBD.forEach(s => {
-      const idSede = s.id;
+    let totalUnidades30Dias = 0;
+
+    historicoVentas30DiasBD.forEach(row => {
+      const idSede = row.sede_id;
+      if (!mapaSedes[idSede]) return;
       const nombreSede = getNombreSede(idSede);
-      if (sedeSeleccionada !== 'todos' && String(idSede) !== sedeSeleccionada) return;
 
-      const acumuladoProds: { [prod: string]: number } = {};
-      const diasConDatos = new Set<string>();
-
-      historicoVentas30DiasBD.forEach(row => {
-        if (Number(row.sede_id) === idSede) {
-          const fStr = obtenerFechaLocalStr(row.fecha);
-          if (fStr) diasConDatos.add(fStr);
-          const prods = row.productos || {};
-          Object.entries(prods).forEach(([p, c]) => {
-            const cant = Number(c) || 0;
-            if (cant > 0) acumuladoProds[p] = (acumuladoProds[p] || 0) + cant;
-          });
-        }
-      });
-
-      pedidos30Dias.forEach(p => {
-        if (Number(p.sede_id) === idSede) {
-          const fStr = obtenerFechaLocalStr(p.fecha);
-          if (fStr) diasConDatos.add(fStr);
-          const jsonItems = { 
-            ...(p.pedidos_paletas || {}), 
-            ...(p.pedidos_richi || {}), 
-            ...(p.pedidos_produccion || {}), 
-            ...(p.pedidos_insumos || {}), 
-            ...(p.pedidos_aseo || {}) 
-          };
-          Object.entries(jsonItems).forEach(([item, c]) => {
-            const cant = Number(c) || 0;
-            if (cant > 0) acumuladoProds[item] = (acumuladoProds[item] || 0) + cant;
-          });
-        }
-      });
-
-      const stockActualSede: { [prod: string]: number } = {};
-      const esMartineto = nombreSede.toLowerCase().includes('martineto');
-
-      if (esMartineto) {
-        empaquesMartinetoBD.forEach(e => {
-          const pNombre = String(e.nombre || e.producto || '').trim();
-          if (pNombre) {
-            stockActualSede[pNombre] = Number(e.stok ?? e.stock ?? 0);
-          }
-        });
-      } else {
-        inventarioEmpaquesSedesBD.filter(e => Number(e.sede_id) === idSede).forEach(e => {
-          const pNombre = String(e.nombre || e.producto || '').trim();
-          if (pNombre && pNombre.toLowerCase() !== 'total paletas') {
-            stockActualSede[pNombre] = Number(e.stok ?? e.stock ?? 0);
-          }
-        });
-      }
-
-      const pedidosEnCaminoSede: { [prod: string]: number } = {};
-      pedidosPendientesGlobal.filter(p => Number(p.sede_id) === idSede).forEach(p => {
-        const jsonItems = { 
-          ...(p.pedidos_paletas || {}), 
-          ...(p.pedidos_richi || {}), 
-          ...(p.pedidos_produccion || {}), 
-          ...(p.pedidos_insumos || {}), 
-          ...(p.pedidos_aseo || {}) 
-        };
-        Object.entries(jsonItems).forEach(([item, c]) => {
-          pedidosEnCaminoSede[item] = (pedidosEnCaminoSede[item] || 0) + (Number(c) || 0);
-        });
-      });
-
-      const numDias = Math.max(diasConDatos.size, 1);
-      const sugeridos: { [prod: string]: { sugerido: number; teorico: number; stock: number; enCamino: number } } = {};
-
-      Object.entries(acumuladoProds).forEach(([prod, totalCant]) => {
-        const promedioDiario = totalCant / numDias;
-        const demandaTeorica = Math.ceil(promedioDiario * 7 * 1.2);
-        const stockActual = Math.max(stockActualSede[prod] || 0, 0);
-        const enCamino = pedidosEnCaminoSede[prod] || 0;
-
-        const netoRequerido = Math.max(demandaTeorica - stockActual - enCamino, 0);
-
-        sugeridos[prod] = {
-          sugerido: netoRequerido,
-          teorico: demandaTeorica,
-          stock: stockActual,
-          enCamino
-        };
-      });
-
-      resultadoPorSede[nombreSede] = {
-        sugeridos,
-        numDias,
-        origenDatos: 'Ventas e historial completo de pedidos (30 días)'
-      };
-    });
-
-    return resultadoPorSede;
-  })();
-
-  const datosBI = (() => {
-    const totalProductos: { [prod: string]: number } = {};
-    const ventasPorFecha: { [fecha: string]: number } = {};
-
-    historicoVentasBD.forEach(row => {
       const fStr = obtenerFechaLocalStr(row.fecha);
       const prods = row.productos || {};
+
+      if (!analiticaPorSede[nombreSede]) {
+        analiticaPorSede[nombreSede] = { totalUnidades: 0, productos: {}, categorias: {} };
+      }
       
       let totalFila = 0;
-      Object.entries(prods).forEach(([prod, cant]) => {
+      Object.entries(prods).forEach(([prodName, cant]) => {
         const c = Number(cant) || 0;
         if (c > 0) {
-          totalProductos[prod] = (totalProductos[prod] || 0) + c;
+          totalProductos[prodName] = (totalProductos[prodName] || 0) + c;
           totalFila += c;
+          totalUnidades30Dias += c;
+
+          const prodEnBD = productosBD.find(p => String(p.nombre).trim().toLowerCase() === String(prodName).trim().toLowerCase());
+          const cat = prodEnBD?.categoria && prodEnBD.categoria.trim() !== '' ? prodEnBD.categoria : 'General';
+          
+          totalCategorias[cat] = (totalCategorias[cat] || 0) + c;
+
+          analiticaPorSede[nombreSede].totalUnidades += c;
+          analiticaPorSede[nombreSede].productos[prodName] = (analiticaPorSede[nombreSede].productos[prodName] || 0) + c;
+          analiticaPorSede[nombreSede].categorias[cat] = (analiticaPorSede[nombreSede].categorias[cat] || 0) + c;
         }
       });
 
       if (fStr) {
-        ventasPorFecha[fStr] = (ventasPorFecha[fStr] || 0) + totalFila;
+        ventasPorFechaGlobal[fStr] = (ventasPorFechaGlobal[fStr] || 0) + totalFila;
       }
     });
 
     const productosArray = Object.entries(totalProductos).sort((a, b) => b[1] - a[1]);
-    const masVendido = productosArray.length > 0 ? productosArray[0] : ['N/A', 0];
-    const menosVendido = productosArray.length > 0 ? productosArray[productosArray.length - 1] : ['N/A', 0];
+    const top5MasVendidos = productosArray.slice(0, 5);
+    const top5MenosVendidos = [...productosArray].reverse().slice(0, 5);
 
-    const fechasArray = Object.entries(ventasPorFecha).sort((a, b) => b[1] - a[1]);
+    const categoriasArray = Object.entries(totalCategorias).sort((a, b) => b[1] - a[1]);
+    const categoriaMasPopular = categoriasArray.length > 0 ? categoriasArray[0] : ['N/A', 0];
+
+    const fechasArray = Object.entries(ventasPorFechaGlobal).sort((a, b) => b[1] - a[1]);
     const mejorDia = fechasArray.length > 0 ? fechasArray[0] : ['N/A', 0];
-    const maxUnidadesProd = (masVendido[1] as number) > 0 ? (masVendido[1] as number) : 1;
+    const diasConVentasCount = Object.keys(ventasPorFechaGlobal).length || 1;
+    const promedioDiarioUnidades = Math.round(totalUnidades30Dias / diasConVentasCount);
 
-    return { masVendido, menosVendido, mejorDia, productosArray, maxUnidadesProd };
-  })();
+    // PROCESAR COMPARATIVO DE SEDES
+    const comparativoSedes = Object.entries(analiticaPorSede).map(([sNombre, sData]) => {
+      const prodsOrdenados = Object.entries(sData.productos).sort((a, b) => b[1] - a[1]);
+      const masVendido = prodsOrdenados.length > 0 ? prodsOrdenados[0] : ['N/A', 0];
+      const menosVendido = prodsOrdenados.length > 0 ? prodsOrdenados[prodsOrdenados.length - 1] : ['N/A', 0];
 
-  const biPorSede = (() => {
-    const mapaSedesBI: { 
-      [nombreSede: string]: { 
-        masVendido: [string, number]; 
-        menosVendido: [string, number]; 
-        mejorDia: [string, number]; 
-        productosArray: [string, number][]; 
-        maxUnidadesProd: number; 
-      } 
-    } = {};
+      const catsOrdenadas = Object.entries(sData.categorias).sort((a, b) => b[1] - a[1]);
+      const catLider = catsOrdenadas.length > 0 ? catsOrdenadas[0] : ['N/A', 0];
 
-    sedesBD.forEach(s => {
-      const idSede = s.id;
-      const nombreSede = getNombreSede(idSede);
+      const porcentajeParticipacion = totalUnidades30Dias > 0 
+        ? Math.round((sData.totalUnidades / totalUnidades30Dias) * 100) 
+        : 0;
 
-      const totalProductos: { [prod: string]: number } = {};
-      const ventasPorFecha: { [fecha: string]: number } = {};
-
-      historicoVentasBD.forEach(row => {
-        if (Number(row.sede_id) !== Number(idSede)) return;
-
-        const fStr = obtenerFechaLocalStr(row.fecha);
-        const prods = row.productos || {};
-        
-        let totalFila = 0;
-        Object.entries(prods).forEach(([prod, cant]) => {
-          const c = Number(cant) || 0;
-          if (c > 0) {
-            totalProductos[prod] = (totalProductos[prod] || 0) + c;
-            totalFila += c;
-          }
-        });
-
-        if (fStr) {
-          ventasPorFecha[fStr] = (ventasPorFecha[fStr] || 0) + totalFila;
-        }
-      });
-
-      const productosArray = Object.entries(totalProductos).sort((a, b) => b[1] - a[1]);
-      const masVendido = productosArray.length > 0 ? productosArray[0] : ['N/A', 0] as [string, number];
-      const menosVendido = productosArray.length > 0 ? productosArray[productosArray.length - 1] : ['N/A', 0] as [string, number];
-
-      const fechasArray = Object.entries(ventasPorFecha).sort((a, b) => b[1] - a[1]);
-      const mejorDia = fechasArray.length > 0 ? fechasArray[0] : ['N/A', 0] as [string, number];
-      const maxUnidadesProd = (masVendido[1] as number) > 0 ? (masVendido[1] as number) : 1;
-
-      mapaSedesBI[nombreSede] = {
+      return {
+        nombreSede: sNombre,
+        totalUnidades: sData.totalUnidades,
+        porcentajeParticipacion,
         masVendido,
         menosVendido,
-        mejorDia,
-        productosArray,
-        maxUnidadesProd
+        catLider
       };
-    });
+    }).sort((a, b) => b.totalUnidades - a.totalUnidades);
 
-    return mapaSedesBI;
+    return {
+      top5MasVendidos,
+      top5MenosVendidos,
+      categoriaMasPopular,
+      mejorDia,
+      promedioDiarioUnidades,
+      totalUnidades30Dias,
+      diasConVentasCount,
+      comparativoSedes
+    };
   })();
 
-  async function guardarProveedorInteligente(nombreProducto: string, idProd?: number) {
-    const nuevoProv = editandoProveedor[nombreProducto];
-    if (!nuevoProv || !nuevoProv.trim()) { alert('⚠️ Escribe el lugar de compra.'); return; }
-    if (idProd) {
-      await supabase.from('producto').update({ donde_comprar: nuevoProv.trim() }).eq('id', idProd);
-    } else {
-      await supabase.from('producto').insert([{ nombre: nombreProducto, donde_comprar: nuevoProv.trim(), categoria: 'General', activo: true, sede_id: 0 }]);
-    }
-    alert(`✅ Guardado: ${nuevoProv}`);
-    cargarDatosAdmin();
-  }
-
-  const toggleChecklistLocal = (proveedor: string, nombreProducto: string) => {
-    const key = `${fechaInicio}_${proveedor}_${nombreProducto}`;
-    setItemsChequeados(prev => ({ ...prev, [key]: !prev[key] }));
-  };
-
-  async function marcarSeleccionadosComoComprados(proveedor: string, itemsProveedor: any) {
-    const idsParaMarcarSet = new Set<number>();
-    let hayItemsSeleccionados = false;
-
-    Object.entries(itemsProveedor).forEach(([nombreProd, info]: any) => {
-      const keyItem = `${fechaInicio}_${proveedor}_${nombreProd}`;
-      if (itemsChequeados[keyItem]) {
-        hayItemsSeleccionados = true;
-        (info.idsPedidos || []).forEach((id: number) => idsParaMarcarSet.add(id));
-      }
-    });
-
-    if (!hayItemsSeleccionados) {
-      alert('⚠️ Por favor marca con el chulito ✓ al menos un producto de la lista.');
-      return;
-    }
-
-    const idsArray = Array.from(idsParaMarcarSet);
-    await supabase.from('pedidos_insumos').update({ estado: 'comprado' }).in('id', idsArray);
-    cargarDatosAdmin();
-  }
-
-  async function marcarPedidosComoEntregados(idsPedidos: number[]) {
-    if (!confirm('¿Deseas marcar el pedido como ENTREGADO?')) return;
-    await supabase.from('pedidos_insumos').update({ estado: 'entregado' }).in('id', idsPedidos);
-    cargarDatosAdmin();
-  }
-
-  // HANDLERS MÓDULO 10: GESTIÓN DEL SISTEMA
+  // HANDLERS MÓDULO 10: GESTIÓN DEL SISTEMA (PRODUCTOS Y USUARIOS)
   async function toggleEstadoProducto(id: number, activoActual: boolean) {
+    const nuevoEstado = !activoActual;
     try {
-      await supabase.from(tablaProductoSeleccionada).update({ activo: !activoActual }).eq('id', id);
-      cargarGestionSistema();
+      const { error } = await supabase
+        .from('productos_para_venta')
+        .update({ activo: nuevoEstado })
+        .eq('id', id);
+
+      if (error) {
+        alert('⚠️ No se pudo cambiar el estado del producto');
+        return;
+      }
+
+      await cargarGestionSistema();
     } catch (e) {
       console.error(e);
     }
@@ -1107,23 +801,68 @@ export default function AdminPage() {
     const nuevoPrecio = preciosEditados[id];
     if (nuevoPrecio === undefined || isNaN(nuevoPrecio)) return;
     try {
-      await supabase.from(tablaProductoSeleccionada).update({ precio: nuevoPrecio }).eq('id', id);
+      const { error } = await supabase
+        .from('productos_para_venta')
+        .update({ precio: nuevoPrecio })
+        .eq('id', id);
+
+      if (error) {
+        alert('⚠️ Error actualizando el precio');
+        return;
+      }
+
       setPreciosEditados(prev => {
         const copy = { ...prev };
         delete copy[id];
         return copy;
       });
       alert('✅ Precio actualizado correctamente');
-      cargarGestionSistema();
+      await cargarGestionSistema();
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  async function guardarPinUsuario(id: number) {
+    const nuevoPin = pinesEditados[id];
+    if (!nuevoPin || !nuevoPin.trim()) return;
+    try {
+      const { error } = await supabase
+        .from('usuario')
+        .update({ codigo_acceso: nuevoPin.trim() })
+        .eq('id', id);
+
+      if (error) {
+        alert('⚠️ Error actualizando clave');
+        return;
+      }
+
+      setPinesEditados(prev => {
+        const copy = { ...prev };
+        delete copy[id];
+        return copy;
+      });
+      alert('✅ PIN / Clave actualizada correctamente');
+      await cargarGestionSistema();
     } catch (e) {
       console.error(e);
     }
   }
 
   async function toggleEstadoUsuario(id: number, activoActual: boolean) {
+    const nuevoEstado = !activoActual;
     try {
-      await supabase.from('usuario').update({ activo: !activoActual }).eq('id', id);
-      cargarGestionSistema();
+      const { error } = await supabase
+        .from('usuario')
+        .update({ activo: nuevoEstado })
+        .eq('id', id);
+
+      if (error) {
+        alert('⚠️ No se pudo cambiar el estado del usuario');
+        return;
+      }
+
+      await cargarGestionSistema();
     } catch (e) {
       console.error(e);
     }
@@ -1135,17 +874,23 @@ export default function AdminPage() {
       return;
     }
     try {
-      await supabase.from('usuario').insert([{
+      const { error } = await supabase.from('usuario').insert([{
         nombre_completo: nuevoUsuarioNombre.trim(),
         codigo_acceso: nuevoUsuarioCodigo.trim(),
         tipo_usuario: nuevoUsuarioRol,
         activo: true
       }]);
+
+      if (error) {
+        alert('⚠️ No se pudo crear el usuario');
+        return;
+      }
+
       alert('✅ Usuario creado exitosamente');
       setMostrarModalNuevoUsuario(false);
       setNuevoUsuarioNombre('');
       setNuevoUsuarioCodigo('');
-      cargarGestionSistema();
+      await cargarGestionSistema();
     } catch (e) {
       console.error(e);
     }
@@ -1157,29 +902,25 @@ export default function AdminPage() {
       return;
     }
     try {
-      await supabase.from(tablaProductoSeleccionada).insert([{
+      const { error } = await supabase.from('productos_para_venta').insert([{
         nombre: nuevoProdVentaNombre.trim(),
         precio: Number(nuevoProdVentaPrecio),
         categoria: nuevoProdVentaCategoria.trim() || 'General',
+        sede_id: sedeSeleccionadaId,
         activo: true
       }]);
 
-      if (nuevoProdEsInventario) {
-        const tablaEmpaques = tablaProductoSeleccionada === 'produc_ven_martineto' ? 'empaques_martineto' : 'empaques_ositos';
-        await supabase.from(tablaEmpaques).insert([{
-          nombre: nuevoProdVentaNombre.trim(),
-          stock: 0,
-          stok: 0
-        }]);
+      if (error) {
+        alert('⚠️ No se pudo registrar el producto');
+        return;
       }
 
-      alert('✅ Producto de venta registrado correctamente');
+      alert('✅ Producto registrado correctamente');
       setMostrarModalNuevoProdVenta(false);
       setNuevoProdVentaNombre('');
       setNuevoProdVentaPrecio('');
       setNuevoProdVentaCategoria('');
-      setNuevoProdEsInventario(false);
-      cargarGestionSistema();
+      await cargarGestionSistema();
     } catch (e) {
       console.error(e);
     }
@@ -1192,76 +933,29 @@ export default function AdminPage() {
   return (
     <main className="min-h-screen bg-[#004e8c] text-white p-3 font-sans max-w-md mx-auto space-y-4 pb-20">
       
+      {/* HEADER PRINCIPAL */}
       <header className="bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl flex justify-between items-center shadow-lg">
         <div>
           <h1 className="text-sm font-black text-white">🛡️ ADMIN CENTRAL</h1>
           <p className="text-[10px] text-sky-200">Panel de Control General</p>
         </div>
-        <button onClick={() => router.back()} className="bg-[#031d35] hover:bg-[#003d6d] px-3 py-1.5 rounded-xl text-xs font-bold border border-[#0066b3] cursor-pointer">Volver</button>
+        <div className="flex gap-2">
+          <button 
+            onClick={() => { cargarDatosAdmin(); router.refresh(); }} 
+            className="bg-emerald-700 hover:bg-emerald-600 px-2.5 py-1.5 rounded-xl text-xs font-bold border border-emerald-400 cursor-pointer flex items-center gap-1"
+          >
+            🔄 Actualizar
+          </button>
+          <button 
+            onClick={() => { router.back(); setTimeout(() => router.refresh(), 100); }} 
+            className="bg-[#031d35] hover:bg-[#003d6d] px-3 py-1.5 rounded-xl text-xs font-bold border border-[#0066b3] cursor-pointer"
+          >
+            Volver
+          </button>
+        </div>
       </header>
 
-      {/* Selector de Sede Global */}
-      <div className="bg-[#0b2b48] border border-[#0066b3] p-3 rounded-2xl shadow-md space-y-2">
-        <label className="text-[10px] font-extrabold text-sky-300 uppercase block">🏢 Sede a Consultar:</label>
-        <select
-          value={sedeSeleccionada}
-          onChange={(e) => setSedeSeleccionada(e.target.value)}
-          className="w-full bg-[#031d35] border border-[#0066b3] text-white p-2 rounded-xl text-xs outline-none uppercase font-bold"
-        >
-          <option value="todos">🌐 Todas las Sedes (Global)</option>
-          {sedesBD.map((s) => (
-            <option key={s.id} value={String(s.id)}>
-              📍 {s.nombre}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="bg-[#0b2b48] border border-amber-500/60 rounded-2xl overflow-hidden shadow-lg">
-        <button 
-          onClick={() => setAcordeonAperturaAbierto(prev => !prev)}
-          className="w-full p-3 flex justify-between items-center text-xs font-black text-amber-300 uppercase bg-[#0b2b48] cursor-pointer"
-        >
-          <span className="flex items-center gap-2">
-            <span>{acordeonAperturaAbierto ? '👁️‍🗨️' : '👁️'}</span> 🟢 CONTROL DE APERTURAS (HOY)
-          </span>
-          <span className="text-[9px] bg-amber-950 text-amber-300 px-2 py-0.5 rounded font-bold border border-amber-500/40">
-            {controlAperturaSedes.filter(s => s.horaApertura !== '--:--').length} / {controlAperturaSedes.length} Abiertas
-          </span>
-        </button>
-
-        {acordeonAperturaAbierto && (
-          <div className="p-3 pt-0 border-t border-amber-500/30 bg-[#031d35]/60">
-            <div className="overflow-x-auto pt-2">
-              <table className="w-full text-left text-[10px]">
-                <thead>
-                  <tr className="border-b border-[#0066b3]/50 text-sky-300 uppercase">
-                    <th className="py-1">Sede</th>
-                    <th className="py-1 text-center">Hora</th>
-                    <th className="py-1 text-center">Estado</th>
-                    <th className="py-1 text-center">Paletas</th>
-                    <th className="py-1 text-center">Insumos</th>
-                    <th className="py-1 text-right">Operario</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#0066b3]/20 text-white font-medium">
-                  {controlAperturaSedes.map((item) => (
-                    <tr key={item.idSede} className="hover:bg-[#031d35]/40">
-                      <td className="py-1.5 font-bold uppercase text-amber-300">{item.nombreSede}</td>
-                      <td className="py-1.5 text-center font-black text-emerald-300">{item.horaApertura}</td>
-                      <td className="py-1.5 text-center">{item.estadoCaja}</td>
-                      <td className="py-1.5 text-center text-[9px]">{item.paletasContadas}</td>
-                      <td className="py-1.5 text-center text-[9px]">{item.insumosContados}</td>
-                      <td className="py-1.5 text-right font-bold text-sky-200 truncate max-w-[70px]">{item.operario}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-      </div>
-
+      {/* 1. RANGO DE FECHAS */}
       <div className="bg-[#0b2b48] border border-[#0066b3] p-3 rounded-2xl shadow-md space-y-2">
         <label className="text-[10px] font-extrabold text-sky-300 uppercase block">📅 Rango de Fechas de Consulta:</label>
         <div className="grid grid-cols-2 gap-2">
@@ -1290,224 +984,136 @@ export default function AdminPage() {
         </div>
       </div>
 
+      {/* 2. CONTROL DE APERTURAS Y OPERARIOS */}
+      <div className="bg-[#0b2b48] border border-amber-500/60 rounded-2xl overflow-hidden shadow-lg">
+        <button 
+          onClick={() => setAcordeonAperturaAbierto(prev => !prev)}
+          className="w-full p-3 flex justify-between items-center text-xs font-black text-amber-300 uppercase bg-[#0b2b48] cursor-pointer"
+        >
+          <span className="flex items-center gap-2">
+            <span>{acordeonAperturaAbierto ? '👁️‍🗨️' : '👁️'}</span> 🟢 CONTROL DE APERTURAS Y OPERARIOS (HOY)
+          </span>
+          <span className="text-[9px] bg-amber-950 text-amber-300 px-2 py-0.5 rounded font-bold border border-amber-500/40">
+            {controlAperturaSedes.filter(s => s.horaApertura !== '--:--').length} / {controlAperturaSedes.length} Abiertas
+          </span>
+        </button>
+
+        {acordeonAperturaAbierto && (
+          <div className="p-3 pt-0 border-t border-amber-500/30 bg-[#031d35]/60">
+            <div className="overflow-x-auto pt-2">
+              <table className="w-full text-left text-[10px]">
+                <thead>
+                  <tr className="border-b border-[#0066b3]/50 text-sky-300 uppercase">
+                    <th className="py-1">Sede</th>
+                    <th className="py-1 text-center">Hora</th>
+                    <th className="py-1 text-center">Estado</th>
+                    <th className="py-1 text-center">Paletas</th>
+                    <th className="py-1 text-center">Insumos</th>
+                    <th className="py-1 text-right">Operario</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#0066b3]/20 text-white font-medium">
+                  {controlAperturaSedes.map((item) => (
+                    <tr key={item.idSede} className="hover:bg-[#031d35]/40">
+                      <td className="py-1.5 font-bold uppercase text-amber-300">{item.nombreSede}</td>
+                      <td className="py-1.5 text-center font-black text-emerald-300">{item.horaApertura}</td>
+                      <td className="py-1.5 text-center">{item.estadoCaja}</td>
+                      <td className="py-1.5 text-center text-[9px]">{item.paletasContadas}</td>
+                      <td className="py-1.5 text-center text-[9px]">{item.insumosContados}</td>
+                      <td className="py-1.5 text-right font-bold text-sky-200 truncate max-w-[80px]">{item.operario}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+
       {cargando ? <div className="text-center py-10 text-xs font-bold text-sky-200">Cargando datos...</div> : (
         <div className="space-y-3">
 
-          {/* MÓDULO 1: GESTIÓN LOGÍSTICA E INSUMOS */}
+          {/* MÓDULO 1: GESTIÓN LOGÍSTICA EN COMPRAS */}
           <div className="border border-[#0066b3] bg-[#0b2b48] rounded-2xl overflow-hidden shadow-lg">
             <button 
               onClick={() => toggleModulo('logistica')}
               className="w-full p-4 flex justify-between items-center text-xs font-black uppercase text-amber-300 bg-[#0b2b48] cursor-pointer"
             >
               <span className="flex items-center gap-2">
-                <span>{moduloAbierto === 'logistica' ? '▼' : '▶'}</span> 🚚 1. GESTIÓN LOGÍSTICA E INSUMOS
+                <span>{moduloAbierto === 'logistica' ? '👁️‍🗨️' : '👁️'}</span> 🚚 1. GESTIÓN LOGÍSTICA EN COMPRAS
               </span>
               <span className="bg-[#031d35] text-sky-200 text-[10px] px-2 py-0.5 rounded border border-[#0066b3]">
-                {pedidosPendientesCompra.length + pedidosListosParaEntrega.length} activos
+                {pedidosPendientesCompra.length} pedidos
               </span>
             </button>
 
             {moduloAbierto === 'logistica' && (
-              <div className="p-3 pt-0 space-y-3 border-t border-[#0066b3]/30 bg-[#031d35]/60">
-                <div className="grid grid-cols-2 gap-2 pt-3">
+              <div className="p-3 space-y-3 border-t border-[#0066b3]/30 bg-[#031d35]/60">
+                
+                <div className="grid grid-cols-2 gap-2">
                   <button 
-                    onClick={() => setSubPestanaLogistica('compras')} 
-                    className={`py-2 rounded-xl font-extrabold text-[11px] uppercase border flex items-center justify-center gap-2 relative ${subPestanaLogistica === 'compras' ? 'bg-[#0078d4] border-[#00a4ef]' : 'bg-[#0b2b48] border-[#0066b3]'}`}
+                    onClick={() => setSubPestanaLogistica('por_sede')} 
+                    className={`py-2 rounded-xl font-extrabold text-[11px] uppercase border transition-all ${subPestanaLogistica === 'por_sede' ? 'bg-amber-600 border-amber-400 text-white shadow-md' : 'bg-[#0b2b48] border-[#0066b3] text-sky-300'}`}
                   >
-                    <span>🛒 Por Comprar</span>
-                    {tieneProductosPorComprar && (
-                      <span className="relative flex h-2.5 w-2.5">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-400 shadow-[0_0_8px_#fbbf24]"></span>
-                      </span>
-                    )}
+                    📍 Por Sede
                   </button>
-
                   <button 
-                    onClick={() => setSubPestanaLogistica('despachos')} 
-                    className={`py-2 rounded-xl font-extrabold text-[11px] uppercase border flex items-center justify-center gap-2 relative ${subPestanaLogistica === 'despachos' ? 'bg-[#0078d4] border-[#00a4ef]' : 'bg-[#0b2b48] border-[#0066b3]'}`}
+                    onClick={() => setSubPestanaLogistica('por_proveedor')} 
+                    className={`py-2 rounded-xl font-extrabold text-[11px] uppercase border transition-all ${subPestanaLogistica === 'por_proveedor' ? 'bg-amber-600 border-amber-400 text-white shadow-md' : 'bg-[#0b2b48] border-[#0066b3] text-sky-300'}`}
                   >
-                    <span>🚚 Por Entregar</span>
-                    {tieneProductosPorEntregar && (
-                      <span className="relative flex h-2.5 w-2.5">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-400 shadow-[0_0_8px_#34d399]"></span>
-                      </span>
-                    )}
+                    🏪 Por Proveedor
                   </button>
                 </div>
 
-                {subPestanaLogistica === 'compras' && (
-                  <div className="space-y-4 pt-1">
-                    <div className="border border-[#0066b3] bg-[#0b2b48] rounded-xl overflow-hidden shadow-sm">
-                      <button 
-                        onClick={() => setAcordeonesConsolidadoCompras(prev => ({ ...prev, global: !prev.global }))} 
-                        className="w-full p-3 flex justify-between items-center text-xs font-black uppercase text-sky-300 cursor-pointer"
-                      >
-                        <span className="flex items-center gap-2">
-                          <span>{acordeonesConsolidadoCompras.global ? '👁️‍🗨️' : '👁️'}</span> 🛒 CONSOLIDADO POR LUGAR DE COMPRA
-                        </span>
-                        {tieneProductosPorComprar && (
-                          <span className="relative flex h-2 w-2">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                            <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-400"></span>
-                          </span>
-                        )}
-                      </button>
-
-                      {acordeonesConsolidadoCompras.global && (
-                        <div className="p-3 pt-0 space-y-2 border-t border-[#0066b3]/30 bg-[#031d35]/60">
-                          {Object.keys(consolidadoCompras).length === 0 ? (
-                            <p className="text-center text-xs text-sky-300 py-4 font-semibold">No hay compras pendientes para el rango seleccionado.</p>
-                          ) : (
-                            Object.entries(consolidadoCompras).map(([proveedor, dataProv]) => {
-                              const abierto = !!acordeonesCompras[proveedor];
-                              const esAlerta = proveedor.includes('Faltan datos');
-                              const itemsArray = Object.entries(dataProv.items);
-
-                              return (
-                                <div key={proveedor} className={`border rounded-xl overflow-hidden shadow-sm ${esAlerta ? 'border-rose-500 bg-rose-950/20' : 'border-[#0066b3] bg-[#0b2b48]'}`}>
-                                  <button onClick={() => setAcordeonesCompras(prev => ({ ...prev, [proveedor]: !abierto }))} className="w-full p-3 flex justify-between items-center text-xs font-bold uppercase text-amber-300 cursor-pointer">
-                                    <span className="flex items-center gap-2">
-                                      <span>{abierto ? '👁️‍🗨️' : '👁️'}</span> {proveedor}
-                                    </span>
-                                    <span className="text-[10px] bg-[#031d35] px-2 py-0.5 rounded">{itemsArray.length} ÍTEMS</span>
-                                  </button>
-                                  {abierto && (
-                                    <div className="p-3 pt-0 space-y-2 border-t border-[#0066b3]/30">
-                                      <div className="space-y-1.5 pt-2">
-                                        {itemsArray.map(([nombreProd, info]: any, i) => {
-                                          const keyItem = `${fechaInicio}_${proveedor}_${nombreProd}`;
-                                          const estaChequeado = !!itemsChequeados[keyItem];
-
-                                          return (
-                                            <div key={i} className={`p-2.5 rounded-lg border flex justify-between items-center text-xs transition-colors ${estaChequeado ? 'bg-emerald-950/40 border-emerald-500/60' : 'bg-[#031d35] border-[#0066b3]/50'}`}>
-                                              <div>
-                                                <p className={`font-semibold ${estaChequeado ? 'text-emerald-300 line-through' : 'text-white'}`}>{nombreProd}</p>
-                                                {esAlerta && (
-                                                  <div className="flex gap-1 mt-1.5">
-                                                    <input className="bg-[#0b2b48] border border-rose-500 text-white text-[10px] p-1.5 rounded outline-none w-24" placeholder="Ej. D1" onChange={(e) => setEditandoProveedor({ ...editandoProveedor, [nombreProd]: e.target.value })} />
-                                                    <button onClick={() => guardarProveedorInteligente(nombreProd, info.idProd)} className="bg-emerald-600 px-2 py-1 rounded text-[10px] font-bold">Guardar</button>
-                                                  </div>
-                                                )}
-                                              </div>
-
-                                              <div className="flex items-center gap-2">
-                                                <span className="bg-[#0078d4] text-white px-2.5 py-1 rounded font-black text-xs">x{info.cantidad}</span>
-                                                {!esAlerta && (
-                                                  <button
-                                                    onClick={() => toggleChecklistLocal(proveedor, nombreProd)}
-                                                    title="Checklist de compra"
-                                                    className={`font-black text-xs px-2.5 py-1 rounded cursor-pointer transition-colors ${estaChequeado ? 'bg-emerald-500 text-white border border-emerald-300' : 'bg-[#0b2b48] hover:bg-[#0066b3] text-emerald-400 border border-emerald-500/50'}`}
-                                                  >
-                                                    ✓
-                                                  </button>
-                                                )}
-                                              </div>
-                                            </div>
-                                          );
-                                        })}
-                                      </div>
-                                      {!esAlerta && (
-                                        <button 
-                                          onClick={() => marcarSeleccionadosComoComprados(proveedor, dataProv.items)} 
-                                          className="w-full mt-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black py-2.5 rounded-lg text-xs uppercase shadow-md flex items-center justify-center gap-1 cursor-pointer"
-                                        >
-                                          ✓ MARCAR COMPRADOS Y PAGADOS
-                                        </button>
-                                      )}
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="bg-[#0b2b48] border border-sky-500/50 rounded-xl overflow-hidden">
-                      <button 
-                        onClick={() => setAcordeonesResumenSedes(prev => ({ ...prev, global: !prev.global }))} 
-                        className="w-full p-3 flex justify-between items-center text-[11px] font-black text-sky-300 uppercase bg-[#0b2b48] cursor-pointer"
-                      >
-                        <span className="flex items-center gap-2">
-                          <span>{acordeonesResumenSedes.global ? '👁️‍🗨️' : '👁️'}</span> 🏢 RESUMEN DE COMPRAS POR SEDES
-                        </span>
-                        <span className="text-[10px] bg-[#031d35] px-2 py-0.5 rounded text-white border border-[#0066b3]">
-                          {Object.keys(resumenComprasPorSede).length} Sedes
-                        </span>
-                      </button>
-
-                      {acordeonesResumenSedes.global && (
-                        <div className="p-3 pt-0 space-y-2 border-t border-[#0066b3]/40 bg-[#031d35]/60">
-                          {Object.keys(resumenComprasPorSede).length === 0 ? (
-                            <p className="text-[10px] text-sky-400 italic py-2">No hay pedidos pendientes por sede para este rango.</p>
-                          ) : (
-                            Object.entries(resumenComprasPorSede).map(([nombreSede, prods]) => {
-                              const abiertoSede = !!acordeonesResumenSedes[nombreSede];
-                              return (
-                                <div key={nombreSede} className="bg-[#0b2b48] rounded-xl border border-[#0066b3] overflow-hidden">
-                                  <button 
-                                    onClick={() => setAcordeonesResumenSedes(prev => ({ ...prev, [nombreSede]: !abiertoSede }))} 
-                                    className="w-full p-2.5 flex justify-between items-center text-xs font-black text-amber-300 uppercase cursor-pointer"
-                                  >
-                                    <span className="flex items-center gap-2">
-                                      <span>{abiertoSede ? '👁️‍🗨️' : '👁️'}</span> 📍 {nombreSede}
-                                    </span>
-                                    <span className="text-[10px] bg-[#031d35] px-2 py-0.5 rounded text-sky-200">
-                                      {Object.keys(prods).length} ítems
-                                    </span>
-                                  </button>
-
-                                  {abiertoSede && (
-                                    <div className="p-2.5 pt-0 space-y-1 bg-[#031d35] border-t border-[#0066b3]/30">
-                                      {Object.entries(prods).map(([prodNombre, cant]) => (
-                                        <div key={prodNombre} className="flex justify-between text-[11px] text-white border-b border-[#0066b3]/20 py-1">
-                                          <span>{prodNombre}</span>
-                                          <span className="font-bold text-emerald-300">x{cant}</span>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {subPestanaLogistica === 'despachos' && (
-                  <div className="space-y-2 pt-1">
-                    {Object.keys(despachosPorSede).length === 0 ? (
-                      <p className="text-center text-xs text-sky-300 py-6 font-semibold">No hay despachos listos (comprados) para este rango.</p>
+                {subPestanaLogistica === 'por_sede' && (
+                  <div className="space-y-3 pt-1">
+                    {Object.keys(resumenComprasPorSede).length === 0 ? (
+                      <p className="text-center text-xs text-sky-300 py-4 font-semibold">No hay compras pendientes para el rango seleccionado.</p>
                     ) : (
-                      Object.entries(despachosPorSede).map(([nombreSede, dataSede]) => {
-                        const abierto = !!acordeonesDespachos[nombreSede];
+                      Object.entries(resumenComprasPorSede).map(([nombreSede, productosSede]) => {
+                        const estaAbierto = !!subAcordeonesSedesLogistica[nombreSede];
+
                         return (
-                          <div key={nombreSede} className="border border-[#0066b3] bg-[#0b2b48] rounded-xl overflow-hidden">
-                            <button onClick={() => setAcordeonesDespachos(prev => ({ ...prev, [nombreSede]: !abierto }))} className="w-full p-3 flex justify-between items-center text-xs font-bold text-white uppercase cursor-pointer">
+                          <div key={nombreSede} className="border border-[#0066b3] bg-[#0b2b48] rounded-xl overflow-hidden shadow-sm">
+                            <button 
+                              onClick={() => setSubAcordeonesSedesLogistica(prev => ({ ...prev, [nombreSede]: !estaAbierto }))}
+                              className="w-full p-3 flex justify-between items-center text-xs font-black text-amber-300 uppercase bg-[#0b2b48] cursor-pointer border-b border-[#0066b3]/30"
+                            >
                               <span className="flex items-center gap-2">
-                                <span>{abierto ? '👁️‍🗨️' : '👁️'}</span> 📍 {nombreSede}
+                                <span>{estaAbierto ? '👁️‍🗨️' : '👁️'}</span> 📍 SEDE: {nombreSede}
                               </span>
-                              <span className="text-[10px] bg-[#031d35] px-2 py-0.5 rounded">{Object.keys(dataSede.productos).length} productos</span>
+                              <span className="text-[10px] text-sky-300 font-bold">
+                                {Object.keys(productosSede).length} Ítems
+                              </span>
                             </button>
-                            {abierto && (
-                              <div className="p-3 pt-0 bg-[#031d35] text-xs space-y-2 border-t border-[#0066b3]/30">
-                                <div className="space-y-1 pt-1">
-                                  {Object.entries(dataSede.productos).map(([k, v]: any, i) => (
-                                    <div key={i} className="flex justify-between border-b border-[#0066b3]/20 py-1 text-white">
-                                      <span>{k}</span>
-                                      <span className="font-bold text-sky-200">x{v}</span>
+
+                            {estaAbierto && (
+                              <div className="p-3 space-y-2 bg-[#031d35]/80">
+                                {(() => {
+                                  const comprasPorLugar: { [lugar: string]: { [prod: string]: number } } = {};
+                                  
+                                  Object.entries(productosSede).forEach(([nombreProd, cant]) => {
+                                    const prodEnBD = productosBD.find(item => String(item.nombre).trim().toLowerCase() === String(nombreProd).trim().toLowerCase());
+                                    const lugar = prodEnBD?.donde_comprar && prodEnBD.donde_comprar.trim() !== '' ? prodEnBD.donde_comprar : '⚠️ Dónde Comprar No Asignado';
+                                    
+                                    if (!comprasPorLugar[lugar]) comprasPorLugar[lugar] = {};
+                                    comprasPorLugar[lugar][nombreProd] = cant;
+                                  });
+
+                                  return Object.entries(comprasPorLugar).map(([lugar, items]) => (
+                                    <div key={lugar} className="bg-[#0b2b48] p-2.5 rounded-lg border border-[#0066b3]/50 space-y-1">
+                                      <span className="text-[11px] font-bold text-sky-300 uppercase block border-b border-[#0066b3]/30 pb-1">🏪 {lugar}</span>
+                                      <div className="divide-y divide-[#0066b3]/20">
+                                        {Object.entries(items).map(([pNombre, pCant]) => (
+                                          <div key={pNombre} className="flex justify-between items-center py-1 text-xs text-white">
+                                            <span>• {pNombre}</span>
+                                            <span className="font-black text-emerald-400">x{pCant}</span>
+                                          </div>
+                                        ))}
+                                      </div>
                                     </div>
-                                  ))}
-                                </div>
-                                <button onClick={() => marcarPedidosComoEntregados(dataSede.idsPedidos)} className="w-full mt-2 bg-emerald-600 hover:bg-emerald-500 text-white font-black py-2 rounded-lg text-xs uppercase cursor-pointer">
-                                  🚚 Marcar Entregado
-                                </button>
+                                  ));
+                                })()}
                               </div>
                             )}
                           </div>
@@ -1516,75 +1122,103 @@ export default function AdminPage() {
                     )}
                   </div>
                 )}
-              </div>
-            )}
-          </div>
 
-          {/* MÓDULO 2: PROYECCIÓN DE DEMANDA E INSUMOS */}
-          <div className="border border-[#0066b3] bg-[#0b2b48] rounded-2xl overflow-hidden shadow-lg">
-            <button 
-              onClick={() => toggleModulo('proyeccion')}
-              className="w-full p-4 flex justify-between items-center text-xs font-black uppercase text-teal-300 bg-[#0b2b48] cursor-pointer"
-            >
-              <span className="flex items-center gap-2">
-                <span>{moduloAbierto === 'proyeccion' ? '▼' : '▶'}</span> 📦 2. PROYECCIÓN DE DEMANDA E INSUMOS
-              </span>
-              <span className="bg-[#031d35] text-teal-300 font-bold text-[10px] px-2 py-0.5 rounded border border-[#0066b3]">
-                {Object.keys(proyeccionDemandaTodasSedes).length} Sedes
-              </span>
-            </button>
+                {subPestanaLogistica === 'por_proveedor' && (
+                  <div className="space-y-3 pt-1">
+                    {Object.keys(resumenComprasPorProveedor).length === 0 ? (
+                      <p className="text-center text-xs text-sky-300 py-4 font-semibold">No hay compras pendientes para el rango seleccionado.</p>
+                    ) : (
+                      Object.entries(resumenComprasPorProveedor).map(([proveedor, sedesMap]) => {
+                        const estaAbierto = !!subAcordeonesProvLogistica[proveedor];
 
-            {moduloAbierto === 'proyeccion' && (
-              <div className="p-3 space-y-2 bg-[#031d35]/60 text-xs border-t border-[#0066b3]/30">
-                <p className="text-[9px] text-teal-200 italic mb-2">Sugerido Neto = Demanda (30d) - Stock Actual - Pedidos en Camino</p>
-                
-                {Object.keys(proyeccionDemandaTodasSedes).length === 0 ? (
-                  <p className="text-center text-[11px] text-sky-300 py-4">No hay suficientes datos registrados en los últimos 30 días para proyectar.</p>
-                ) : (
-                  Object.entries(proyeccionDemandaTodasSedes).map(([nombreSede, infoSede], idx) => {
-                    const abiertoProySede = !!acordeonesProyeccionSedes[nombreSede];
-                    const cantProds = Object.keys(infoSede.sugeridos).length;
+                        return (
+                          <div key={proveedor} className="border border-amber-500/60 bg-[#0b2b48] rounded-xl overflow-hidden shadow-sm">
+                            <button 
+                              onClick={() => setSubAcordeonesProvLogistica(prev => ({ ...prev, [proveedor]: !estaAbierto }))}
+                              className="w-full p-3 flex justify-between items-center text-xs font-black text-amber-300 uppercase bg-[#0b2b48] cursor-pointer border-b border-amber-500/30"
+                            >
+                              <span className="flex items-center gap-2 truncate">
+                                <span>{estaAbierto ? '👁️‍🗨️' : '👁️'}</span> 🏪 {proveedor}
+                              </span>
+                              <span className="text-[10px] text-sky-300 font-bold">
+                                {Object.keys(sedesMap).length} Sedes
+                              </span>
+                            </button>
 
-                    return (
-                      <div key={idx} className="bg-[#0b2b48] border border-[#0066b3] rounded-xl overflow-hidden">
-                        <button 
-                          onClick={() => setAcordeonesProyeccionSedes(prev => ({ ...prev, [nombreSede]: !abiertoProySede }))}
-                          className="w-full p-2.5 flex justify-between items-center text-xs font-bold text-white uppercase cursor-pointer"
-                        >
-                          <span className="flex items-center gap-2">
-                            <span>{abiertoProySede ? '👁️‍🗨️' : '👁️'}</span> 📍 {nombreSede}
-                          </span>
-                          <span className="text-[9px] bg-[#031d35] text-teal-300 px-2 py-0.5 rounded border border-teal-500/40">
-                            {cantProds} Analizados ({infoSede.numDias}d base)
-                          </span>
-                        </button>
-
-                        {abiertoProySede && (
-                          <div className="p-2.5 pt-0 space-y-1.5 bg-[#031d35] border-t border-[#0066b3]/30">
-                            <p className="text-[9px] text-sky-300 italic pt-1 border-b border-[#0066b3]/20 pb-1">
-                              Origen: {infoSede.origenDatos}
-                            </p>
-                            {cantProds === 0 ? (
-                              <p className="text-[10px] text-sky-400 italic py-1">Sin historial suficiente en los últimos 30 días.</p>
-                            ) : (
-                              <div className="space-y-2 max-h-56 overflow-y-auto pr-1 pt-1">
-                                {Object.entries(infoSede.sugeridos).map(([prod, detalle], i) => (
-                                  <div key={i} className="bg-[#0b2b48] p-2 rounded-lg border border-[#0066b3]/40 space-y-1">
-                                    <div className="flex justify-between items-center text-white">
-                                      <span className="truncate font-bold text-[11px]">{prod}</span>
-                                      <span className={`font-black px-2 py-0.5 rounded text-[10px] border ${detalle.sugerido > 0 ? 'bg-emerald-950 text-emerald-300 border-emerald-500/50' : 'bg-[#031d35] text-sky-400 border-[#0066b3]'}`}>
-                                        Pedir: x{detalle.sugerido}
-                                      </span>
-                                    </div>
-                                    <div className="grid grid-cols-3 gap-1 text-[9px] text-sky-200 bg-[#031d35] p-1.5 rounded">
-                                      <div><span className="text-sky-400 font-bold block">Meta (7d):</span> x{detalle.teorico}</div>
-                                      <div><span className="text-amber-300 font-bold block">Stock Cava:</span> x{detalle.stock}</div>
-                                      <div><span className="text-fuchsia-300 font-bold block">En Camino:</span> x{detalle.enCamino}</div>
+                            {estaAbierto && (
+                              <div className="p-3 space-y-2 bg-[#031d35]/80">
+                                {Object.entries(sedesMap).map(([nombreSede, items]) => (
+                                  <div key={nombreSede} className="bg-[#0b2b48] p-2.5 rounded-lg border border-[#0066b3]/50 space-y-1">
+                                    <span className="text-[11px] font-bold text-sky-300 uppercase block border-b border-[#0066b3]/30 pb-1">📍 SEDE: {nombreSede}</span>
+                                    <div className="divide-y divide-[#0066b3]/20">
+                                      {Object.entries(items).map(([pNombre, pCant]) => (
+                                        <div key={pNombre} className="flex justify-between items-center py-1 text-xs text-white">
+                                          <span>• {pNombre}</span>
+                                          <span className="font-black text-emerald-400">x{pCant}</span>
+                                        </div>
+                                      ))}
                                     </div>
                                   </div>
                                 ))}
                               </div>
                             )}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
+
+              </div>
+            )}
+          </div>
+
+          {/* MÓDULO 2: DESCUADRES DE PRODUCTOS POR SEDE */}
+          <div className="border border-[#0066b3] bg-[#0b2b48] rounded-2xl overflow-hidden shadow-lg">
+            <button 
+              onClick={() => toggleModulo('descuadres_productos')}
+              className="w-full p-4 flex justify-between items-center text-xs font-black uppercase text-rose-300 bg-[#0b2b48] cursor-pointer"
+            >
+              <span className="flex items-center gap-2">
+                <span>{moduloAbierto === 'descuadres_productos' ? '👁️‍🗨️' : '👁️'}</span> 🔍 2. DESCUADRES DE PRODUCTOS (hoy)
+              </span>
+              <span className="bg-[#031d35] text-rose-300 font-bold text-[10px] px-2 py-0.5 rounded border border-[#0066b3]">
+                {Object.keys(auditoriaDescuadres).length} Sedes
+              </span>
+            </button>
+
+            {moduloAbierto === 'descuadres_productos' && (
+              <div className="p-3 space-y-3 bg-[#031d35]/60 text-xs border-t border-[#0066b3]/30">
+                {Object.keys(auditoriaDescuadres).length === 0 ? (
+                  <p className="text-center text-xs text-sky-300 py-4 font-semibold">No se encontraron diferencias registradas en inventario_empaques_sedes.</p>
+                ) : (
+                  Object.entries(auditoriaDescuadres).map(([nombreSede, infoSede]) => {
+                    const estaAbierto = !!subAcordeonesDescuadres[nombreSede];
+
+                    return (
+                      <div key={nombreSede} className="bg-[#0b2b48] border border-[#0066b3] rounded-xl overflow-hidden space-y-1">
+                        <button 
+                          onClick={() => setSubAcordeonesDescuadres(prev => ({ ...prev, [nombreSede]: !estaAbierto }))}
+                          className="w-full p-3 flex justify-between items-center text-xs font-black text-amber-300 uppercase bg-[#0b2b48] cursor-pointer border-b border-[#0066b3]/30"
+                        >
+                          <span className="flex items-center gap-2">
+                            <span>{estaAbierto ? '👁️‍🗨️' : '👁️'}</span> 📍 {nombreSede}
+                          </span>
+                          <span className="text-[10px] bg-rose-950 text-rose-300 font-bold px-2 py-0.5 rounded border border-rose-500/40">
+                            Dif Total: {infoSede.totalDiferencia}
+                          </span>
+                        </button>
+
+                        {estaAbierto && (
+                          <div className="p-3 space-y-1 divide-y divide-[#0066b3]/20 bg-[#031d35]">
+                            {infoSede.diferencias.map((item, idx) => (
+                              <div key={idx} className="flex justify-between items-center py-1 text-white text-[11px]">
+                                <span>{item.producto}</span>
+                                <span className={`font-bold ${item.dif < 0 ? 'text-rose-400' : 'text-amber-300'}`}>
+                                  {item.dif > 0 ? `+${item.dif}` : item.dif}
+                                </span>
+                              </div>
+                            ))}
                           </div>
                         )}
                       </div>
@@ -1595,14 +1229,14 @@ export default function AdminPage() {
             )}
           </div>
 
-          {/* MÓDULO 3: CIERRES DE CAJA Y DESCUADRES */}
+          {/* MÓDULO 3: CIERRE DE CAJA */}
           <div className="border border-[#0066b3] bg-[#0b2b48] rounded-2xl overflow-hidden shadow-lg">
             <button 
               onClick={() => toggleModulo('cierres')}
               className="w-full p-4 flex justify-between items-center text-xs font-black uppercase text-emerald-300 bg-[#0b2b48] cursor-pointer"
             >
               <span className="flex items-center gap-2">
-                <span>{moduloAbierto === 'cierres' ? '▼' : '▶'}</span> 💰 3. CIERRES DE CAJA Y DESCUADRES
+                <span>{moduloAbierto === 'cierres' ? '👁️‍🗨️' : '👁️'}</span> 💰 3. CIERRE DE CAJA
               </span>
               <span className="bg-[#031d35] text-emerald-300 font-bold text-[10px] px-2 py-0.5 rounded border border-[#0066b3]">
                 ${CierreGlobal.totalVenta.toLocaleString()}
@@ -1619,219 +1253,80 @@ export default function AdminPage() {
 
                 {subPestanaCierres === 'caja' && (
                   <div className="space-y-3">
-                    {sedeSeleccionada === 'todos' ? (
-                      <>
-                        <div className="border border-emerald-500/50 bg-[#0b2b48] rounded-xl overflow-hidden">
-                          <button onClick={() => setAcordeonesCierres(prev => ({ ...prev, global: !prev.global }))} className="w-full p-3 flex justify-between items-center text-xs font-black uppercase text-emerald-300 bg-emerald-950/40 cursor-pointer">
-                            <span className="flex items-center gap-1.5">
-                              <span>{acordeonesCierres.global ? '👁️‍🗨️' : '👁️'}</span> CONSOLIDADO GLOBAL
-                            </span>
-                            <span className="text-emerald-300 font-bold">${CierreGlobal.totalVenta.toLocaleString()}</span>
-                          </button>
-                          {acordeonesCierres.global && (
-                            <div className="p-3 space-y-1.5 bg-[#031d35] text-xs border-t border-emerald-500/30">
-                              <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>💵 Efectivo:</span><span className="font-bold text-emerald-400">${CierreGlobal.efectivo.toLocaleString()}</span></div>
-                              <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>📲 Nequi:</span><span className="font-bold text-sky-300">${CierreGlobal.nequi.toLocaleString()}</span></div>
-                              <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>💳 Daviplata:</span><span className="font-bold text-rose-300">${CierreGlobal.daviplata.toLocaleString()}</span></div>
-                              <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>🛵 Rappi:</span><span className="font-bold text-orange-300">${CierreGlobal.rappi.toLocaleString()}</span></div>
-                              <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>📉 Gastos Registrados:</span><span className="font-bold text-amber-400">${CierreGlobal.gastos.toLocaleString()}</span></div>
-                              <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>👥 Nómina Turnos:</span><span className="font-bold text-fuchsia-300">${CierreGlobal.nomina.toLocaleString()}</span></div>
-                              <div className="flex justify-between py-1.5 text-xs font-black border-t border-emerald-400 mt-1 text-white"><span>💰 TOTAL RECAUDADO (ENTRADAS):</span><span className="text-emerald-300">${CierreGlobal.totalVenta.toLocaleString()}</span></div>
-                            </div>
-                          )}
+                    <div className="border border-emerald-500/50 bg-[#0b2b48] rounded-xl overflow-hidden">
+                      <button onClick={() => setAcordeonesCierres(prev => ({ ...prev, global: !prev.global }))} className="w-full p-3 flex justify-between items-center text-xs font-black uppercase text-emerald-300 bg-emerald-950/40 cursor-pointer">
+                        <span className="flex items-center gap-1.5">
+                          <span>{acordeonesCierres.global ? '👁️‍🗨️' : '👁️'}</span> CONSOLIDADO GLOBAL
+                        </span>
+                        <span className="text-emerald-300 font-bold">${CierreGlobal.totalVenta.toLocaleString()}</span>
+                      </button>
+                      {acordeonesCierres.global && (
+                        <div className="p-3 space-y-1.5 bg-[#031d35] text-xs border-t border-emerald-500/30">
+                          <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>💵 Efectivo:</span><span className="font-bold text-emerald-400">${CierreGlobal.efectivo.toLocaleString()}</span></div>
+                          <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>📲 Nequi:</span><span className="font-bold text-sky-300">${CierreGlobal.nequi.toLocaleString()}</span></div>
+                          <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>💳 Daviplata:</span><span className="font-bold text-rose-300">${CierreGlobal.daviplata.toLocaleString()}</span></div>
+                          <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>🛵 Rappi:</span><span className="font-bold text-orange-300">${CierreGlobal.rappi.toLocaleString()}</span></div>
+                          <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>📉 Gastos Registrados:</span><span className="font-bold text-amber-400">${CierreGlobal.gastos.toLocaleString()}</span></div>
+                          <div className="flex justify-between border-b border-[#0066b3]/30 py-1"><span>👥 Nómina Turnos:</span><span className="font-bold text-fuchsia-300">${CierreGlobal.nomina.toLocaleString()}</span></div>
+                          <div className="flex justify-between py-1.5 text-xs font-black border-t border-emerald-400 mt-1 text-white"><span>💰 TOTAL RECAUDADO (ENTRADAS):</span><span className="text-emerald-300">${CierreGlobal.totalVenta.toLocaleString()}</span></div>
                         </div>
-
-                        {Object.keys(cierresPorSede).length === 0 ? (
-                          <p className="text-center text-xs text-sky-300 py-6 font-semibold">No se encontraron cierres de caja en este rango.</p>
-                        ) : (
-                          Object.entries(cierresPorSede).map(([nombreSede, dataSede]) => {
-                            const abierto = !!acordeonesCierres[nombreSede];
-                            const tieneDescuadre = dataSede.descuadreCaja !== 0;
-
-                            return (
-                              <div key={nombreSede} className="border border-[#0066b3] bg-[#0b2b48] rounded-xl overflow-hidden shadow-sm">
-                                <button onClick={() => setAcordeonesCierres(prev => ({ ...prev, [nombreSede]: !abierto }))} className="w-full p-3 flex justify-between items-center text-xs font-bold text-white uppercase cursor-pointer">
-                                  <span className="flex items-center gap-2">
-                                    <span>{abierto ? '👁️‍🗨️' : '👁️'}</span> {nombreSede}
-                                    <span className={`text-[9px] px-2 py-0.5 rounded-full font-extrabold ${dataSede.estadoCaja === 'abierta' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' : 'bg-rose-500/20 text-rose-400 border border-rose-500/40'}`}>
-                                      {dataSede.estadoCaja === 'abierta' ? '🟢 Abierta' : '🔒 Cerrada'}
-                                    </span>
-                                  </span>
-                                  <span className="text-emerald-300 font-bold">${dataSede.totalVenta.toLocaleString()}</span>
-                                </button>
-                                {abierto && (
-                                  <div className="p-3 space-y-2 bg-[#031d35] text-xs border-t border-[#0066b3]/30">
-                                    <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>💵 Apertura:</span><span className="font-bold text-sky-200">${dataSede.apertura.toLocaleString()}</span></div>
-                                    <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>📥 Total Efectivo Recibido:</span><span className="font-bold text-emerald-400">${dataSede.efectivoRecibido.toLocaleString()}</span></div>
-                                    <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>📲 Total Nequi:</span><span className="font-bold text-sky-300">${dataSede.nequi.toLocaleString()}</span></div>
-                                    <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>💳 Total Daviplata:</span><span className="font-bold text-rose-300">${dataSede.daviplata.toLocaleString()}</span></div>
-                                    <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>🛵 Total Rappi:</span><span className="font-bold text-orange-300">${dataSede.rappi.toLocaleString()}</span></div>
-                                    <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>📉 Gastos de Insumos:</span><span className="font-bold text-amber-400">${dataSede.gastos.toLocaleString()}</span></div>
-                                    <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>👥 Nómina Pagada:</span><span className="font-bold text-fuchsia-300">${dataSede.nomina.toLocaleString()}</span></div>
-
-                                    <div className="flex justify-between border-b border-[#0066b3]/20 py-1">
-                                      <span>💵 Efectivo Físico Contado:</span>
-                                      <span className="font-bold text-white">${dataSede.efectivoFisicoContado.toLocaleString()}</span>
-                                    </div>
-
-                                    <div className={`flex justify-between py-1.5 px-2 rounded font-black text-xs ${tieneDescuadre ? 'bg-amber-950/60 text-amber-300 border border-amber-500/50' : 'bg-emerald-950/40 text-emerald-300 border border-emerald-500/40'}`}>
-                                      <span>⚠️ DESCUADRE CAJA:</span>
-                                      <span>{dataSede.descuadreCaja > 0 ? `+$${dataSede.descuadreCaja.toLocaleString()}` : `$${dataSede.descuadreCaja.toLocaleString()}`}</span>
-                                    </div>
-
-                                    {dataSede.motivoDescuadre.length > 0 && (
-                                      <div className="bg-[#0b2b48] p-2 rounded text-[10px] border border-amber-500/30">
-                                        <span className="text-amber-300 font-bold block">Motivo del Descuadre:</span>
-                                        {dataSede.motivoDescuadre.map((m: string, idx: number) => <p key={idx} className="text-sky-200">• {m}</p>)}
-                                      </div>
-                                    )}
-
-                                    {dataSede.notasNomina.length > 0 && (
-                                      <div className="bg-[#0b2b48] p-2 rounded text-[10px] border border-fuchsia-500/30">
-                                        <span className="text-fuchsia-300 font-bold block">Nómina Pagada Hoy:</span>
-                                        {dataSede.notasNomina.map((n: string, idx: number) => <p key={idx} className="text-sky-200">• {n}</p>)}
-                                      </div>
-                                    )}
-
-                                    <div className="flex justify-between py-1.5 font-black border-t border-sky-500/40 text-white mt-1">
-                                      <span>💰 TOTAL VENDIDO (ENTRADAS):</span>
-                                      <span className="text-emerald-300">${dataSede.totalVenta.toLocaleString()}</span>
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })
-                        )}
-                      </>
-                    ) : (
-                      (() => {
-                        const datosSedeSeleccionada = Object.values(cierresPorSede)[0];
-
-                        if (!datosSedeSeleccionada) {
-                          return <p className="text-center text-xs text-sky-300 py-6 font-semibold">No se encontraron cierres de caja para esta sede en este rango.</p>;
-                        }
-
-                        const tieneDescuadre = datosSedeSeleccionada.descuadreCaja !== 0;
-
-                        return (
-                          <div className="border border-emerald-500/50 bg-[#031d35] p-3 rounded-xl space-y-2 text-xs shadow-md">
-                            <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>💵 Apertura:</span><span className="font-bold text-sky-200">${datosSedeSeleccionada.apertura.toLocaleString()}</span></div>
-                            <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>📥 Total Efectivo Recibido:</span><span className="font-bold text-emerald-400">${datosSedeSeleccionada.efectivoRecibido.toLocaleString()}</span></div>
-                            <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>📲 Total Nequi:</span><span className="font-bold text-sky-300">${datosSedeSeleccionada.nequi.toLocaleString()}</span></div>
-                            <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>💳 Total Daviplata:</span><span className="font-bold text-rose-300">${datosSedeSeleccionada.daviplata.toLocaleString()}</span></div>
-                            <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>🛵 Total Rappi:</span><span className="font-bold text-orange-300">${datosSedeSeleccionada.rappi.toLocaleString()}</span></div>
-                            <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>📉 Gastos de Insumos:</span><span className="font-bold text-amber-400">${datosSedeSeleccionada.gastos.toLocaleString()}</span></div>
-                            <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>👥 Nómina Pagada:</span><span className="font-bold text-fuchsia-300">${datosSedeSeleccionada.nomina.toLocaleString()}</span></div>
-
-                            <div className="flex justify-between border-b border-[#0066b3]/20 py-1">
-                              <span>💵 Efectivo Físico Contado:</span>
-                              <span className="font-bold text-white">${datosSedeSeleccionada.efectivoFisicoContado.toLocaleString()}</span>
-                            </div>
-
-                            <div className={`flex justify-between py-1.5 px-2 rounded font-black text-xs ${tieneDescuadre ? 'bg-amber-950/60 text-amber-300 border border-amber-500/50' : 'bg-emerald-950/40 text-emerald-300 border border-emerald-500/40'}`}>
-                              <span>⚠️ DESCUADRE CAJA:</span>
-                              <span>{datosSedeSeleccionada.descuadreCaja > 0 ? `+$${datosSedeSeleccionada.descuadreCaja.toLocaleString()}` : `$${datosSedeSeleccionada.descuadreCaja.toLocaleString()}`}</span>
-                            </div>
-
-                            {datosSedeSeleccionada.motivoDescuadre.length > 0 && (
-                              <div className="bg-[#0b2b48] p-2 rounded text-[10px] border border-amber-500/30">
-                                <span className="text-amber-300 font-bold block">Motivo del Descuadre:</span>
-                                {datosSedeSeleccionada.motivoDescuadre.map((m: string, idx: number) => <p key={idx} className="text-sky-200">• {m}</p>)}
-                              </div>
-                            )}
-
-                            {datosSedeSeleccionada.notasNomina.length > 0 && (
-                              <div className="bg-[#0b2b48] p-2 rounded text-[10px] border border-fuchsia-500/30">
-                                <span className="text-fuchsia-300 font-bold block">Nómina Pagada Hoy:</span>
-                                {datosSedeSeleccionada.notasNomina.map((n: string, idx: number) => <p key={idx} className="text-sky-200">• {n}</p>)}
-                              </div>
-                            )}
-
-                            <div className="flex justify-between py-1.5 font-black border-t border-sky-500/40 text-white mt-1">
-                              <span>💰 TOTAL VENDIDO (ENTRADAS):</span>
-                              <span className="text-emerald-300">${datosSedeSeleccionada.totalVenta.toLocaleString()}</span>
-                            </div>
-                          </div>
-                        );
-                      })()
-                    )}
-                  </div>
-                )}
-
-                {subPestanaCierres === 'descuadres' && (
-                  <div className="space-y-3">
-                    <div className="bg-[#0b2b48] border border-amber-500/50 rounded-xl overflow-hidden shadow-sm">
-                      <div className="p-3 bg-amber-950/40 border-b border-amber-500/30">
-                        <span className="text-[11px] font-black text-amber-300 uppercase block">⚠️ Histórico de Mermas y Diferencias Críticas</span>
-                        <span className="text-[10px] text-sky-200 italic">Acumulado de descuadres por sede en el rango</span>
-                      </div>
-                      <div className="p-3 space-y-3 bg-[#031d35]/60 text-xs">
-                        {Object.keys(historicoMermasCriticas).length === 0 ? (
-                          <p className="text-center text-[11px] text-sky-300 py-3">No hay mermas o diferencias registradas en este rango.</p>
-                        ) : (
-                          Object.entries(historicoMermasCriticas).map(([nombreSede, dataMerma], idx) => (
-                            <div key={idx} className="bg-[#0b2b48] border border-[#0066b3] p-2.5 rounded-xl space-y-1.5">
-                              <div className="flex justify-between items-center border-b border-[#0066b3]/40 pb-1">
-                                <span className="font-bold text-white uppercase">📍 {nombreSede}</span>
-                                <span className={`font-black px-2 py-0.5 rounded text-[10px] ${dataMerma.totalDiferenciaAcumulada === 0 ? 'bg-emerald-950 text-emerald-300' : 'bg-rose-950 text-rose-300 border border-rose-500/40'}`}>
-                                  Total Dif: {dataMerma.totalDiferenciaAcumulada}
-                                </span>
-                              </div>
-                              {Object.keys(dataMerma.frecuenciaItems).length > 0 && (
-                                <div className="space-y-1 pt-1">
-                                  <span className="text-[10px] text-amber-300 font-bold block">Ítems con más desviación:</span>
-                                  {Object.entries(dataMerma.frecuenciaItems).map(([prod, cant], i) => (
-                                    <div key={i} className="flex justify-between text-[11px] text-sky-200 border-b border-[#0066b3]/20 py-0.5">
-                                      <span>• {prod}</span>
-                                      <span className="font-bold text-rose-300">Desviación: {cant}</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          ))
-                        )}
-                      </div>
+                      )}
                     </div>
 
-                    {Object.keys(auditoriaDescuadres).length === 0 ? (
-                      <p className="text-center text-xs text-sky-300 py-4 font-semibold">No hay diferencias detalladas para este rango.</p>
+                    {Object.keys(cierresPorSede).length === 0 ? (
+                      <p className="text-center text-xs text-sky-300 py-6 font-semibold">No se encontraron cierres de caja en este rango.</p>
                     ) : (
-                      Object.entries(auditoriaDescuadres).map(([nombreSede, infoSede]) => {
-                        const abierto = !!acordeonesDescuadres[nombreSede];
-                        const tieneDescuadre = infoSede.totalDiferencia !== 0 || infoSede.diferencias.some(d => d.dif !== 0);
+                      Object.entries(cierresPorSede).map(([nombreSede, dataSede]) => {
+                        const abierto = !!acordeonesCierres[nombreSede];
 
                         return (
-                          <div key={nombreSede} className={`border rounded-xl overflow-hidden ${tieneDescuadre ? 'border-amber-500 bg-[#0b2b48]' : 'border-[#0066b3] bg-[#0b2b48]'}`}>
-                            <button onClick={() => setAcordeonesDescuadres(prev => ({ ...prev, [nombreSede]: !abierto }))} className="w-full p-3 flex justify-between items-center text-xs font-bold text-white uppercase cursor-pointer">
+                          <div key={nombreSede} className="border border-[#0066b3] bg-[#0b2b48] rounded-xl overflow-hidden shadow-sm">
+                            <button onClick={() => setAcordeonesCierres(prev => ({ ...prev, [nombreSede]: !abierto }))} className="w-full p-3 flex justify-between items-center text-xs font-bold text-white uppercase cursor-pointer">
                               <span className="flex items-center gap-2">
                                 <span>{abierto ? '👁️‍🗨️' : '👁️'}</span> {nombreSede}
+                                <span className={`text-[9px] px-2 py-0.5 rounded-full font-extrabold ${dataSede.estadoCaja === 'abierta' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' : 'bg-rose-500/20 text-rose-400 border border-rose-500/40'}`}>
+                                  {dataSede.estadoCaja === 'abierta' ? '🟢 Abierta' : '🔒 Cerrada'}
+                                </span>
                               </span>
-                              <span className={`text-[10px] px-2 py-0.5 rounded font-black ${tieneDescuadre ? 'bg-amber-950 text-amber-300 border border-amber-500' : 'bg-emerald-950 text-emerald-300'}`}>
-                                {tieneDescuadre ? `⚠️ Dif: ${infoSede.totalDiferencia}` : '✅ Cuadrado'}
-                              </span>
+                              <span className="text-emerald-300 font-bold">${dataSede.totalVenta.toLocaleString()}</span>
                             </button>
-
                             {abierto && (
-                              <div className="p-3 pt-0 bg-[#031d35] text-xs space-y-2 border-t border-[#0066b3]/30">
-                                <div className="grid grid-cols-2 font-black text-[10px] text-sky-300 border-b border-[#0066b3]/40 pb-1 mt-2">
-                                  <span>PRODUCTO / ÍTEM</span>
-                                  <span className="text-right">DIFERENCIA</span>
+                              <div className="p-3 space-y-2 bg-[#031d35] text-xs border-t border-[#0066b3]/30">
+                                <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>💵 Apertura:</span><span className="font-bold text-sky-200">${dataSede.apertura.toLocaleString()}</span></div>
+                                <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>📥 Total Efectivo Recibido:</span><span className="font-bold text-emerald-400">${dataSede.efectivoRecibido.toLocaleString()}</span></div>
+                                <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>📲 Total Nequi:</span><span className="font-bold text-sky-300">${dataSede.nequi.toLocaleString()}</span></div>
+                                <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>💳 Total Daviplata:</span><span className="font-bold text-rose-300">${dataSede.daviplata.toLocaleString()}</span></div>
+                                <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>🛵 Total Rappi:</span><span className="font-bold text-orange-300">${dataSede.rappi.toLocaleString()}</span></div>
+                                <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>📉 Gastos de Insumos:</span><span className="font-bold text-amber-400">${dataSede.gastos.toLocaleString()}</span></div>
+                                <div className="flex justify-between border-b border-[#0066b3]/20 py-1"><span>👥 Nómina Pagada:</span><span className="font-bold text-fuchsia-300">${dataSede.nomina.toLocaleString()}</span></div>
+
+                                <div className="flex justify-between border-b border-[#0066b3]/20 py-1">
+                                  <span>💵 Efectivo Físico Contado:</span>
+                                  <span className="font-bold text-white">${dataSede.efectivoFisicoContado.toLocaleString()}</span>
                                 </div>
-                                <div className="space-y-1.5 pt-1 max-h-48 overflow-y-auto pr-1">
-                                  {infoSede.diferencias.map((item, idx) => (
-                                    <div key={idx} className="grid grid-cols-2 items-center text-[11px] border-b border-[#0066b3]/20 py-1 text-white">
-                                      <span className="truncate pr-1">{item.producto}</span>
-                                      <span className={`text-right font-black ${item.dif === 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
-                                        {item.dif > 0 ? `+${item.dif}` : item.dif}
-                                      </span>
-                                    </div>
-                                  ))}
+
+                                <div className="flex justify-between border-b border-[#0066b3]/20 py-1 text-amber-300 font-bold">
+                                  <span>⚠️ Diferencia Tabla Caja:</span>
+                                  <span>${dataSede.diferenciaTablaCaja.toLocaleString()}</span>
                                 </div>
-                                <div className="flex justify-between pt-2 border-t border-[#0066b3]/40 font-black text-xs text-white">
-                                  <span>Total Diferencia Sede:</span>
-                                  <span className={infoSede.totalDiferencia === 0 ? 'text-emerald-400' : 'text-amber-400'}>{infoSede.totalDiferencia}</span>
+
+                                {dataSede.motivoDescuadre.length > 0 && (
+                                  <div className="bg-[#0b2b48] p-2 rounded text-[10px] border border-amber-500/30">
+                                    <span className="text-amber-300 font-bold block">Motivo del Descuadre:</span>
+                                    {dataSede.motivoDescuadre.map((m: string, idx: number) => <p key={idx} className="text-sky-200">• {m}</p>)}
+                                  </div>
+                                )}
+
+                                {dataSede.notasNomina.length > 0 && (
+                                  <div className="bg-[#0b2b48] p-2 rounded text-[10px] border border-fuchsia-500/30">
+                                    <span className="text-fuchsia-300 font-bold block">Nómina Pagada Hoy:</span>
+                                    {dataSede.notasNomina.map((n: string, idx: number) => <p key={idx} className="text-sky-200">• {n}</p>)}
+                                  </div>
+                                )}
+
+                                <div className="flex justify-between py-1.5 font-black border-t border-sky-500/40 text-white mt-1">
+                                  <span>💰 TOTAL VENDIDO (ENTRADAS):</span>
+                                  <span className="text-emerald-300">${dataSede.totalVenta.toLocaleString()}</span>
                                 </div>
                               </div>
                             )}
@@ -1842,18 +1337,45 @@ export default function AdminPage() {
                   </div>
                 )}
 
+                {subPestanaCierres === 'descuadres' && (
+                  <div className="space-y-3">
+                    {Object.keys(auditoriaDescuadres).length === 0 ? (
+                      <p className="text-center text-xs text-sky-300 py-4 font-semibold">No hay diferencias detalladas para este rango.</p>
+                    ) : (
+                      Object.entries(auditoriaDescuadres).map(([nombreSede, infoSede]) => (
+                        <div key={nombreSede} className="border border-[#0066b3] bg-[#0b2b48] rounded-xl overflow-hidden p-3 space-y-2">
+                          <div className="flex justify-between items-center border-b border-[#0066b3]/40 pb-1">
+                            <span className="font-bold text-white uppercase">📍 {nombreSede}</span>
+                            <span className="text-[10px] bg-amber-950 text-amber-300 px-2 py-0.5 rounded font-black">
+                              Total Dif: {infoSede.totalDiferencia}
+                            </span>
+                          </div>
+                          <div className="space-y-1">
+                            {infoSede.diferencias.map((item, idx) => (
+                              <div key={idx} className="flex justify-between text-[11px] text-white border-b border-[#0066b3]/20 py-1">
+                                <span>{item.producto}</span>
+                                <span className="font-black text-amber-400">{item.dif}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+
               </div>
             )}
           </div>
 
-          {/* MÓDULO 4: INVENTARIOS Y STOCK GENERAL */}
+          {/* MÓDULO 4: INVENTARIO DIARIO Y STOCK POR SEDE */}
           <div className="border border-[#0066b3] bg-[#0b2b48] rounded-2xl overflow-hidden shadow-lg">
             <button 
               onClick={() => toggleModulo('inventarios')}
               className="w-full p-4 flex justify-between items-center text-xs font-black uppercase text-sky-300 bg-[#0b2b48] cursor-pointer"
             >
               <span className="flex items-center gap-2">
-                <span>{moduloAbierto === 'inventarios' ? '▼' : '▶'}</span> 📦 4. INVENTARIOS Y STOCK GENERAL
+                <span>{moduloAbierto === 'inventarios' ? '👁️‍🗨️' : '👁️'}</span> 📦 4. INVENTARIO DIARIO Y STOCK
               </span>
               <span className="bg-[#031d35] text-sky-200 text-[10px] px-2 py-0.5 rounded border border-[#0066b3]">
                 {Object.keys(inventarioStockGeneralPorSede).length} Sedes
@@ -1866,36 +1388,30 @@ export default function AdminPage() {
                   <p className="text-center text-xs text-sky-300 py-6 font-semibold">No hay movimientos de inventario registrados para este rango.</p>
                 ) : (
                   Object.entries(inventarioStockGeneralPorSede).map(([nombreSede, infoSede]) => {
-                    const abierto = !!acordeonesInventario[nombreSede];
+                    const estaAbierto = !!subAcordeonesStock[nombreSede];
 
                     return (
-                      <div key={nombreSede} className="border border-[#0066b3] bg-[#0b2b48] rounded-xl overflow-hidden">
-                        <button onClick={() => setAcordeonesInventario(prev => ({ ...prev, [nombreSede]: !abierto }))} className="w-full p-3 flex justify-between items-center text-xs font-bold text-white uppercase cursor-pointer">
+                      <div key={nombreSede} className="bg-[#0b2b48] rounded-xl border border-[#0066b3] overflow-hidden space-y-1">
+                        <button 
+                          onClick={() => setSubAcordeonesStock(prev => ({ ...prev, [nombreSede]: !estaAbierto }))}
+                          className="w-full p-3 flex justify-between items-center text-xs font-bold text-sky-200 uppercase bg-[#0b2b48] cursor-pointer border-b border-[#0066b3]/30"
+                        >
                           <span className="flex items-center gap-2">
-                            <span>{abierto ? '👁️‍🗨️' : '👁️'}</span> 📍 {nombreSede}
+                            <span>{estaAbierto ? '👁️‍🗨️' : '👁️'}</span> 📍 {nombreSede}
                           </span>
-                          <span className="text-[10px] bg-sky-950 text-sky-300 px-2 py-0.5 rounded border border-sky-500 font-black">
-                            Total Paletas: {infoSede.totalPaletas}
+                          <span className="text-[10px] text-emerald-400 font-bold">
+                            {Object.keys(infoSede.detalleEmpaques).length} Ítems
                           </span>
                         </button>
 
-                        {abierto && (
-                          <div className="p-3 pt-0 bg-[#031d35] text-xs space-y-3 border-t border-[#0066b3]/30">
-                            <div className="pt-2">
-                              <span className="text-[10px] font-black text-amber-300 uppercase block border-b border-[#0066b3]/40 pb-1 mb-1">
-                                📦 Stock Empaques
-                              </span>
-                              {Object.keys(infoSede.detalleEmpaques).length === 0 ? (
-                                <p className="text-[10px] text-sky-400 italic py-1">Sin empaques registrados en stock.</p>
-                              ) : (
-                                Object.entries(infoSede.detalleEmpaques).map(([prod, cant], idx) => (
-                                  <div key={idx} className="flex justify-between text-[11px] text-white border-b border-[#0066b3]/20 py-1">
-                                    <span>{prod}</span>
-                                    <span className={`font-bold ${Number(cant) < 0 ? 'text-rose-400' : 'text-sky-300'}`}>x{cant}</span>
-                                  </div>
-                                ))
-                              )}
-                            </div>
+                        {estaAbierto && (
+                          <div className="p-3 divide-y divide-[#0066b3]/20 bg-[#031d35]">
+                            {Object.entries(infoSede.detalleEmpaques).map(([prod, cant]) => (
+                              <div key={prod} className="flex justify-between py-1 text-xs text-white">
+                                <span>{prod}</span>
+                                <span className="font-bold text-emerald-300">{cant}</span>
+                              </div>
+                            ))}
                           </div>
                         )}
                       </div>
@@ -1906,14 +1422,14 @@ export default function AdminPage() {
             )}
           </div>
 
-          {/* MÓDULO 5: NÓMINA Y REGISTRO DE TURNOS */}
+          {/* MÓDULO 5: NÓMINA POR OPERARIO Y VALOR */}
           <div className="border border-[#0066b3] bg-[#0b2b48] rounded-2xl overflow-hidden shadow-lg">
             <button 
               onClick={() => toggleModulo('modulo_nomina')}
               className="w-full p-4 flex justify-between items-center text-xs font-black uppercase text-fuchsia-300 bg-[#0b2b48] cursor-pointer"
             >
               <span className="flex items-center gap-2">
-                <span>{moduloAbierto === 'modulo_nomina' ? '▼' : '▶'}</span> 👥 5. NÓMINA Y REGISTRO DE TURNOS
+                <span>{moduloAbierto === 'modulo_nomina' ? '👁️‍🗨️' : '👁️'}</span> 👥 5. NÓMINA POR OPERARIO Y VALOR
               </span>
               <span className="bg-[#031d35] text-fuchsia-300 font-bold text-[10px] px-2 py-0.5 rounded border border-[#0066b3]">
                 {resumenNominaOperarios.length} Operarios
@@ -1933,23 +1449,12 @@ export default function AdminPage() {
                         <div className="flex justify-between items-center border-b border-[#0066b3]/40 pb-1.5">
                           <span className="font-black text-amber-300 uppercase">👤 {op.nombre}</span>
                           <span className="bg-[#031d35] text-sky-200 text-[10px] px-2 py-0.5 rounded border border-[#0066b3]">
-                            {op.turnosCount} {op.turnosCount === 1 ? 'Turno' : 'Turnos'}
+                            {op.turnosCount} Turnos
                           </span>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-2 text-[11px] text-sky-100 bg-[#031d35] p-2 rounded-lg">
-                          <div>
-                            <span className="block text-[9px] text-sky-400 font-bold uppercase">Horas Día</span>
-                            <span className="font-extrabold text-white">{op.horasDia}h</span>
-                          </div>
-                          <div>
-                            <span className="block text-[9px] text-sky-400 font-bold uppercase">Horas Noche</span>
-                            <span className="font-extrabold text-white">{op.horasNoche}h</span>
-                          </div>
-                        </div>
-
-                        <div className="flex justify-between items-center pt-1 border-t border-[#0066b3]/20 font-black text-xs">
-                          <span className="text-white">💰 TOTAL PAGO NÓMINA:</span>
+                        <div className="flex justify-between items-center pt-1 font-black text-xs">
+                          <span className="text-white">💰 VALOR PAGO NÓMINA:</span>
                           <span className="text-fuchsia-300 text-sm">${op.totalPagado.toLocaleString()}</span>
                         </div>
                       </div>
@@ -1960,14 +1465,14 @@ export default function AdminPage() {
             )}
           </div>
 
-          {/* MÓDULO 6: VENTAS Y MIX DE SABORES */}
+          {/* MÓDULO 6: VENTAS E HISTÓRICO */}
           <div className="border border-[#0066b3] bg-[#0b2b48] rounded-2xl overflow-hidden shadow-lg">
             <button 
               onClick={() => toggleModulo('ventas_abanico')}
               className="w-full p-4 flex justify-between items-center text-xs font-black uppercase text-cyan-300 bg-[#0b2b48] cursor-pointer"
             >
               <span className="flex items-center gap-2">
-                <span>{moduloAbierto === 'ventas_abanico' ? '▼' : '▶'}</span> 📊 6. VENTAS Y MIX DE SABORES
+                <span>{moduloAbierto === 'ventas_abanico' ? '👁️‍🗨️' : '👁️'}</span> 📊 6. VENTAS (HISTÓRICO VENTAS)
               </span>
               <span className="bg-[#031d35] text-cyan-300 font-bold text-[10px] px-2 py-0.5 rounded border border-[#0066b3]">
                 {Object.keys(ventasAbanicoPorSede).length} Sedes
@@ -1976,63 +1481,6 @@ export default function AdminPage() {
 
             {moduloAbierto === 'ventas_abanico' && (
               <div className="p-3 space-y-3 border-t border-[#0066b3]/30 bg-[#031d35]/60">
-                
-                <div className="bg-[#0b2b48] border border-cyan-500/50 rounded-xl overflow-hidden shadow-sm">
-                  <button 
-                    onClick={() => setAcordeonesMixViva(prev => ({ ...prev, global: !prev.global }))}
-                    className="w-full p-3 flex justify-between items-center text-xs font-black text-cyan-300 uppercase bg-cyan-950/40 cursor-pointer"
-                  >
-                    <span className="flex items-center gap-2">
-                      <span>{acordeonesMixViva.global ? '👁️‍🗨️' : '👁️'}</span> 🧊 MIX DE SABORES Y CATEGORÍAS (SEDE VIVA)
-                    </span>
-                    <span className="text-[10px] bg-[#031d35] text-cyan-200 px-2 py-0.5 rounded border border-cyan-500/40">
-                      Total: {mixSaboresSedeViva.totalUnidadesViva} unids
-                    </span>
-                  </button>
-
-                  {acordeonesMixViva.global && (
-                    <div className="p-3 space-y-2.5 bg-[#031d35]/60 text-xs border-t border-cyan-500/30">
-                      {!mixSaboresSedeViva.vivaEncontrado ? (
-                        <p className="text-center text-[11px] text-sky-300 py-2">No se encontró la sede Viva configurada.</p>
-                      ) : Object.keys(mixSaboresSedeViva.categoriasMap).length === 0 ? (
-                        <p className="text-center text-[11px] text-sky-300 py-2">No hay ventas registradas en la sede Viva para este rango.</p>
-                      ) : (
-                        Object.entries(mixSaboresSedeViva.categoriasMap).map(([catNombre, productosCat], idx) => {
-                          const abiertoCat = !!acordeonesMixViva[catNombre];
-                          const totalCat = Object.values(productosCat).reduce((a, b) => a + (Number(b) || 0), 0);
-
-                          return (
-                            <div key={idx} className="bg-[#0b2b48] border border-[#0066b3] rounded-xl overflow-hidden">
-                              <button 
-                                onClick={() => setAcordeonesMixViva(prev => ({ ...prev, [catNombre]: !abiertoCat }))}
-                                className="w-full p-2.5 flex justify-between items-center text-xs font-bold text-amber-300 uppercase cursor-pointer"
-                              >
-                                <span className="flex items-center gap-2">
-                                  <span>{abiertoCat ? '👁️‍🗨️' : '👁️'}</span> 📂 {catNombre}
-                                </span>
-                                <span className="text-[10px] bg-[#031d35] text-emerald-300 px-2 py-0.5 rounded border border-[#0066b3]">
-                                  {totalCat} unids
-                                </span>
-                              </button>
-
-                              {abiertoCat && (
-                                <div className="p-2.5 pt-0 space-y-1 bg-[#031d35] border-t border-[#0066b3]/30">
-                                  {Object.entries(productosCat).map(([prodName, cant]: [string, any], i) => (
-                                    <div key={i} className="flex justify-between text-[11px] text-white border-b border-[#0066b3]/20 py-1">
-                                      <span className="truncate pr-2">{prodName}</span>
-                                      <span className="font-bold text-emerald-300">x{cant}</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-                  )}
-                </div>
-
                 {Object.keys(ventasAbanicoPorSede).length === 0 ? (
                   <p className="text-center text-xs text-sky-300 py-6 font-semibold">No hay registros en el histórico de ventas para este rango.</p>
                 ) : (
@@ -2057,7 +1505,7 @@ export default function AdminPage() {
                         {abierto && (
                           <div className="p-3 pt-0 bg-[#031d35] text-xs space-y-1.5 border-t border-[#0066b3]/30">
                             <div className="grid grid-cols-2 font-black text-[10px] text-cyan-300 border-b border-[#0066b3]/40 pb-1 mt-2">
-                              <span>PRODUCTO / SABOR</span>
+                              <span>PRODUCTO</span>
                               <span className="text-right">CANTIDAD VENDIDA</span>
                             </div>
                             <div className="space-y-1 pt-1 max-h-48 overflow-y-auto pr-1">
@@ -2068,10 +1516,6 @@ export default function AdminPage() {
                                 </div>
                               ))}
                             </div>
-                            <div className="flex justify-between pt-2 border-t border-[#0066b3]/40 font-black text-xs text-white">
-                              <span>Total General Sede:</span>
-                              <span className="text-cyan-300">{totalUnidadesSede} unidades</span>
-                            </div>
                           </div>
                         )}
                       </div>
@@ -2082,262 +1526,176 @@ export default function AdminPage() {
             )}
           </div>
 
-          {/* MÓDULO 7: INTELIGENCIA DE NEGOCIO (BI) */}
+          {/* MÓDULO 7: INTELIGENCIA DE NEGOCIO AMPLIADA (30 DÍAS) Y COMPARATIVO POR SEDE */}
           <div className="border border-[#0066b3] bg-[#0b2b48] rounded-2xl overflow-hidden shadow-lg">
             <button 
               onClick={() => toggleModulo('bi')}
               className="w-full p-4 flex justify-between items-center text-xs font-black uppercase text-amber-300 bg-[#0b2b48] cursor-pointer"
             >
               <span className="flex items-center gap-2">
-                <span>{moduloAbierto === 'bi' ? '▼' : '▶'}</span> 🧠 7. INTELIGENCIA DE NEGOCIO (BI)
+                <span>{moduloAbierto === 'bi' ? '👁️‍🗨️' : '👁️'}</span> 🧠 7. INTELIGENCIA DE NEGOCIO (30 DÍAS)
               </span>
               <span className="bg-[#031d35] text-amber-300 font-bold text-[10px] px-2 py-0.5 rounded border border-[#0066b3]">
-                Analítica Avanzada
+                Analítica
               </span>
             </button>
 
             {moduloAbierto === 'bi' && (
-              <div className="p-3 space-y-3 border-t border-[#0066b3]/30 bg-[#031d35]/60">
-                {historicoVentasBD.length === 0 ? (
-                  <p className="text-center text-xs text-sky-300 py-6 font-semibold">No hay suficientes datos de ventas en este rango para analizar.</p>
-                ) : (
-                  <div className="space-y-4">
-                    <div className="bg-[#031d35] border border-amber-500/40 p-3 rounded-xl space-y-3">
-                      <span className="text-[11px] font-black text-amber-300 uppercase block border-b border-amber-500/30 pb-1">
-                        🌐 CONSOLIDADO GLOBAL DE TODAS LAS SEDES
-                      </span>
+              <div className="p-3 space-y-3 border-t border-[#0066b3]/30 bg-[#031d35]/60 text-xs">
+                
+                {/* METRICAS DE RESUMEN GENERAL */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="bg-[#0b2b48] border border-[#0066b3] p-2.5 rounded-xl space-y-1">
+                    <span className="text-[9px] text-sky-300 font-extrabold uppercase block">📦 Unidades Vendidas</span>
+                    <p className="text-sm font-black text-emerald-400">{datosBIAmpliados.totalUnidades30Dias} unids</p>
+                    <span className="text-[9px] text-sky-200 block">En {datosBIAmpliados.diasConVentasCount} días con ventas</span>
+                  </div>
 
-                      <div className="grid grid-cols-2 gap-2">
-                        <div className="bg-[#0b2b48] border border-emerald-500/50 p-2.5 rounded-xl space-y-1">
-                          <span className="text-[9px] text-emerald-300 font-black uppercase block">🔥 Más Vendido</span>
-                          <p className="text-xs font-black text-white truncate">{String(datosBI.masVendido[0])}</p>
-                          <span className="text-[10px] bg-emerald-950 text-emerald-300 px-1.5 py-0.5 rounded font-bold">x{String(datosBI.masVendido[1])} unids</span>
-                        </div>
+                  <div className="bg-[#0b2b48] border border-[#0066b3] p-2.5 rounded-xl space-y-1">
+                    <span className="text-[9px] text-sky-300 font-extrabold uppercase block">📈 Promedio Diario</span>
+                    <p className="text-sm font-black text-amber-300">~{datosBIAmpliados.promedioDiarioUnidades} unids/día</p>
+                    <span className="text-[9px] text-sky-200 block">Rendimiento constante</span>
+                  </div>
+                </div>
 
-                        <div className="bg-[#0b2b48] border border-rose-500/50 p-2.5 rounded-xl space-y-1">
-                          <span className="text-[9px] text-rose-300 font-black uppercase block">❄️ Menos Vendido</span>
-                          <p className="text-xs font-black text-white truncate">{String(datosBI.menosVendido[0])}</p>
-                          <span className="text-[10px] bg-rose-950 text-rose-300 px-1.5 py-0.5 rounded font-bold">x{String(datosBI.menosVendido[1])} unids</span>
-                        </div>
-                      </div>
+                {/* DÍA TOP Y CATEGORÍA POPULAR */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="bg-[#0b2b48] border border-emerald-500/40 p-2.5 rounded-xl space-y-1">
+                    <span className="text-[9px] text-emerald-300 font-extrabold uppercase block">📅 Mejor Día de Ventas</span>
+                    <p className="text-xs font-black text-white">{datosBIAmpliados.mejorDia[0]}</p>
+                    <span className="text-[9px] bg-emerald-950 text-emerald-300 px-1.5 py-0.5 rounded font-bold">
+                      {datosBIAmpliados.mejorDia[1]} unids
+                    </span>
+                  </div>
 
-                      <div className="bg-[#0b2b48] border border-amber-500/50 p-3 rounded-xl flex justify-between items-center">
-                        <div>
-                          <span className="text-[9px] text-amber-300 font-black uppercase block">⭐ El Mejor Día de Ventas</span>
-                          <p className="text-xs font-black text-white">{String(datosBI.mejorDia[0])}</p>
-                        </div>
-                        <span className="text-xs bg-amber-950 text-amber-300 px-2.5 py-1 rounded-lg font-black border border-amber-500/40">
-                          {String(datosBI.mejorDia[1])} Unidades
-                        </span>
-                      </div>
+                  <div className="bg-[#0b2b48] border border-fuchsia-500/40 p-2.5 rounded-xl space-y-1">
+                    <span className="text-[9px] text-fuchsia-300 font-extrabold uppercase block">🏷️ Categoría Más Vendida</span>
+                    <p className="text-xs font-black text-white">{datosBIAmpliados.categoriaMasPopular[0]}</p>
+                    <span className="text-[9px] bg-fuchsia-950 text-fuchsia-300 px-1.5 py-0.5 rounded font-bold">
+                      {datosBIAmpliados.categoriaMasPopular[1]} unids
+                    </span>
+                  </div>
+                </div>
 
-                      <div className="bg-[#0b2b48] border border-[#0066b3] p-3 rounded-xl space-y-2">
-                        <span className="text-[10px] font-black text-sky-300 uppercase block border-b border-[#0066b3]/40 pb-1">
-                          📊 Gráfico de Rendimiento por Producto (Global)
-                        </span>
-                        
-                        <div className="space-y-2 pt-1 max-h-48 overflow-y-auto pr-1">
-                          {datosBI.productosArray.map(([prod, cant], idx) => {
-                            const porcentaje = Math.round((Number(cant) / datosBI.maxUnidadesProd) * 100);
-                            return (
-                              <div key={idx} className="space-y-1">
-                                <div className="flex justify-between text-[11px] text-white">
-                                  <span className="truncate pr-2 font-semibold">{prod}</span>
-                                  <span className="font-bold text-cyan-300">x{String(cant)}</span>
+                {/* COMPARATIVO ANALÍTICO POR SEDE */}
+                <div className="bg-[#0b2b48] border border-amber-500/50 p-3 rounded-xl space-y-2">
+                  <span className="text-[10px] font-black text-amber-300 uppercase block border-b border-amber-500/30 pb-1">
+                    🏢 COMPARATIVO DE RENDIMIENTO POR SEDE
+                  </span>
+
+                  <div className="space-y-2 pt-1">
+                    {datosBIAmpliados.comparativoSedes.length === 0 ? (
+                      <p className="text-center text-xs text-sky-300 py-2">Sin datos suficientes para comparar sedes.</p>
+                    ) : (
+                      datosBIAmpliados.comparativoSedes.map((item) => {
+                        const estaAbierto = !!subAcordeonesBISedes[item.nombreSede];
+
+                        return (
+                          <div key={item.nombreSede} className="border border-[#0066b3] bg-[#031d35] rounded-xl overflow-hidden">
+                            <button
+                              onClick={() => setSubAcordeonesBISedes(prev => ({ ...prev, [item.nombreSede]: !estaAbierto }))}
+                              className="w-full p-2.5 flex justify-between items-center text-xs font-black uppercase text-white bg-[#031d35] cursor-pointer"
+                            >
+                              <span className="flex items-center gap-2">
+                                <span>{estaAbierto ? '👁️‍🗨️' : '👁️'}</span> 📍 {item.nombreSede}
+                              </span>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-emerald-400 font-bold">{item.totalUnidades} unids</span>
+                                <span className="text-[9px] bg-amber-950 text-amber-300 px-1.5 py-0.5 rounded border border-amber-500/30 font-bold">
+                                  {item.porcentajeParticipacion}%
+                                </span>
+                              </div>
+                            </button>
+
+                            {estaAbierto && (
+                              <div className="p-2.5 bg-[#0b2b48] border-t border-[#0066b3]/30 space-y-1.5 text-[11px]">
+                                <div className="flex justify-between items-center">
+                                  <span className="text-sky-300 font-bold">🔥 Más Vendido:</span>
+                                  <span className="text-white font-bold">{String(item.masVendido[0])} <b className="text-emerald-400">(x{String(item.masVendido[1])})</b></span>
                                 </div>
-                                <div className="w-full bg-[#031d35] h-2 rounded-full overflow-hidden border border-[#0066b3]/30">
-                                  <div 
-                                    className="bg-gradient-to-r from-cyan-500 to-emerald-400 h-full rounded-full transition-all duration-500" 
-                                    style={{ width: `${porcentaje}%` }}
-                                  ></div>
+                                <div className="flex justify-between items-center">
+                                  <span className="text-sky-300 font-bold">❄️ Menos Vendido:</span>
+                                  <span className="text-white font-bold">{String(item.menosVendido[0])} <b className="text-rose-300">(x{String(item.menosVendido[1])})</b></span>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                  <span className="text-sky-300 font-bold">🏷️ Categoría Fuerte:</span>
+                                  <span className="text-fuchsia-300 font-bold">{String(item.catLider[0])}</span>
                                 </div>
                               </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </div>
-
-                    <span className="text-[11px] font-black text-sky-300 uppercase block pt-1">
-                      📍 DESGLOSE DE BI POR CADA SEDE:
-                    </span>
-
-                    {Object.entries(biPorSede).map(([nombreSede, infoSede]) => {
-                      const abierto = !!acordeonBISedeAbierto[nombreSede];
-                      const tieneVentas = infoSede.productosArray.length > 0;
-
-                      return (
-                        <div key={nombreSede} className="border border-[#0066b3] bg-[#0b2b48] rounded-xl overflow-hidden shadow-sm">
-                          <button 
-                            onClick={() => setAcordeonBISedeAbierto(prev => ({ ...prev, [nombreSede]: !abierto }))} 
-                            className="w-full p-3 flex justify-between items-center text-xs font-bold text-white uppercase cursor-pointer"
-                          >
-                            <span className="flex items-center gap-2">
-                              <span>{abierto ? '👁️‍🗨️' : '👁️'}</span> 📍 BI - {nombreSede}
-                            </span>
-                            <span className="text-[10px] bg-amber-950 text-amber-300 px-2.5 py-0.5 rounded-full border border-amber-500/50">
-                              {infoSede.productosArray.length} Ítems analizados
-                            </span>
-                          </button>
-
-                          {abierto && (
-                            <div className="p-3 pt-0 bg-[#031d35] text-xs space-y-3 border-t border-[#0066b3]/30">
-                              {!tieneVentas ? (
-                                <p className="text-center text-xs text-sky-300 py-4 font-semibold">No hay ventas registradas para esta sede en este rango.</p>
-                              ) : (
-                                <>
-                                  <div className="grid grid-cols-2 gap-2 pt-2">
-                                    <div className="bg-[#0b2b48] border border-emerald-500/50 p-2.5 rounded-xl space-y-1">
-                                      <span className="text-[9px] text-emerald-300 font-black uppercase block">🔥 Más Vendido</span>
-                                      <p className="text-xs font-black text-white truncate">{String(infoSede.masVendido[0])}</p>
-                                      <span className="text-[10px] bg-emerald-950 text-emerald-300 px-1.5 py-0.5 rounded font-bold">x{String(infoSede.masVendido[1])} unids</span>
-                                    </div>
-
-                                    <div className="bg-[#0b2b48] border border-rose-500/50 p-2.5 rounded-xl space-y-1">
-                                      <span className="text-[9px] text-rose-300 font-black uppercase block">❄️ Menos Vendido</span>
-                                      <p className="text-xs font-black text-white truncate">{String(infoSede.menosVendido[0])}</p>
-                                      <span className="text-[10px] bg-rose-950 text-rose-300 px-1.5 py-0.5 rounded font-bold">x{String(infoSede.menosVendido[1])} unids</span>
-                                    </div>
-                                  </div>
-
-                                  <div className="bg-[#0b2b48] border border-amber-500/50 p-2.5 rounded-xl flex justify-between items-center">
-                                    <div>
-                                      <span className="text-[9px] text-amber-300 font-black uppercase block">⭐ Mejor Día de Ventas</span>
-                                      <p className="text-xs font-black text-white">{String(infoSede.mejorDia[0])}</p>
-                                    </div>
-                                    <span className="text-xs bg-amber-950 text-amber-300 px-2 py-0.5 rounded font-black border border-amber-500/40">
-                                      {String(infoSede.mejorDia[1])} Unids
-                                    </span>
-                                  </div>
-
-                                  <div className="bg-[#0b2b48] border border-[#0066b3] p-2.5 rounded-xl space-y-2">
-                                    <span className="text-[10px] font-black text-sky-300 uppercase block border-b border-[#0066b3]/40 pb-1">
-                                      📊 Rendimiento - {nombreSede}
-                                    </span>
-                                    <div className="space-y-2 pt-1 max-h-40 overflow-y-auto pr-1">
-                                      {infoSede.productosArray.map(([prod, cant], idx) => {
-                                        const porcentaje = Math.round((Number(cant) / infoSede.maxUnidadesProd) * 100);
-                                        return (
-                                          <div key={idx} className="space-y-1">
-                                            <div className="flex justify-between text-[11px] text-white">
-                                              <span className="truncate pr-2 font-semibold">{prod}</span>
-                                              <span className="font-bold text-cyan-300">x{String(cant)}</span>
-                                            </div>
-                                            <div className="w-full bg-[#031d35] h-2 rounded-full overflow-hidden border border-[#0066b3]/30">
-                                              <div 
-                                                className="bg-gradient-to-r from-amber-400 to-emerald-400 h-full rounded-full transition-all duration-500" 
-                                                style={{ width: `${porcentaje}%` }}
-                                              ></div>
-                                            </div>
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-                                  </div>
-                                </>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
                   </div>
-                )}
+                </div>
+
+                {/* TOP 5 MÁS VENDIDOS GLOBAL */}
+                <div className="bg-[#0b2b48] border border-emerald-500/50 p-3 rounded-xl space-y-2">
+                  <span className="text-[10px] font-black text-emerald-300 uppercase block border-b border-emerald-500/30 pb-1">
+                    🔥 TOP 5 PRODUCTOS MÁS VENDIDOS (GLOBAL)
+                  </span>
+                  <div className="space-y-1 divide-y divide-[#0066b3]/20">
+                    {datosBIAmpliados.top5MasVendidos.map(([pNombre, pCant], idx) => (
+                      <div key={idx} className="flex justify-between items-center py-1 text-[11px] text-white">
+                        <span>{idx + 1}. {pNombre}</span>
+                        <span className="font-black text-emerald-400">x{pCant}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* TOP 5 MENOS VENDIDOS GLOBAL */}
+                <div className="bg-[#0b2b48] border border-rose-500/50 p-3 rounded-xl space-y-2">
+                  <span className="text-[10px] font-black text-rose-300 uppercase block border-b border-rose-500/30 pb-1">
+                    ❄️ TOP 5 PRODUCTOS MENOS VENDIDOS (GLOBAL)
+                  </span>
+                  <div className="space-y-1 divide-y divide-[#0066b3]/20">
+                    {datosBIAmpliados.top5MenosVendidos.map(([pNombre, pCant], idx) => (
+                      <div key={idx} className="flex justify-between items-center py-1 text-[11px] text-white">
+                        <span>• {pNombre}</span>
+                        <span className="font-black text-rose-300">x{pCant}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
               </div>
             )}
           </div>
 
-          {/* MÓDULO 8: RAPPI Y DESCUENTOS */}
+          {/* MÓDULO 8: RAPPI (TABLA CAJA) */}
           <div className="border border-[#0066b3] bg-[#0b2b48] rounded-2xl overflow-hidden shadow-lg">
             <button 
               onClick={() => toggleModulo('rappi')}
               className="w-full p-4 flex justify-between items-center text-xs font-black uppercase text-orange-300 bg-[#0b2b48] cursor-pointer"
             >
               <span className="flex items-center gap-2">
-                <span>{moduloAbierto === 'rappi' ? '▼' : '▶'}</span> 🛵 8. RAPPI Y DESCUENTOS
+                <span>{moduloAbierto === 'rappi' ? '👁️‍🗨️' : '👁️'}</span> 🛵 8. RAPPI (COLUMNA RAPPI - TABLA CAJA)
               </span>
               <span className="bg-[#031d35] text-orange-300 font-bold text-[10px] px-2 py-0.5 rounded border border-[#0066b3]">
-                Rappi: ${rappiYDescuentosData.totalRappiGlobal.toLocaleString()}
+                Total: ${rappiYDescuentosData.totalRappiGlobal.toLocaleString()}
               </span>
             </button>
 
             {moduloAbierto === 'rappi' && (
               <div className="p-3 space-y-3 border-t border-[#0066b3]/30 bg-[#031d35]/60">
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="bg-[#0b2b48] border border-orange-500/50 p-2.5 rounded-xl space-y-1">
-                    <span className="text-[9px] text-orange-300 font-black uppercase block">🛵 Total Rappi</span>
-                    <p className="text-xs font-black text-white">${rappiYDescuentosData.totalRappiGlobal.toLocaleString()}</p>
-                  </div>
-                  <div className="bg-[#0b2b48] border border-sky-500/50 p-2.5 rounded-xl space-y-1">
-                    <span className="text-[9px] text-sky-300 font-black uppercase block">🏷️ Total Descuentos</span>
-                    <p className="text-xs font-black text-white">${rappiYDescuentosData.totalDescuentosGlobal.toLocaleString()}</p>
-                  </div>
+                <div className="bg-[#0b2b48] border border-orange-500/50 p-3 rounded-xl space-y-1">
+                  <span className="text-[10px] text-orange-300 font-black uppercase block">🛵 Total Rappi Recaudado</span>
+                  <p className="text-sm font-black text-white">${rappiYDescuentosData.totalRappiGlobal.toLocaleString()}</p>
                 </div>
-
-                {Object.keys(rappiYDescuentosData.porSede).length === 0 ? (
-                  <p className="text-center text-xs text-sky-300 py-6 font-semibold">No hay registros de Rappi o Descuentos en este rango de fechas.</p>
-                ) : (
-                  Object.entries(rappiYDescuentosData.porSede).map(([nombreSede, dataSede]) => {
-                    const abierto = !!acordeonesRappi[nombreSede];
-                    return (
-                      <div key={nombreSede} className="border border-[#0066b3] bg-[#0b2b48] rounded-xl overflow-hidden shadow-sm">
-                        <button 
-                          onClick={() => setAcordeonesRappi(prev => ({ ...prev, [nombreSede]: !abierto }))} 
-                          className="w-full p-3 flex justify-between items-center text-xs font-bold text-white uppercase cursor-pointer"
-                        >
-                          <span className="flex items-center gap-2">
-                            <span>{abierto ? '👁️‍🗨️' : '👁️'}</span> 📍 {nombreSede}
-                          </span>
-                          <span className="text-orange-300 font-bold">Rappi: ${dataSede.totalRappi.toLocaleString()}</span>
-                        </button>
-
-                        {abierto && (
-                          <div className="p-3 pt-0 bg-[#031d35] text-xs space-y-2 border-t border-[#0066b3]/30">
-                            <div className="flex justify-between border-b border-[#0066b3]/20 py-1 text-white">
-                              <span>🛵 Subtotal Rappi Sede:</span>
-                              <span className="font-bold text-orange-300">${dataSede.totalRappi.toLocaleString()}</span>
-                            </div>
-                            <div className="flex justify-between border-b border-[#0066b3]/20 py-1 text-white">
-                              <span>🏷️ Subtotal Descuentos Sede:</span>
-                              <span className="font-bold text-sky-300">${dataSede.totalDescuentos.toLocaleString()}</span>
-                            </div>
-                            <div className="space-y-1 pt-2">
-                              <span className="text-[10px] font-black text-sky-300 uppercase block">Detalle de registros:</span>
-                              {dataSede.registros.map((reg, idx) => (
-                                <div key={idx} className="bg-[#0b2b48] p-2 rounded border border-[#0066b3]/40 space-y-1 text-[11px]">
-                                  <div className="flex justify-between text-sky-200">
-                                    <span>Fecha: {obtenerFechaLocalStr(reg.fecha)}</span>
-                                    <span className="font-bold text-orange-300">Rappi: ${Number(reg.rappi || 0).toLocaleString()}</span>
-                                  </div>
-                                  <div className="flex justify-between text-sky-200">
-                                    <span>Dto: ${Number(reg.descuento || 0).toLocaleString()}</span>
-                                  </div>
-                                  {reg.motivo_descuento && Array.isArray(reg.motivo_descuento) && reg.motivo_descuento.length > 0 && (
-                                    <p className="text-[10px] text-amber-200 italic">
-                                      Motivo: {reg.motivo_descuento.join(', ')}
-                                    </p>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })
-                )}
               </div>
             )}
           </div>
 
-          {/* MÓDULO 9: COMPARATIVO DE MÉTODOS DE PAGO */}
+          {/* MÓDULO 9: COMPARATIVO MÉTODOS DE PAGO */}
           <div className="border border-[#0066b3] bg-[#0b2b48] rounded-2xl overflow-hidden shadow-lg">
             <button 
               onClick={() => toggleModulo('pagos')}
               className="w-full p-4 flex justify-between items-center text-xs font-black uppercase text-emerald-300 bg-[#0b2b48] cursor-pointer"
             >
               <span className="flex items-center gap-2">
-                <span>{moduloAbierto === 'pagos' ? '▼' : '▶'}</span> 💳 9. COMPARATIVO DE MÉTODOS DE PAGO
+                <span>{moduloAbierto === 'pagos' ? '👁️‍🗨️' : '👁️'}</span> 💳 9. COMPARATIVO DE MÉTODOS DE PAGO
               </span>
               <span className="bg-[#031d35] text-emerald-300 font-bold text-[10px] px-2 py-0.5 rounded border border-[#0066b3]">
                 Total: ${comparativoMetodosPago.totalGeneralPagos.toLocaleString()}
@@ -2347,85 +1705,23 @@ export default function AdminPage() {
             {moduloAbierto === 'pagos' && (
               <div className="p-3 space-y-3 border-t border-[#0066b3]/30 bg-[#031d35]/60 text-xs">
                 <div className="bg-[#0b2b48] border border-emerald-500/50 p-3 rounded-xl space-y-3">
-                  <span className="text-[11px] font-black text-emerald-300 uppercase block border-b border-emerald-500/30 pb-1">
-                    🌐 Participación Global de Pagos
-                  </span>
-
                   <div className="grid grid-cols-3 gap-1.5 text-center">
                     <div className="bg-[#031d35] p-2 rounded-xl border border-emerald-500/30">
                       <span className="block text-[9px] text-emerald-400 font-bold uppercase">💵 Efectivo</span>
                       <span className="text-xs font-black text-white">${comparativoMetodosPago.efectivoTotal.toLocaleString()}</span>
-                      <span className="block text-[10px] text-emerald-300 font-bold">{comparativoMetodosPago.porcEfectivo}%</span>
                     </div>
 
                     <div className="bg-[#031d35] p-2 rounded-xl border border-sky-500/30">
                       <span className="block text-[9px] text-sky-300 font-bold uppercase">📲 Nequi</span>
                       <span className="text-xs font-black text-white">${comparativoMetodosPago.nequiTotal.toLocaleString()}</span>
-                      <span className="block text-[10px] text-sky-200 font-bold">{comparativoMetodosPago.porcNequi}%</span>
                     </div>
 
                     <div className="bg-[#031d35] p-2 rounded-xl border border-rose-500/30">
                       <span className="block text-[9px] text-rose-300 font-bold uppercase">💳 Daviplata</span>
                       <span className="text-xs font-black text-white">${comparativoMetodosPago.daviplataTotal.toLocaleString()}</span>
-                      <span className="block text-[10px] text-rose-200 font-bold">{comparativoMetodosPago.porcDaviplata}%</span>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2 pt-1">
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-[10px]">
-                        <span className="text-emerald-300 font-bold">Efectivo</span>
-                        <span className="text-white">{comparativoMetodosPago.porcEfectivo}%</span>
-                      </div>
-                      <div className="w-full bg-[#031d35] h-2 rounded-full overflow-hidden border border-[#0066b3]/30">
-                        <div className="bg-emerald-500 h-full rounded-full transition-all" style={{ width: `${comparativoMetodosPago.porcEfectivo}%` }}></div>
-                      </div>
-                    </div>
-
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-[10px]">
-                        <span className="text-sky-300 font-bold">Nequi</span>
-                        <span className="text-white">{comparativoMetodosPago.porcNequi}%</span>
-                      </div>
-                      <div className="w-full bg-[#031d35] h-2 rounded-full overflow-hidden border border-[#0066b3]/30">
-                        <div className="bg-sky-500 h-full rounded-full transition-all" style={{ width: `${comparativoMetodosPago.porcNequi}%` }}></div>
-                      </div>
-                    </div>
-
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-[10px]">
-                        <span className="text-rose-300 font-bold">Daviplata</span>
-                        <span className="text-white">{comparativoMetodosPago.porcDaviplata}%</span>
-                      </div>
-                      <div className="w-full bg-[#031d35] h-2 rounded-full overflow-hidden border border-[#0066b3]/30">
-                        <div className="bg-rose-500 h-full rounded-full transition-all" style={{ width: `${comparativoMetodosPago.porcDaviplata}%` }}></div>
-                      </div>
                     </div>
                   </div>
                 </div>
-
-                <span className="text-[11px] font-black text-sky-300 uppercase block pt-1">
-                  📍 Desglosado por Sede:
-                </span>
-
-                {Object.keys(comparativoMetodosPago.porSede).length === 0 ? (
-                  <p className="text-center text-[11px] text-sky-300 py-3">No hay registros de pagos por sede en este rango.</p>
-                ) : (
-                  Object.entries(comparativoMetodosPago.porSede).map(([nombreSede, datosSede], idx) => (
-                    <div key={idx} className="bg-[#0b2b48] border border-[#0066b3] p-2.5 rounded-xl space-y-1.5">
-                      <div className="flex justify-between items-center border-b border-[#0066b3]/40 pb-1">
-                        <span className="font-bold text-white uppercase">📍 {nombreSede}</span>
-                        <span className="font-black text-emerald-300 text-xs">Total: ${datosSede.total.toLocaleString()}</span>
-                      </div>
-                      <div className="grid grid-cols-3 gap-1 pt-1 text-[11px]">
-                        <div className="text-emerald-400">💵 Efec: ${datosSede.efectivo.toLocaleString()}</div>
-                        <div className="text-sky-300">📲 Nequi: ${datosSede.nequi.toLocaleString()}</div>
-                        <div className="text-rose-300">💳 Davi: ${datosSede.daviplata.toLocaleString()}</div>
-                      </div>
-                    </div>
-                  ))
-                )}
-
               </div>
             )}
           </div>
@@ -2433,7 +1729,9 @@ export default function AdminPage() {
           {/* MÓDULO 10: GESTIÓN DEL SISTEMA */}
           <div className="border-2 border-fuchsia-500/80 bg-[#0b2b48] rounded-2xl overflow-hidden shadow-xl">
             <button onClick={() => toggleModulo('gestion_sistema')} className="w-full p-4 flex justify-between items-center text-xs font-black uppercase text-fuchsia-300 bg-[#0b2b48] cursor-pointer">
-              <span className="flex items-center gap-2"><span>{moduloAbierto === 'gestion_sistema' ? '▼' : '▶'}</span> ⚙️ 10. GESTIÓN DEL SISTEMA</span>
+              <span className="flex items-center gap-2">
+                <span>{moduloAbierto === 'gestion_sistema' ? '👁️‍🗨️' : '👁️'}</span> ⚙️ 10. GESTIÓN DEL SISTEMA (4 PUNTOS)
+              </span>
               <span className="bg-fuchsia-950/80 text-fuchsia-300 font-bold text-[10px] px-2 py-0.5 rounded border border-fuchsia-500/50">Usuarios y Precios</span>
             </button>
 
@@ -2446,37 +1744,77 @@ export default function AdminPage() {
 
                 {subPestanaGestion === 'productos_venta' && (
                   <div className="space-y-3 pt-1">
-                    <div className="flex justify-between items-center bg-[#0b2b48] p-2 rounded-xl border border-[#0066b3]">
-                      <div className="flex gap-1.5">
-                        <button onClick={() => setTablaProductoSeleccionada('produc_ven_martineto')} className={`px-3 py-1 rounded-lg text-xs font-bold ${tablaProductoSeleccionada === 'produc_ven_martineto' ? 'bg-[#0078d4] text-white' : 'bg-[#031d35] text-sky-300'}`}>Martineto</button>
-                        <button onClick={() => setTablaProductoSeleccionada('produc_ven_ositos')} className={`px-3 py-1 rounded-lg text-xs font-bold ${tablaProductoSeleccionada === 'produc_ven_ositos' ? 'bg-[#0078d4] text-white' : 'bg-[#031d35] text-sky-300'}`}>Ositos</button>
+                    <div className="flex flex-wrap gap-1 bg-[#0b2b48] p-2 rounded-xl border border-[#0066b3] justify-between items-center">
+                      <div className="flex gap-1 overflow-x-auto">
+                        {sedesBD.map(s => (
+                          <button
+                            key={s.id}
+                            onClick={() => setSedeSeleccionadaId(s.id)}
+                            className={`px-2.5 py-1 rounded text-[10px] font-bold cursor-pointer transition-all ${
+                              sedeSeleccionadaId === s.id ? 'bg-[#0078d4] text-white shadow' : 'bg-[#031d35] text-sky-300'
+                            }`}
+                          >
+                            {s.nombre}
+                          </button>
+                        ))}
                       </div>
-                      <button onClick={() => setMostrarModalNuevoProdVenta(true)} className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] px-2.5 py-1 rounded-lg uppercase">➕ Crear Producto</button>
+                      <button onClick={() => setMostrarModalNuevoProdVenta(true)} className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[9px] px-2 py-1 rounded uppercase cursor-pointer">➕ Crear</button>
                     </div>
 
-                    <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
-                      {[...listaProductosVenta]
-                        .sort((a, b) => String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es', { sensitivity: 'base' }))
-                        .map((p) => {
-                          const estaEditado = preciosEditados[p.id] !== undefined;
-                          return (
-                            <div key={p.id} className="bg-[#0b2b48] p-2.5 rounded-xl border border-[#0066b3] space-y-2 text-xs">
-                              <div className="flex justify-between items-center">
-                                <div>
-                                  <span className="font-bold text-white block">{p.nombre}</span>
-                                  <span className="text-[10px] text-sky-300 uppercase font-semibold">Cat: {p.categoria || 'General'}</span>
+                    {cargandoModulo10 ? (
+                      <div className="text-center py-6 text-xs text-sky-200 font-bold">Cargando productos de la sede...</div>
+                    ) : listaProductosVenta.length === 0 ? (
+                      <div className="text-center py-6 text-xs text-amber-300 font-semibold bg-[#0b2b48] rounded-xl border border-[#0066b3]">
+                        No se encontraron productos registrados en la tabla 'productos_para_venta' para esta sede.
+                      </div>
+                    ) : (
+                      <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                        {[...listaProductosVenta]
+                          .sort((a, b) => String(a.nombre || a.producto || '').localeCompare(String(b.nombre || b.producto || ''), 'es', { sensitivity: 'base' }))
+                          .map((p) => {
+                            const idProd = p.id;
+                            const nombreProd = p.nombre || p.producto || `Producto #${idProd}`;
+                            const precioActual = p.precio !== undefined && p.precio !== null ? p.precio : (p.precio_venta ?? 0);
+                            const estadoActivo = p.activo !== false;
+                            const estaEditado = preciosEditados[idProd] !== undefined;
+
+                            return (
+                              <div key={idProd} className="bg-[#0b2b48] p-2.5 rounded-xl border border-[#0066b3] space-y-2 text-xs">
+                                <div className="flex justify-between items-center">
+                                  <div>
+                                    <span className="font-bold text-white block">{nombreProd}</span>
+                                    <span className="text-[10px] text-sky-300 uppercase font-semibold">Cat: {p.categoria || 'General'}</span>
+                                  </div>
+                                  <button 
+                                    onClick={() => toggleEstadoProducto(idProd, estadoActivo)} 
+                                    className={`text-[9px] px-2.5 py-1 rounded-lg font-black uppercase border cursor-pointer transition-colors ${
+                                      estadoActivo 
+                                        ? 'bg-emerald-950 text-emerald-300 border-emerald-500/60 hover:bg-emerald-900' 
+                                        : 'bg-rose-950 text-rose-300 border-rose-500/60 hover:bg-rose-900'
+                                    }`}
+                                  >
+                                    {estadoActivo ? '✓ Activo' : '✕ Inactivo (False)'}
+                                  </button>
                                 </div>
-                                <button onClick={() => toggleEstadoProducto(p.id, p.activo)} className={`text-[9px] px-2 py-0.5 rounded font-bold uppercase border ${p.activo ? 'bg-emerald-950 text-emerald-300 border-emerald-600' : 'bg-rose-950 text-rose-300 border-rose-600'}`}>{p.activo ? '✓ Activo' : '✕ Inactivo'}</button>
+                                <div className="flex gap-2 items-center bg-[#031d35] p-2 rounded-lg border border-[#0066b3]/50">
+                                  <span className="text-[11px] text-sky-300 font-bold">Precio ($):</span>
+                                  <input 
+                                    type="number" 
+                                    value={preciosEditados[idProd] !== undefined ? preciosEditados[idProd] : precioActual} 
+                                    onChange={(e) => setPreciosEditados({ ...preciosEditados, [idProd]: Number(e.target.value) })} 
+                                    className="w-28 bg-[#0b2b48] border border-[#00a4ef] text-emerald-300 font-black text-center rounded p-1 text-xs outline-none" 
+                                  />
+                                  {estaEditado && (
+                                    <button onClick={() => guardarPrecioProducto(idProd)} className="bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-black px-2 py-1 rounded cursor-pointer">
+                                      💾 Guardar
+                                    </button>
+                                  )}
+                                </div>
                               </div>
-                              <div className="flex gap-2 items-center bg-[#031d35] p-2 rounded-lg border border-[#0066b3]/50">
-                                <span className="text-[11px] text-sky-300 font-bold">Precio ($):</span>
-                                <input type="number" value={preciosEditados[p.id] !== undefined ? preciosEditados[p.id] : p.precio} onChange={(e) => setPreciosEditados({ ...preciosEditados, [p.id]: Number(e.target.value) })} className="w-28 bg-[#0b2b48] border border-[#00a4ef] text-emerald-300 font-black text-center rounded p-1 text-xs outline-none" />
-                                {estaEditado && <button onClick={() => guardarPrecioProducto(p.id)} className="bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-black px-2 py-1 rounded">💾 Guardar</button>}
-                              </div>
-                            </div>
-                          );
-                        })}
-                    </div>
+                            );
+                          })}
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -2484,21 +1822,57 @@ export default function AdminPage() {
                   <div className="space-y-3 pt-1">
                     <div className="flex justify-between items-center bg-[#0b2b48] p-2 rounded-xl border border-[#0066b3]">
                       <span className="text-xs font-bold text-sky-200 uppercase">Usuarios del Sistema</span>
-                      <button onClick={() => setMostrarModalNuevoUsuario(true)} className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] px-2.5 py-1 rounded-lg uppercase">➕ Crear Usuario</button>
+                      <button onClick={() => setMostrarModalNuevoUsuario(true)} className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] px-2.5 py-1 rounded-lg uppercase cursor-pointer">➕ Crear Usuario</button>
                     </div>
-                    <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
-                      {[...listaUsuariosGestion]
-                        .sort((a, b) => String(a.nombre_completo || '').localeCompare(String(b.nombre_completo || ''), 'es', { sensitivity: 'base' }))
-                        .map((u) => (
-                          <div key={u.id} className="bg-[#0b2b48] p-2.5 rounded-xl border border-[#0066b3] flex justify-between items-center text-xs">
-                            <div>
-                              <span className="font-bold text-white block">{u.nombre_completo}</span>
-                              <span className="text-[10px] text-sky-300 font-medium">Rol: <b className="text-amber-300 uppercase">{u.tipo_usuario || 'operador'}</b> | PIN: <b className="text-emerald-300">{u.codigo_acceso}</b></span>
-                            </div>
-                            <button onClick={() => toggleEstadoUsuario(u.id, u.activo)} className={`text-[9px] px-2 py-0.5 rounded font-bold uppercase border ${u.activo ? 'bg-emerald-950 text-emerald-300 border-emerald-600' : 'bg-rose-950 text-rose-300 border-rose-600'}`}>{u.activo ? '✓ Activo' : '✕ Inactivo'}</button>
-                          </div>
-                        ))}
-                    </div>
+
+                    {cargandoModulo10 ? (
+                      <div className="text-center py-6 text-xs text-sky-200 font-bold">Cargando usuarios...</div>
+                    ) : (
+                      <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                        {[...listaUsuariosGestion]
+                          .sort((a, b) => String(a.nombre_completo || '').localeCompare(String(b.nombre_completo || ''), 'es', { sensitivity: 'base' }))
+                          .map((u) => {
+                            const pinEditado = pinesEditados[u.id] !== undefined;
+                            const estadoUsuarioActivo = u.activo !== false;
+
+                            return (
+                              <div key={u.id} className="bg-[#0b2b48] p-2.5 rounded-xl border border-[#0066b3] space-y-2 text-xs">
+                                <div className="flex justify-between items-center">
+                                  <div>
+                                    <span className="font-bold text-white block">{u.nombre_completo}</span>
+                                    <span className="text-[10px] text-sky-300">Rol: <b className="text-amber-300 uppercase">{u.tipo_usuario || 'operador'}</b></span>
+                                  </div>
+                                  <button 
+                                    onClick={() => toggleEstadoUsuario(u.id, estadoUsuarioActivo)} 
+                                    className={`text-[9px] px-2.5 py-1 rounded-lg font-black uppercase border cursor-pointer transition-colors ${
+                                      estadoUsuarioActivo 
+                                        ? 'bg-emerald-950 text-emerald-300 border-emerald-500/60 hover:bg-emerald-900' 
+                                        : 'bg-rose-950 text-rose-300 border-rose-500/60 hover:bg-rose-900'
+                                    }`}
+                                  >
+                                    {estadoUsuarioActivo ? '✓ Activo' : '✕ Inactivo (False)'}
+                                  </button>
+                                </div>
+
+                                <div className="flex gap-2 items-center bg-[#031d35] p-2 rounded-lg border border-[#0066b3]/50">
+                                  <span className="text-[11px] text-sky-300 font-bold">PIN / Clave:</span>
+                                  <input 
+                                    type="text" 
+                                    value={pinesEditados[u.id] !== undefined ? pinesEditados[u.id] : u.codigo_acceso} 
+                                    onChange={(e) => setPinesEditados({ ...pinesEditados, [u.id]: e.target.value })}
+                                    className="w-24 bg-[#0b2b48] border border-[#00a4ef] text-emerald-300 font-black text-center rounded p-1 text-xs outline-none" 
+                                  />
+                                  {pinEditado && (
+                                    <button onClick={() => guardarPinUsuario(u.id)} className="bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-black px-2 py-1 rounded cursor-pointer">
+                                      🔑 Asignar Clave
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -2528,7 +1902,7 @@ export default function AdminPage() {
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 font-sans">
           <div className="bg-[#0b2b48] border-2 border-fuchsia-400 rounded-2xl p-5 max-w-sm w-full space-y-4 shadow-2xl">
             <div className="flex justify-between items-center border-b border-[#0066b3] pb-2">
-              <h3 className="text-xs font-black text-white uppercase">➕ Crear Producto ({tablaProductoSeleccionada === 'produc_ven_martineto' ? 'Martineto' : 'Ositos'})</h3>
+              <h3 className="text-xs font-black text-white uppercase">➕ Crear Producto</h3>
               <button onClick={() => setMostrarModalNuevoProdVenta(false)} className="text-sky-300 font-bold">✕</button>
             </div>
             <div className="space-y-3 text-xs">
@@ -2544,25 +1918,6 @@ export default function AdminPage() {
                 <label className="text-[11px] text-sky-200 font-bold block mb-1">Categoría:</label>
                 <input type="text" placeholder="Ej. paletas..." value={nuevoProdVentaCategoria} onChange={(e) => setNuevoProdVentaCategoria(e.target.value)} className="w-full bg-[#031d35] border border-[#0066b3] text-white p-2 rounded-xl outline-none" />
               </div>
-
-              {/* OPCIÓN PRODUCTO DE INVENTARIO */}
-              <div className="flex items-center gap-2 bg-[#031d35] p-2.5 rounded-xl border border-sky-500/50 mt-1">
-                <input 
-                  type="checkbox" 
-                  id="chkInventario" 
-                  checked={nuevoProdEsInventario} 
-                  onChange={(e) => setNuevoProdEsInventario(e.target.checked)} 
-                  className="w-4 h-4 accent-fuchsia-500 rounded cursor-pointer" 
-                />
-                <label htmlFor="chkInventario" className="text-[11px] font-bold text-sky-200 cursor-pointer select-none">
-                  📦 ¿Es también un producto de inventario/empaque?
-                </label>
-              </div>
-              {nuevoProdEsInventario && (
-                <p className="text-[9px] text-amber-300 italic px-1">
-                  ℹ️ Se creará en la tabla de empaques ({tablaProductoSeleccionada === 'produc_ven_martineto' ? 'empaques_martineto' : 'empaques_ositos'}) con stock inicial en 0.
-                </p>
-              )}
             </div>
             <div className="flex gap-2 pt-2">
               <button onClick={() => setMostrarModalNuevoProdVenta(false)} className="w-1/2 bg-[#031d35] text-sky-200 font-bold py-2 rounded-xl text-xs uppercase border border-[#0066b3]">Cancelar</button>
