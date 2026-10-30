@@ -80,12 +80,19 @@ export default function PosPage() {
   const [mesasBD, setMesasBD] = useState<any[]>([]);
   const [mesaSeleccionada, setMesaSeleccionada] = useState<number | null>(null);
 
+  // Estado para gestionar Pasillos dinámicos que se crean con botón y se ocultan al liberar
+  const [pasillosBD, setPasillosBD] = useState<{ id: number; nombre: string }[]>([]);
+  const [pasilloSeleccionadoId, setPasilloSeleccionadoId] = useState<number | null>(null);
+  const [tipoCanalSeleccionado, setTipoCanalSeleccionado] = useState<'mesa' | 'pasillo' | 'rappi'>('mesa');
+
   const [carritosPorMesa, setCarritosPorMesa] = useState<{ [key: number]: any[] }>({});
   const [pagadoPorMesa, setPagadoPorMesa] = useState<{ [key: number]: number }>({});
 
+  const [carritosPorPasillo, setCarritosPorPasillo] = useState<{ [key: number]: any[] }>({});
+  const [pagadoPorPasillo, setPagadoPorPasillo] = useState<{ [key: number]: number }>({});
+
   const [pedidosRappi, setPedidosRappi] = useState<{ id: number; codigo: string; items: any[] }[]>([]);
   const [rappiSeleccionadoId, setRappiSeleccionadoId] = useState<number | null>(null);
-  const [tipoCanalSeleccionado, setTipoCanalSeleccionado] = useState<'mesa' | 'rappi'>('mesa');
 
   const [busquedaProductoVenta, setBusquedaProductoVenta] = useState('');
   const [categoriaVentaFiltro, setCategoriaVentaFiltro] = useState('TODAS');
@@ -306,7 +313,7 @@ export default function PosPage() {
         setMesasBD(mesasData);
         setMesaSeleccionada(mesasData[0].id);
       } else {
-        setMesasBD([{ id: 1, nombre: 'MESA 1' }, { id: 2, nombre: 'MESA 2' }]);
+        setMesasBD([{ id: 1, nombre: 'MESA 1' }, { id: 2, nombre: 'MESA 2' }, { id: 3, nombre: 'MESA 3' }, { id: 4, nombre: 'MESA 4' }, { id: 5, nombre: 'MESA 5' }]);
         setMesaSeleccionada(1);
       }
 
@@ -430,6 +437,25 @@ export default function PosPage() {
     setTipoCanalSeleccionado('rappi');
   }
 
+  function eliminarPedidoRappi(idRappi: number, e: React.MouseEvent) {
+    e.stopPropagation();
+    if (!confirm('¿Deseas eliminar este pedido de Rappi?')) return;
+    setPedidosRappi((prev) => prev.filter((r) => r.id !== idRappi));
+    if (rappiSeleccionadoId === idRappi) {
+      setRappiSeleccionadoId(null);
+      setTipoCanalSeleccionado('mesa');
+    }
+  }
+
+  function crearNuevoPasillo() {
+    const nuevoId = Date.now();
+    const numeroPasillo = pasillosBD.length + 1;
+    const nombrePasillo = `PASILLO 0${numeroPasillo}`;
+    setPasillosBD((prev) => [...prev, { id: nuevoId, nombre: nombrePasillo }]);
+    setPasilloSeleccionadoId(nuevoId);
+    setTipoCanalSeleccionado('pasillo');
+  }
+
   function agregarAdicionDirecta() {
     const valor = Number(valorAdicionInput);
     if (!valor || valor <= 0) {
@@ -445,6 +471,23 @@ export default function PosPage() {
     if (!confirm('¿Deseas liberar esta mesa? Se limpiarán los consumos actuales.')) return;
     setCarritosPorMesa((prev) => ({ ...prev, [idMesa]: [] }));
     setPagadoPorMesa((prev) => ({ ...prev, [idMesa]: 0 }));
+  }
+
+  function liberarPasillo(idPasillo: number) {
+    if (!confirm('¿Deseas liberar este pasillo? Se eliminará del listado activo.')) return;
+    setPasillosBD((prev) => prev.filter((p) => p.id !== idPasillo));
+    setCarritosPorPasillo((prev) => {
+      const copia = { ...prev };
+      delete copia[idPasillo];
+      return copia;
+    });
+    setPagadoPorPasillo((prev) => {
+      const copia = { ...prev };
+      delete copia[idPasillo];
+      return copia;
+    });
+    setPasilloSeleccionadoId(null);
+    setTipoCanalSeleccionado('mesa');
   }
 
   async function handleEntregarPedidoRappiDirecto() {
@@ -535,17 +578,25 @@ export default function PosPage() {
 
   const bloqueadoPorApertura = !baseGuardada || !aperturaRealizada;
 
-  // CÁLCULOS DEL CARRITO Y SALDOS DE MESA
+  // CÁLCULOS DEL CARRITO Y SALDOS DE MESA / PASILLO
   const carritoActual =
     tipoCanalSeleccionado === 'mesa' && mesaSeleccionada
       ? carritosPorMesa[mesaSeleccionada] || []
+      : tipoCanalSeleccionado === 'pasillo' && pasilloSeleccionadoId
+      ? carritosPorPasillo[pasilloSeleccionadoId] || []
       : tipoCanalSeleccionado === 'rappi' && rappiSeleccionadoId
       ? pedidosRappi.find((r) => r.id === rappiSeleccionadoId)?.items || []
       : [];
 
   const rappiActual = pedidosRappi.find((r) => r.id === rappiSeleccionadoId);
   const totalConsumidoMesa = carritoActual.reduce((acc, item) => acc + item.precio * item.cantidad, 0);
-  const abonosMesaActual = mesaSeleccionada ? pagadoPorMesa[mesaSeleccionada] || 0 : 0;
+  
+  const abonosMesaActual =
+    tipoCanalSeleccionado === 'mesa' && mesaSeleccionada
+      ? pagadoPorMesa[mesaSeleccionada] || 0
+      : tipoCanalSeleccionado === 'pasillo' && pasilloSeleccionadoId
+      ? pagadoPorPasillo[pasilloSeleccionadoId] || 0
+      : 0;
 
   const saldoFaltanteMesa = Math.max(0, totalConsumidoMesa - abonosMesaActual);
 
@@ -583,6 +634,25 @@ export default function PosPage() {
           };
         }
       });
+    } else if (tipoCanalSeleccionado === 'pasillo') {
+      if (!pasilloSeleccionadoId) return;
+      setCarritosPorPasillo((prev) => {
+        const actual = prev[pasilloSeleccionadoId] || [];
+        const index = actual.findIndex((i) => i.nombre === nombreFinal);
+        if (index >= 0) {
+          const copia = [...actual];
+          copia[index].cantidad += 1;
+          return { ...prev, [pasilloSeleccionadoId]: copia };
+        } else {
+          return {
+            ...prev,
+            [pasilloSeleccionadoId]: [
+              ...actual,
+              { id: prod.id, nombre: nombreFinal, precio: precioFinal, cantidad: 1 },
+            ],
+          };
+        }
+      });
     } else if (tipoCanalSeleccionado === 'rappi') {
       if (!rappiSeleccionadoId) return;
       setPedidosRappi((prev) =>
@@ -611,6 +681,14 @@ export default function PosPage() {
           .map((i) => (i.id === idProd ? { ...i, cantidad: i.cantidad + delta } : i))
           .filter((i) => i.cantidad > 0);
         return { ...prev, [mesaSeleccionada]: copia };
+      });
+    } else if (tipoCanalSeleccionado === 'pasillo' && pasilloSeleccionadoId) {
+      setCarritosPorPasillo((prev) => {
+        const actual = prev[pasilloSeleccionadoId] || [];
+        const copia = actual
+          .map((i) => (i.id === idProd ? { ...i, cantidad: i.cantidad + delta } : i))
+          .filter((i) => i.cantidad > 0);
+        return { ...prev, [pasilloSeleccionadoId]: copia };
       });
     } else if (tipoCanalSeleccionado === 'rappi' && rappiSeleccionadoId) {
       setPedidosRappi((prev) =>
@@ -660,7 +738,7 @@ export default function PosPage() {
         rappi: 0,
         otros: numOtros,
         detalle_otros: numOtros > 0 ? detalleOtro : null,
-        tipo_venta: 'local',
+        tipo_venta: tipoCanalSeleccionado === 'pasillo' ? 'pasillo' : 'local',
         items: carritoActual,
         fecha_hora: obtenerFechaHoraColombia(),
       };
@@ -672,12 +750,17 @@ export default function PosPage() {
         return;
       }
 
-      alert('✅ Pago de la mesa registrado con éxito.');
+      alert('✅ Pago registrado con éxito.');
 
-      if (mesaSeleccionada) {
+      if (tipoCanalSeleccionado === 'mesa' && mesaSeleccionada) {
         setPagadoPorMesa((prev) => ({
           ...prev,
           [mesaSeleccionada]: (prev[mesaSeleccionada] || 0) + totalACobrar,
+        }));
+      } else if (tipoCanalSeleccionado === 'pasillo' && pasilloSeleccionadoId) {
+        setPagadoPorPasillo((prev) => ({
+          ...prev,
+          [pasilloSeleccionadoId]: (prev[pasilloSeleccionadoId] || 0) + totalACobrar,
         }));
       }
 
@@ -723,7 +806,6 @@ export default function PosPage() {
     }
   }
 
-  // FUNCIÓN CORREGIDA Y ROBUSTA PARA GUARDAR CIERRE DE VENTAS EN CAJA
   async function handleCierreVentasPropias() {
     if (guardandoCierreVentas) return;
     const idSede = Number(sesion?.sede_id || sedeIdActual);
@@ -2475,7 +2557,6 @@ export default function PosPage() {
 
           {modoVentas === 'pos_propio' && (
             <div className="space-y-4">
-              {/* Botón de Cierre de Ventas Propias hacia la Tabla Caja */}
               <div className="bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl flex flex-wrap justify-between items-center shadow-md">
                 <div>
                   <h3 className="text-xs font-black text-white uppercase flex items-center gap-1.5">
@@ -2500,12 +2581,12 @@ export default function PosPage() {
                   <div className="space-y-2">
                     <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
                       <span className="text-xs font-black text-white flex items-center gap-1.5 uppercase">
-                        🪑 Mesas / Pasillos
+                        🪑 Mesas
                       </span>
                     </div>
 
-                    <div className="space-y-1.5 max-h-[220px] overflow-y-auto pr-1">
-                      {mesasBD.map((mesa) => {
+                    <div className="space-y-2">
+                      {mesasBD.slice(0, 5).map((mesa) => {
                         const esActiva = tipoCanalSeleccionado === 'mesa' && mesaSeleccionada === mesa.id;
                         const itemsMesa = carritosPorMesa[mesa.id] || [];
                         const totalMesa = itemsMesa.reduce((acc, i) => acc + i.precio * i.cantidad, 0);
@@ -2536,15 +2617,10 @@ export default function PosPage() {
                               <div className="flex items-center gap-1.5">
                                 <span>{estaOcupadaConDeuda ? '🔴' : estaPagadaTotal ? '🔵' : '🟢'}</span>
                                 <span>{mesa.nombre || `MESA ${mesa.id}`}</span>
-                                <span className="text-[10px] opacity-80">
-                                  ({estaOcupadaConDeuda ? 'PENDIENTE' : estaPagadaTotal ? 'PAGADO (EN MESA)' : 'LIBRE'})
-                                </span>
                               </div>
-                              <div className="flex items-center gap-2">
-                                <span className={saldoMesa > 0 ? 'text-amber-300' : 'text-emerald-300'}>
-                                  {saldoMesa > 0 ? `Falta: ${formatearMoneda(saldoMesa)}` : formatearMoneda(totalMesa) || '$ 0'}
-                                </span>
-                              </div>
+                              <span className={saldoMesa > 0 ? 'text-amber-300' : 'text-emerald-300'}>
+                                {saldoMesa > 0 ? `Falta: ${formatearMoneda(saldoMesa)}` : formatearMoneda(totalMesa) || '$ 0'}
+                              </span>
                             </div>
                           </div>
                         );
@@ -2552,6 +2628,61 @@ export default function PosPage() {
                     </div>
                   </div>
 
+                  {/* PASILLOS EXCLUSIVOS */}
+                  <div className="space-y-2 border-t border-[#0066b3]/50 pt-3">
+                    <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
+                      <span className="text-xs font-black text-sky-300 flex items-center gap-1.5 uppercase">
+                        🚶 Pasillos
+                      </span>
+                      <button
+                        type="button"
+                        onClick={crearNuevoPasillo}
+                        className="bg-sky-600 hover:bg-sky-500 text-white font-bold text-[10px] px-2 py-1 rounded-lg cursor-pointer flex items-center gap-1"
+                      >
+                        <span>➕</span> Nuevo Pasillo
+                      </button>
+                    </div>
+
+                    <div className="space-y-1.5 max-h-[140px] overflow-y-auto pr-1">
+                      {pasillosBD.length === 0 ? (
+                        <p className="text-[11px] text-sky-400 italic py-2 text-center">
+                          No hay pasillos activos. Haz clic en "Nuevo Pasillo".
+                        </p>
+                      ) : (
+                        pasillosBD.map((pas) => {
+                          const esActivo = tipoCanalSeleccionado === 'pasillo' && pasilloSeleccionadoId === pas.id;
+                          const itemsPasillo = carritosPorPasillo[pas.id] || [];
+                          const totalPas = itemsPasillo.reduce((acc, i) => acc + i.precio * i.cantidad, 0);
+                          const abonadoPas = pagadoPorPasillo[pas.id] || 0;
+                          const saldoPas = Math.max(0, totalPas - abonadoPas);
+
+                          return (
+                            <div
+                              key={pas.id}
+                              onClick={() => {
+                                setPasilloSeleccionadoId(pas.id);
+                                setTipoCanalSeleccionado('pasillo');
+                              }}
+                              className={`p-2.5 rounded-xl border cursor-pointer transition-all ${
+                                esActivo
+                                  ? 'bg-sky-600 border-white text-white shadow-lg'
+                                  : 'bg-[#051829] border-sky-500/40 text-sky-200 hover:border-sky-400'
+                              }`}
+                            >
+                              <div className="flex justify-between items-center font-black text-xs">
+                                <span>{pas.nombre}</span>
+                                <span className={saldoPas > 0 ? 'text-amber-300' : 'text-emerald-300'}>
+                                  {saldoPas > 0 ? `Falta: ${formatearMoneda(saldoPas)}` : formatearMoneda(totalPas) || '$ 0'}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+
+                  {/* PEDIDOS RAPPI (Con botón de eliminar incorporado) */}
                   <div className="space-y-2 border-t border-[#0066b3]/50 pt-3">
                     <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
                       <span className="text-xs font-black text-orange-400 flex items-center gap-1.5 uppercase">
@@ -2566,7 +2697,7 @@ export default function PosPage() {
                       </button>
                     </div>
 
-                    <div className="space-y-1.5 max-h-[200px] overflow-y-auto pr-1">
+                    <div className="space-y-1.5 max-h-[140px] overflow-y-auto pr-1">
                       {pedidosRappi.length === 0 ? (
                         <p className="text-[11px] text-sky-400 italic py-2 text-center">
                           No hay pedidos activos de Rappi.
@@ -2583,19 +2714,24 @@ export default function PosPage() {
                                 setRappiSeleccionadoId(rap.id);
                                 setTipoCanalSeleccionado('rappi');
                               }}
-                              className={`p-2.5 rounded-xl border cursor-pointer transition-all ${
+                              className={`p-2.5 rounded-xl border cursor-pointer transition-all flex justify-between items-center ${
                                 esActivo
                                   ? 'bg-orange-600 border-white text-white shadow-lg'
                                   : 'bg-[#051829] border-orange-500/40 text-orange-200 hover:border-orange-400'
                               }`}
                             >
-                              <div className="flex justify-between items-center font-black text-xs">
-                                <span>🛵 Pedido {rap.codigo}</span>
-                                <span className="text-white">{formatearMoneda(subtotalRappi) || '$ 0'}</span>
+                              <div className="font-black text-xs flex items-center gap-2 truncate">
+                                <span>🛵 {rap.codigo}</span>
+                                <span className="text-white font-normal">{formatearMoneda(subtotalRappi) || '$ 0'}</span>
                               </div>
-                              <span className="text-[10px] text-orange-100 font-bold block mt-0.5">
-                                {rap.items.length > 0 ? `📦 ${rap.items.length} producto(s)` : 'Listo para armar'}
-                              </span>
+                              <button
+                                type="button"
+                                onClick={(e) => eliminarPedidoRappi(rap.id, e)}
+                                title="Eliminar pedido Rappi"
+                                className="text-white/80 hover:text-rose-200 font-bold text-xs p-1 rounded transition-colors cursor-pointer"
+                              >
+                                🗑️
+                              </button>
                             </div>
                           );
                         })
@@ -2718,17 +2854,28 @@ export default function PosPage() {
                     <span className="text-xs font-black uppercase text-white">
                       {tipoCanalSeleccionado === 'mesa'
                         ? `🛒 ${mesasBD.find((m) => m.id === mesaSeleccionada)?.nombre || 'MESA'}`
+                        : tipoCanalSeleccionado === 'pasillo'
+                        ? `🚶 ${pasillosBD.find((p) => p.id === pasilloSeleccionadoId)?.nombre || 'PASILLO'}`
                         : `🛵 RAPPI: ${rappiActual ? rappiActual.codigo : 'NINGUNO'}`}
                     </span>
 
-                    {tipoCanalSeleccionado === 'mesa' && mesaSeleccionada && (carritoActual.length > 0 || abonosMesaActual > 0) && (
+                    {tipoCanalSeleccionado === 'mesa' && mesaSeleccionada && (
                       <button
                         type="button"
                         onClick={() => liberarMesaLimpia(mesaSeleccionada)}
                         className="bg-rose-700 hover:bg-rose-600 text-white font-bold text-[10px] px-2 py-1 rounded-lg transition-all"
-                        title="Haz clic cuando el cliente se retire del local"
                       >
                         🚪 LIBERAR MESA
+                      </button>
+                    )}
+
+                    {tipoCanalSeleccionado === 'pasillo' && pasilloSeleccionadoId && (
+                      <button
+                        type="button"
+                        onClick={() => liberarPasillo(pasilloSeleccionadoId)}
+                        className="bg-rose-700 hover:bg-rose-600 text-white font-bold text-[10px] px-2 py-1 rounded-lg transition-all"
+                      >
+                        🚪 LIBERAR PASILLO
                       </button>
                     )}
                   </div>
@@ -2736,9 +2883,7 @@ export default function PosPage() {
                   <div className="max-h-[220px] overflow-y-auto space-y-2 pr-1 bg-[#051829] p-2.5 rounded-xl border border-[#0066b3]">
                     {carritoActual.length === 0 ? (
                       <p className="text-xs text-sky-400 italic text-center py-8">
-                        {tipoCanalSeleccionado === 'mesa'
-                          ? 'Mesa o pasillo vacío. Selecciona productos.'
-                          : 'Pedido de Rappi vacío. Agrega productos.'}
+                        Canal vacío. Selecciona productos.
                       </p>
                     ) : (
                       carritoActual.map((item) => (
@@ -2795,7 +2940,7 @@ export default function PosPage() {
                       <span>Consumo Total:</span>
                       <span className="font-bold text-white">{formatearMoneda(totalConsumidoMesa) || '$ 0'}</span>
                     </div>
-                    {tipoCanalSeleccionado === 'mesa' && abonosMesaActual > 0 && (
+                    {abonosMesaActual > 0 && (
                       <div className="flex justify-between items-center text-sky-300">
                         <span>Abonado / Pagado:</span>
                         <span className="font-bold text-sky-200">{formatearMoneda(abonosMesaActual)}</span>
@@ -2807,12 +2952,12 @@ export default function PosPage() {
                     </div>
                   </div>
 
-                  {tipoCanalSeleccionado === 'mesa' ? (
+                  {tipoCanalSeleccionado === 'mesa' || tipoCanalSeleccionado === 'pasillo' ? (
                     <button
                       type="button"
                       onClick={() => {
                         if (saldoFaltanteMesa <= 0) {
-                          alert('ℹ️ Esta mesa no tiene saldo pendiente por cobrar.');
+                          alert('ℹ️ Este canal no tiene saldo pendiente por cobrar.');
                           return;
                         }
                         setMostrarModalPago(true);
@@ -3160,7 +3305,7 @@ export default function PosPage() {
               </div>
             </div>
 
-            <div className="bg-[#0e385e] border-2 border-emerald-500 p-3.5 rounded-xl flex justify-between items-center text-sm mt-2">
+            <div className="bg-[#0e385e] border-2 border-emerald-400 p-3.5 rounded-xl flex justify-between items-center text-sm mt-2">
               <span className="font-black text-emerald-300 uppercase">📈 Gran Total de Todas las Ventas:</span>
               <span className="font-black text-white">{formatearMoneda(granTotalVentasJornada) || '$ 0'}</span>
             </div>
@@ -3441,13 +3586,13 @@ export default function PosPage() {
         </div>
       )}
 
-      {/* MODAL COBRAR / REGISTRAR PAGO DE MESA */}
+      {/* MODAL COBRAR / REGISTRAR PAGO DE MESA O PASILLO */}
       {mostrarModalPago && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-[#0b2b48] border-2 border-[#0066b3] w-full max-w-lg rounded-2xl p-5 space-y-4 shadow-2xl">
             <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
               <h3 className="text-sm font-black text-white flex items-center gap-1.5">
-                💳 COBRAR SALDO DE MESA ({formatearMoneda(totalACobrar)})
+                💳 COBRAR SALDO ({formatearMoneda(totalACobrar)})
               </h3>
               <button
                 type="button"
@@ -3461,7 +3606,7 @@ export default function PosPage() {
             <div className="space-y-3 text-xs">
               <div className="bg-[#051829] border border-[#0066b3] p-3 rounded-xl space-y-1">
                 <div className="flex justify-between items-center text-sky-200">
-                  <span>Consumo Total Mesa:</span>
+                  <span>Consumo Total:</span>
                   <span className="font-bold text-white">{formatearMoneda(totalConsumidoMesa)}</span>
                 </div>
                 {abonosMesaActual > 0 && (
