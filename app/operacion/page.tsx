@@ -281,7 +281,6 @@ export default function PosPage() {
       await cargarGastosDia(idSede);
       await cargarNominasDia(idSede);
 
-      // Carga corregida con la columna 'nombre_completo'
       const { data: usuarios, error: errUsuarios } = await supabase
         .from('usuario')
         .select('id, nombre_completo, codigo_acceso, tipo_usuario')
@@ -419,6 +418,73 @@ export default function PosPage() {
       if (data) setVentasDiaBD(data);
     } finally {
       setCargandoResumenVentas(false);
+    }
+  }
+
+  // Funciones de apoyo
+  function crearNuevoPedidoRappi() {
+    const nuevoId = Date.now();
+    const codigoRappi = `RAPPI-${Math.floor(100 + Math.random() * 900)}`;
+    setPedidosRappi((prev) => [...prev, { id: nuevoId, codigo: codigoRappi, items: [] }]);
+    setRappiSeleccionadoId(nuevoId);
+    setTipoCanalSeleccionado('rappi');
+  }
+
+  function agregarAdicionDirecta() {
+    const valor = Number(valorAdicionInput);
+    if (!valor || valor <= 0) {
+      alert('⚠️ Ingresa un valor válido para la adición.');
+      return;
+    }
+    const prodAdicion = { id: Date.now(), nombre: 'Adición Extra', precio: valor };
+    agregarProductoACarrito(prodAdicion, false);
+    setValorAdicionInput('');
+  }
+
+  function liberarMesaLimpia(idMesa: number) {
+    if (!confirm('¿Deseas liberar esta mesa? Se limpiarán los consumos actuales.')) return;
+    setCarritosPorMesa((prev) => ({ ...prev, [idMesa]: [] }));
+    setPagadoPorMesa((prev) => ({ ...prev, [idMesa]: 0 }));
+  }
+
+  async function handleEntregarPedidoRappiDirecto() {
+    if (!rappiSeleccionadoId || carritoActual.length === 0) return;
+    const idSede = Number(sesion?.sede_id || sedeIdActual);
+    const usuarioId = sesion?.usuario_id || sesion?.id;
+
+    setGuardandoVenta(true);
+    try {
+      const subtotal = carritoActual.reduce((acc, i) => acc + i.precio * i.cantidad, 0);
+      const payloadVenta = {
+        sede_id: idSede,
+        usuario_id: Number(usuarioId),
+        monto_total: subtotal,
+        descuento: 0,
+        pago_efectivo: 0,
+        pago_nequi: 0,
+        pago_daviplata: 0,
+        rappi: subtotal,
+        otros: 0,
+        tipo_venta: 'rappi',
+        items: carritoActual,
+        fecha_hora: obtenerFechaHoraColombia(),
+      };
+
+      const { error } = await supabase.from('venta').insert([payloadVenta]);
+      if (error) {
+        alert('Error al registrar Rappi: ' + error.message);
+        return;
+      }
+
+      alert('✅ Pedido Rappi registrado y entregado con éxito.');
+      setPedidosRappi((prev) => prev.filter((r) => r.id !== rappiSeleccionadoId));
+      setRappiSeleccionadoId(null);
+      setTipoCanalSeleccionado('mesa');
+      await cargarVentasDiaBD(idSede);
+    } catch (e: any) {
+      alert('Error: ' + e.message);
+    } finally {
+      setGuardandoVenta(false);
     }
   }
 
@@ -657,17 +723,56 @@ export default function PosPage() {
     }
   }
 
+  // FUNCIÓN CORREGIDA Y ROBUSTA PARA GUARDAR CIERRE DE VENTAS EN CAJA
   async function handleCierreVentasPropias() {
     if (guardandoCierreVentas) return;
     const idSede = Number(sesion?.sede_id || sedeIdActual);
 
-    if (!cajaIdActual) {
-      alert('⚠️ No se encontró una caja abierta para guardar el cierre de ventas.');
-      return;
-    }
-
     setGuardandoCierreVentas(true);
     try {
+      let idCajaAUsar = cajaIdActual;
+
+      if (!idCajaAUsar) {
+        const inicioDia = obtenerInicioDiaColombia();
+        const { data: cajaHoy } = await supabase
+          .from('caja')
+          .select('id')
+          .eq('sede_id', idSede)
+          .gte('fecha', inicioDia)
+          .order('id', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (cajaHoy) {
+          idCajaAUsar = cajaHoy.id;
+          setCajaIdActual(cajaHoy.id);
+        } else {
+          const usuarioId = sesion?.usuario_id || sesion?.id;
+          const { data: nuevaCaja, error: cmError } = await supabase
+            .from('caja')
+            .insert([
+              {
+                sede_id: idSede,
+                usuario_id: Number(usuarioId),
+                monto_apertura: Number(baseCaja) || 0,
+                diferencia: 0,
+                estado: 'abierta',
+                fecha: obtenerFechaHoraColombia(),
+              },
+            ])
+            .select();
+
+          if (cmError || !nuevaCaja || nuevaCaja.length === 0) {
+            alert('❌ No se encontró ni se pudo crear una caja abierta para hoy. Guarda primero la base en el Módulo 1.');
+            setGuardandoCierreVentas(false);
+            return;
+          }
+          idCajaAUsar = nuevaCaja[0].id;
+          setCajaIdActual(idCajaAUsar);
+          setCajaDataActual(nuevaCaja[0]);
+        }
+      }
+
       await cargarVentasDiaBD(idSede);
 
       const efecTot = ventasDiaBD.reduce((acc, v) => acc + (Number(v.pago_efectivo) || 0), 0);
@@ -686,7 +791,7 @@ export default function PosPage() {
           otros: otrTot,
           monto_gasto: totalGastosHoy,
         })
-        .eq('id', cajaIdActual);
+        .eq('id', idCajaAUsar);
 
       if (error) {
         alert('Error al guardar el cierre de ventas en la caja: ' + error.message);
@@ -2209,6 +2314,36 @@ export default function PosPage() {
       {/* MÓDULO 4: VENTAS */}
       {moduloActivo === 'ventas' && (
         <div className="space-y-4">
+          <div className="flex flex-wrap gap-3 bg-[#0b2b48] border border-[#0066b3] p-3 rounded-2xl shadow-md items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-black text-white uppercase flex items-center gap-1.5">
+                📊 Accesos Rápidos de Ventas:
+              </span>
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={async () => {
+                  if (sedeIdActual) await cargarVentasDiaBD(sedeIdActual);
+                  setMostrarModalResumenCaja(true);
+                }}
+                className="bg-[#0078d4] hover:bg-[#0086e6] text-white font-black text-xs px-4 py-2 rounded-xl shadow cursor-pointer transition-all flex items-center gap-1.5"
+              >
+                <span>📊</span> Resumen de Caja
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (sedeIdActual) await cargarVentasDiaBD(sedeIdActual);
+                  setMostrarModalFacturasPagas(true);
+                }}
+                className="bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs px-4 py-2 rounded-xl shadow cursor-pointer transition-all flex items-center gap-1.5"
+              >
+                <span>📋</span> Resumen Facturas Pagas ({ventasDiaBD.length})
+              </button>
+            </div>
+          </div>
+
           {modoVentas === 'pregunta' && (
             <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
               <div className="bg-[#0b2b48] border-2 border-[#0066b3] w-full max-w-md rounded-2xl p-6 space-y-5 text-center shadow-2xl">
@@ -2340,41 +2475,363 @@ export default function PosPage() {
 
           {modoVentas === 'pos_propio' && (
             <div className="space-y-4">
-              <div className="flex flex-wrap gap-3 bg-[#0b2b48] border border-[#0066b3] p-3 rounded-2xl shadow-md items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-black text-white uppercase flex items-center gap-1.5">
-                    📊 Accesos Rápidos de Ventas:
-                  </span>
+              {/* Botón de Cierre de Ventas Propias hacia la Tabla Caja */}
+              <div className="bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl flex flex-wrap justify-between items-center shadow-md">
+                <div>
+                  <h3 className="text-xs font-black text-white uppercase flex items-center gap-1.5">
+                    🛒 Consolidar y Guardar Ventas en Caja
+                  </h3>
+                  <p className="text-[11px] text-sky-200 mt-0.5">
+                    Suma todas las ventas del día y actualiza los campos de efectivo, Nequi, Daviplata, Rappi y Otros en la base de datos.
+                  </p>
                 </div>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      if (sedeIdActual) await cargarVentasDiaBD(sedeIdActual);
-                      setMostrarModalResumenCaja(true);
-                    }}
-                    className="bg-[#0078d4] hover:bg-[#0086e6] text-white font-black text-xs px-4 py-2 rounded-xl shadow cursor-pointer transition-all flex items-center gap-1.5"
-                  >
-                    <span>📊</span> Resumen de Caja
-                  </button>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      if (sedeIdActual) await cargarVentasDiaBD(sedeIdActual);
-                      setMostrarModalFacturasPagas(true);
-                    }}
-                    className="bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs px-4 py-2 rounded-xl shadow cursor-pointer transition-all flex items-center gap-1.5"
-                  >
-                    <span>📋</span> Resumen Facturas Pagas ({ventasDiaBD.length})
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleCierreVentasPropias}
-                    disabled={guardandoCierreVentas}
-                    className="bg-amber-600 hover:bg-amber-500 text-white font-black text-xs px-4 py-2 rounded-xl shadow cursor-pointer transition-all flex items-center gap-1.5 disabled:opacity-50"
-                  >
-                    <span>🔒</span> {guardandoCierreVentas ? 'Guardando...' : 'Cierre de Ventas'}
-                  </button>
+                <button
+                  type="button"
+                  onClick={handleCierreVentasPropias}
+                  disabled={guardandoCierreVentas}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs px-5 py-2.5 rounded-xl shadow cursor-pointer transition-all disabled:opacity-50 uppercase flex items-center gap-2 mt-2 sm:mt-0"
+                >
+                  <span>💾</span> {guardandoCierreVentas ? '⏳ Guardando en Caja...' : 'Guardar Cierre de Ventas en Caja'}
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+                <div className="lg:col-span-3 bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-4 shadow-md">
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
+                      <span className="text-xs font-black text-white flex items-center gap-1.5 uppercase">
+                        🪑 Mesas / Pasillos
+                      </span>
+                    </div>
+
+                    <div className="space-y-1.5 max-h-[220px] overflow-y-auto pr-1">
+                      {mesasBD.map((mesa) => {
+                        const esActiva = tipoCanalSeleccionado === 'mesa' && mesaSeleccionada === mesa.id;
+                        const itemsMesa = carritosPorMesa[mesa.id] || [];
+                        const totalMesa = itemsMesa.reduce((acc, i) => acc + i.precio * i.cantidad, 0);
+                        const abonadoMesa = pagadoPorMesa[mesa.id] || 0;
+                        const saldoMesa = Math.max(0, totalMesa - abonadoMesa);
+
+                        const estaPagadaTotal = totalMesa > 0 && saldoMesa === 0;
+                        const estaOcupadaConDeuda = saldoMesa > 0;
+
+                        return (
+                          <div
+                            key={mesa.id}
+                            onClick={() => {
+                              setMesaSeleccionada(mesa.id);
+                              setTipoCanalSeleccionado('mesa');
+                            }}
+                            className={`p-2.5 rounded-xl border cursor-pointer transition-all ${
+                              esActiva
+                                ? 'bg-[#0078d4] border-white text-white shadow-lg'
+                                : estaOcupadaConDeuda
+                                ? 'bg-rose-950/40 border-rose-500/60 text-rose-200'
+                                : estaPagadaTotal
+                                ? 'bg-sky-900/60 border-sky-400/80 text-sky-100'
+                                : 'bg-[#051829] border-[#0066b3] text-sky-200 hover:border-sky-400'
+                            }`}
+                          >
+                            <div className="flex justify-between items-center font-black text-xs">
+                              <div className="flex items-center gap-1.5">
+                                <span>{estaOcupadaConDeuda ? '🔴' : estaPagadaTotal ? '🔵' : '🟢'}</span>
+                                <span>{mesa.nombre || `MESA ${mesa.id}`}</span>
+                                <span className="text-[10px] opacity-80">
+                                  ({estaOcupadaConDeuda ? 'PENDIENTE' : estaPagadaTotal ? 'PAGADO (EN MESA)' : 'LIBRE'})
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className={saldoMesa > 0 ? 'text-amber-300' : 'text-emerald-300'}>
+                                  {saldoMesa > 0 ? `Falta: ${formatearMoneda(saldoMesa)}` : formatearMoneda(totalMesa) || '$ 0'}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 border-t border-[#0066b3]/50 pt-3">
+                    <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
+                      <span className="text-xs font-black text-orange-400 flex items-center gap-1.5 uppercase">
+                        🟠 Pedidos Rappi
+                      </span>
+                      <button
+                        type="button"
+                        onClick={crearNuevoPedidoRappi}
+                        className="bg-orange-600 hover:bg-orange-500 text-white font-bold text-[10px] px-2 py-1 rounded-lg cursor-pointer flex items-center gap-1"
+                      >
+                        <span>➕</span> Nuevo Rappi
+                      </button>
+                    </div>
+
+                    <div className="space-y-1.5 max-h-[200px] overflow-y-auto pr-1">
+                      {pedidosRappi.length === 0 ? (
+                        <p className="text-[11px] text-sky-400 italic py-2 text-center">
+                          No hay pedidos activos de Rappi.
+                        </p>
+                      ) : (
+                        pedidosRappi.map((rap) => {
+                          const esActivo = tipoCanalSeleccionado === 'rappi' && rappiSeleccionadoId === rap.id;
+                          const subtotalRappi = rap.items.reduce((acc, i) => acc + i.precio * i.cantidad, 0);
+
+                          return (
+                            <div
+                              key={rap.id}
+                              onClick={() => {
+                                setRappiSeleccionadoId(rap.id);
+                                setTipoCanalSeleccionado('rappi');
+                              }}
+                              className={`p-2.5 rounded-xl border cursor-pointer transition-all ${
+                                esActivo
+                                  ? 'bg-orange-600 border-white text-white shadow-lg'
+                                  : 'bg-[#051829] border-orange-500/40 text-orange-200 hover:border-orange-400'
+                              }`}
+                            >
+                              <div className="flex justify-between items-center font-black text-xs">
+                                <span>🛵 Pedido {rap.codigo}</span>
+                                <span className="text-white">{formatearMoneda(subtotalRappi) || '$ 0'}</span>
+                              </div>
+                              <span className="text-[10px] text-orange-100 font-bold block mt-0.5">
+                                {rap.items.length > 0 ? `📦 ${rap.items.length} producto(s)` : 'Listo para armar'}
+                              </span>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="lg:col-span-6 bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md">
+                  <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
+                    <span className="text-xs font-black uppercase text-white">
+                      📁 Catálogo de Productos para Venta
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setModoVentas('pregunta')}
+                      className="text-[10px] text-sky-300 hover:text-white underline font-bold cursor-pointer"
+                    >
+                      Cambiar Opción
+                    </button>
+                  </div>
+
+                  <div className="space-y-2">
+                    <input
+                      type="text"
+                      placeholder="🔍 Buscar producto por nombre..."
+                      value={busquedaProductoVenta}
+                      onChange={(e) => setBusquedaProductoVenta(e.target.value)}
+                      className="w-full bg-[#051829] border border-[#0066b3] text-white text-xs font-bold rounded-xl p-2.5 outline-none"
+                    />
+
+                    <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
+                      <button
+                        type="button"
+                        onClick={() => setCategoriaVentaFiltro('TODAS')}
+                        className={`px-3 py-1 rounded-lg text-[11px] font-black uppercase cursor-pointer whitespace-nowrap ${
+                          categoriaVentaFiltro === 'TODAS'
+                            ? 'bg-[#00a4ef] text-white'
+                            : 'bg-[#051829] text-sky-300 border border-[#0066b3]'
+                        }`}
+                      >
+                        ⭐ TODAS
+                      </button>
+                      {categoriasVentaDisponibles.map((cat) => (
+                        <button
+                          type="button"
+                          key={cat}
+                          onClick={() => setCategoriaVentaFiltro(cat)}
+                          className={`px-3 py-1 rounded-lg text-[11px] font-black uppercase cursor-pointer whitespace-nowrap ${
+                            categoriaVentaFiltro.toLowerCase() === cat.toLowerCase()
+                              ? 'bg-[#00a4ef] text-white'
+                              : 'bg-[#051829] text-sky-300 border border-[#0066b3]'
+                          }`}
+                        >
+                          {cat}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="max-h-[380px] overflow-y-auto pr-1">
+                    {productosVentaFiltrados.length === 0 ? (
+                      <p className="text-xs text-sky-400 italic text-center py-10">
+                        No hay productos disponibles en esta categoría.
+                      </p>
+                    ) : (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        {productosVentaFiltrados.map((prod) => {
+                          const esCorralito = (prod.nombre || '').toLowerCase().includes('corralito');
+
+                          return (
+                            <div
+                              key={prod.id}
+                              className="bg-[#051829] border border-[#0066b3] p-2.5 rounded-xl flex flex-col justify-between text-left space-y-2 shadow"
+                            >
+                              <div>
+                                <p className="text-xs font-bold text-white line-clamp-2">{prod.nombre}</p>
+                                <p className="text-[10px] text-sky-300 uppercase mt-0.5">{prod.categoria || 'General'}</p>
+                                <p className="text-xs font-black text-emerald-300 mt-1">
+                                  {formatearMoneda(prod.precio)}
+                                </p>
+                              </div>
+
+                              {esCorralito ? (
+                                <div className="grid grid-cols-2 gap-1.5 pt-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => agregarProductoACarrito(prod, false)}
+                                    className="bg-[#0078d4] hover:bg-[#0086e6] text-white font-bold text-[10px] py-1.5 rounded-lg cursor-pointer transition-all uppercase text-center"
+                                  >
+                                    Local
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => agregarProductoACarrito(prod, true)}
+                                    className="bg-amber-600 hover:bg-amber-500 text-white font-bold text-[10px] py-1.5 rounded-lg cursor-pointer transition-all uppercase text-center"
+                                  >
+                                    Para Llevar
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => agregarProductoACarrito(prod, false)}
+                                  className="w-full bg-[#0078d4] hover:bg-[#0086e6] text-white font-bold text-[11px] py-1.5 rounded-lg cursor-pointer transition-all uppercase text-center mt-1"
+                                >
+                                  + Agregar
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="lg:col-span-3 bg-[#0b2b48] border border-[#0066b3] p-4 rounded-2xl space-y-3 shadow-md">
+                  <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
+                    <span className="text-xs font-black uppercase text-white">
+                      {tipoCanalSeleccionado === 'mesa'
+                        ? `🛒 ${mesasBD.find((m) => m.id === mesaSeleccionada)?.nombre || 'MESA'}`
+                        : `🛵 RAPPI: ${rappiActual ? rappiActual.codigo : 'NINGUNO'}`}
+                    </span>
+
+                    {tipoCanalSeleccionado === 'mesa' && mesaSeleccionada && (carritoActual.length > 0 || abonosMesaActual > 0) && (
+                      <button
+                        type="button"
+                        onClick={() => liberarMesaLimpia(mesaSeleccionada)}
+                        className="bg-rose-700 hover:bg-rose-600 text-white font-bold text-[10px] px-2 py-1 rounded-lg transition-all"
+                        title="Haz clic cuando el cliente se retire del local"
+                      >
+                        🚪 LIBERAR MESA
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="max-h-[220px] overflow-y-auto space-y-2 pr-1 bg-[#051829] p-2.5 rounded-xl border border-[#0066b3]">
+                    {carritoActual.length === 0 ? (
+                      <p className="text-xs text-sky-400 italic text-center py-8">
+                        {tipoCanalSeleccionado === 'mesa'
+                          ? 'Mesa o pasillo vacío. Selecciona productos.'
+                          : 'Pedido de Rappi vacío. Agrega productos.'}
+                      </p>
+                    ) : (
+                      carritoActual.map((item) => (
+                        <div key={item.id} className="bg-[#0e385e] border border-[#0066b3] p-2 rounded-lg flex justify-between items-center text-xs">
+                          <div className="max-w-[110px]">
+                            <p className="font-bold text-white truncate">{item.nombre}</p>
+                            <p className="text-[10px] text-emerald-300 font-bold">{formatearMoneda(item.precio * item.cantidad)}</p>
+                          </div>
+
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => cambiarCantidadItem(item.id, -1)}
+                              className="bg-[#051829] border border-[#0066b3] text-white font-black text-xs px-2 py-0.5 rounded cursor-pointer"
+                            >
+                              -
+                            </button>
+                            <span className="font-black text-white text-xs">{item.cantidad}</span>
+                            <button
+                              type="button"
+                              onClick={() => cambiarCantidadItem(item.id, 1)}
+                              className="bg-[#051829] border border-[#0066b3] text-white font-black text-xs px-2 py-0.5 rounded cursor-pointer"
+                            >
+                              +
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  <div className="bg-[#051829] border border-[#0066b3] p-2.5 rounded-xl space-y-1.5">
+                    <span className="text-[11px] text-purple-300 font-black block uppercase">➕ AGREGAR ADICIÓN ($)</span>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="$ Monto adición"
+                        value={formatearMoneda(valorAdicionInput)}
+                        onChange={(e) => setValorAdicionInput(desformatearMoneda(e.target.value))}
+                        className="w-full bg-[#0e385e] border border-[#0066b3] text-purple-300 font-bold text-xs p-1.5 rounded-lg outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={agregarAdicionDirecta}
+                        className="bg-purple-600 hover:bg-purple-500 text-white font-black text-xs px-3 py-1.5 rounded-lg cursor-pointer"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="bg-[#051829] border border-[#0066b3] p-3 rounded-xl space-y-1 text-xs">
+                    <div className="flex justify-between items-center text-sky-200">
+                      <span>Consumo Total:</span>
+                      <span className="font-bold text-white">{formatearMoneda(totalConsumidoMesa) || '$ 0'}</span>
+                    </div>
+                    {tipoCanalSeleccionado === 'mesa' && abonosMesaActual > 0 && (
+                      <div className="flex justify-between items-center text-sky-300">
+                        <span>Abonado / Pagado:</span>
+                        <span className="font-bold text-sky-200">{formatearMoneda(abonosMesaActual)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between items-center text-emerald-300 font-black text-sm pt-1 border-t border-[#0066b3]/50">
+                      <span>Saldo Pendiente:</span>
+                      <span>{formatearMoneda(saldoFaltanteMesa) || '$ 0'}</span>
+                    </div>
+                  </div>
+
+                  {tipoCanalSeleccionado === 'mesa' ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (saldoFaltanteMesa <= 0) {
+                          alert('ℹ️ Esta mesa no tiene saldo pendiente por cobrar.');
+                          return;
+                        }
+                        setMostrarModalPago(true);
+                      }}
+                      disabled={saldoFaltanteMesa <= 0}
+                      className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs py-3 rounded-xl uppercase shadow cursor-pointer disabled:opacity-50"
+                    >
+                      💳 COBRAR SALDO ({formatearMoneda(saldoFaltanteMesa) || '$ 0'})
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleEntregarPedidoRappiDirecto}
+                      disabled={carritoActual.length === 0 || guardandoVenta}
+                      className="w-full bg-orange-600 hover:bg-orange-500 text-white font-black text-xs py-3 rounded-xl uppercase shadow cursor-pointer disabled:opacity-50"
+                    >
+                      🚀 ENTREGAR Y REGISTRAR RAPPI
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
