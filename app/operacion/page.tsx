@@ -80,7 +80,7 @@ export default function PosPage() {
   const [mesasBD, setMesasBD] = useState<any[]>([]);
   const [mesaSeleccionada, setMesaSeleccionada] = useState<number | null>(null);
 
-  // Estado para gestionar Pasillos dinámicos que se crean con botón y se ocultan al liberar
+  // Pasillos dinámicos
   const [pasillosBD, setPasillosBD] = useState<{ id: number; nombre: string }[]>([]);
   const [pasilloSeleccionadoId, setPasilloSeleccionadoId] = useState<number | null>(null);
   const [tipoCanalSeleccionado, setTipoCanalSeleccionado] = useState<'mesa' | 'pasillo' | 'rappi'>('mesa');
@@ -106,6 +106,11 @@ export default function PosPage() {
   const [pagoOtros, setPagoOtros] = useState('');
   const [detalleOtro, setDetalleOtro] = useState('');
   const [guardandoVenta, setGuardandoVenta] = useState(false);
+
+  // Modal Transferencia de Consumos (Mesas / Pasillos)
+  const [mostrarModalTransferir, setMostrarModalTransferir] = useState(false);
+  const [tipoDestinoTransferencia, setTipoDestinoTransferencia] = useState<'mesa' | 'pasillo'>('mesa');
+  const [destinoSeleccionadoId, setDestinoSeleccionadoId] = useState<number | null>(null);
 
   const [mostrarModalResumenCaja, setMostrarModalResumenCaja] = useState(false);
   const [mostrarModalFacturasPagas, setMostrarModalFacturasPagas] = useState(false);
@@ -221,7 +226,10 @@ export default function PosPage() {
       const detalle = venta.detalle_otros ? ` (${venta.detalle_otros})` : '';
       medios.push(`Otros${detalle}`);
     }
-    return medios.length > 0 ? medios.join(', ') : 'Sin especificar';
+    if (Number(venta.descuento) > 0) {
+      medios.push(`Descuento (${formatearMoneda(venta.descuento)})`);
+    }
+    return medios.length > 0 ? medios.join(', ') : 'Descuento total (100%)';
   };
 
   // INICIALIZACIÓN
@@ -288,14 +296,10 @@ export default function PosPage() {
       await cargarGastosDia(idSede);
       await cargarNominasDia(idSede);
 
-      const { data: usuarios, error: errUsuarios } = await supabase
+      const { data: usuarios } = await supabase
         .from('usuario')
         .select('id, nombre_completo, codigo_acceso, tipo_usuario')
         .order('nombre_completo', { ascending: true });
-
-      if (errUsuarios) {
-        console.error('Error cargando usuarios:', errUsuarios.message || errUsuarios);
-      }
 
       if (usuarios && usuarios.length > 0) {
         setUsuariosBD(usuarios);
@@ -398,7 +402,6 @@ export default function PosPage() {
 
   async function cargarHistorialPedidos(idSede: number) {
     const inicioDia = obtenerInicioDiaColombia();
-    
     const { data } = await supabase
       .from('pedidos_insumos')
       .select('*')
@@ -428,7 +431,56 @@ export default function PosPage() {
     }
   }
 
-  // Funciones de apoyo
+  async function descontarEmpaquesPorVenta(items: any[], idSede: number) {
+    const fechaActual = obtenerFechaHoraColombia();
+    const empaquesActualizados = [...empaquesBD];
+
+    for (const item of items) {
+      const nombreItem = String(item.nombre || '').toLowerCase();
+      const cantidadItem = Number(item.cantidad) || 1;
+      
+      let empaqueABuscar = '';
+      let empaquesADescontar = cantidadItem;
+
+      if (nombreItem.includes('corralito')) {
+        empaqueABuscar = 'corralito';
+        if (nombreItem.includes('(para llevar)')) {
+          empaquesADescontar = cantidadItem * 2;
+        }
+      } else {
+        empaqueABuscar = nombreItem.replace(' (para llevar)', '').trim();
+      }
+
+      const index = empaquesActualizados.findIndex(
+        (e) => String(e.nombre || '').toLowerCase().trim() === empaqueABuscar
+      );
+
+      if (index >= 0) {
+        const empReg = empaquesActualizados[index];
+        const stockActual = Number(empReg.stock || 0);
+        const nuevoStock = Math.max(0, stockActual - empaquesADescontar);
+        const vendidasActuales = Number(empReg.vendidas || 0) + empaquesADescontar;
+
+        await supabase
+          .from('inventario_empaques_sedes')
+          .update({
+            stock: nuevoStock,
+            vendidas: vendidasActuales,
+            fecha_actualizacion: fechaActual,
+          })
+          .eq('id', empReg.id);
+
+        empaquesActualizados[index] = {
+          ...empReg,
+          stock: nuevoStock,
+          vendidas: vendidasActuales,
+        };
+      }
+    }
+
+    setEmpaquesBD(empaquesActualizados);
+  }
+
   function crearNuevoPedidoRappi() {
     const nuevoId = Date.now();
     const codigoRappi = `RAPPI-${Math.floor(100 + Math.random() * 900)}`;
@@ -468,7 +520,7 @@ export default function PosPage() {
   }
 
   function liberarMesaLimpia(idMesa: number) {
-    if (!confirm('¿Deseas liberar esta mesa? Se limpiarán los consumos actuales.')) return;
+    if (!confirm('¿Deseas liberar esta mesa? Se limpiarán los consumos actuales y los saldos de la mesa.')) return;
     setCarritosPorMesa((prev) => ({ ...prev, [idMesa]: [] }));
     setPagadoPorMesa((prev) => ({ ...prev, [idMesa]: 0 }));
   }
@@ -488,6 +540,191 @@ export default function PosPage() {
     });
     setPasilloSeleccionadoId(null);
     setTipoCanalSeleccionado('mesa');
+  }
+
+  // FUNCIONALIDAD DE TRANSFERENCIA DE MESAS Y PASILLOS
+  function abrirModalTransferir() {
+    let proximoDestinoId: number | null = null;
+    if (tipoCanalSeleccionado === 'mesa') {
+      const proximaMesa = mesasBD.find((m) => m.id !== mesaSeleccionada);
+      proximoDestinoId = proximaMesa ? proximaMesa.id : null;
+      setTipoDestinoTransferencia('mesa');
+    } else if (tipoCanalSeleccionado === 'pasillo') {
+      if (mesasBD.length > 0) {
+        proximoDestinoId = mesasBD[0].id;
+        setTipoDestinoTransferencia('mesa');
+      } else if (pasillosBD.length > 1) {
+        const proximoPasillo = pasillosBD.find((p) => p.id !== pasilloSeleccionadoId);
+        proximoDestinoId = proximoPasillo ? proximoPasillo.id : null;
+        setTipoDestinoTransferencia('pasillo');
+      }
+    }
+    setDestinoSeleccionadoId(proximoDestinoId);
+    setMostrarModalTransferir(true);
+  }
+
+  function ejecutarTransferencia() {
+    if (!destinoSeleccionadoId) {
+      alert('⚠️ Selecciona un destino válido para la transferencia.');
+      return;
+    }
+
+    if (tipoCanalSeleccionado === 'mesa' && mesaSeleccionada) {
+      const origenId = mesaSeleccionada;
+      const itemsOrigen = carritosPorMesa[origenId] || [];
+      const abonoOrigen = pagadoPorMesa[origenId] || 0;
+
+      if (itemsOrigen.length === 0) {
+        alert('⚠️ La mesa de origen no tiene consumo para transferir.');
+        return;
+      }
+
+      if (tipoDestinoTransferencia === 'mesa') {
+        if (origenId === destinoSeleccionadoId) {
+          alert('⚠️ La mesa de origen y destino no pueden ser la misma.');
+          return;
+        }
+
+        setCarritosPorMesa((prev) => {
+          const itemsDestino = prev[destinoSeleccionadoId] || [];
+          const copiaDestino = [...itemsDestino];
+
+          itemsOrigen.forEach((itemOrig) => {
+            const idx = copiaDestino.findIndex((d) => d.nombre === itemOrig.nombre);
+            if (idx >= 0) {
+              copiaDestino[idx].cantidad += itemOrig.cantidad;
+            } else {
+              copiaDestino.push({ ...itemOrig });
+            }
+          });
+
+          return {
+            ...prev,
+            [origenId]: [],
+            [destinoSeleccionadoId]: copiaDestino,
+          };
+        });
+
+        setPagadoPorMesa((prev) => ({
+          ...prev,
+          [origenId]: 0,
+          [destinoSeleccionadoId]: (prev[destinoSeleccionadoId] || 0) + abonoOrigen,
+        }));
+
+        setMesaSeleccionada(destinoSeleccionadoId);
+      } else if (tipoDestinoTransferencia === 'pasillo') {
+        setCarritosPorPasillo((prev) => {
+          const itemsDestino = prev[destinoSeleccionadoId] || [];
+          const copiaDestino = [...itemsDestino];
+
+          itemsOrigen.forEach((itemOrig) => {
+            const idx = copiaDestino.findIndex((d) => d.nombre === itemOrig.nombre);
+            if (idx >= 0) {
+              copiaDestino[idx].cantidad += itemOrig.cantidad;
+            } else {
+              copiaDestino.push({ ...itemOrig });
+            }
+          });
+
+          return { ...prev, [destinoSeleccionadoId]: copiaDestino };
+        });
+
+        setPagadoPorPasillo((prev) => ({
+          ...prev,
+          [destinoSeleccionadoId]: (prev[destinoSeleccionadoId] || 0) + abonoOrigen,
+        }));
+
+        setCarritosPorMesa((prev) => ({ ...prev, [origenId]: [] }));
+        setPagadoPorMesa((prev) => ({ ...prev, [origenId]: 0 }));
+
+        setPasilloSeleccionadoId(destinoSeleccionadoId);
+        setTipoCanalSeleccionado('pasillo');
+      }
+    } else if (tipoCanalSeleccionado === 'pasillo' && pasilloSeleccionadoId) {
+      const origenId = pasilloSeleccionadoId;
+      const itemsOrigen = carritosPorPasillo[origenId] || [];
+      const abonoOrigen = pagadoPorPasillo[origenId] || 0;
+
+      if (itemsOrigen.length === 0) {
+        alert('⚠️ El pasillo de origen no tiene consumo para mover.');
+        return;
+      }
+
+      if (tipoDestinoTransferencia === 'mesa') {
+        setCarritosPorMesa((prev) => {
+          const itemsDestino = prev[destinoSeleccionadoId] || [];
+          const copiaDestino = [...itemsDestino];
+
+          itemsOrigen.forEach((itemOrig) => {
+            const idx = copiaDestino.findIndex((d) => d.nombre === itemOrig.nombre);
+            if (idx >= 0) {
+              copiaDestino[idx].cantidad += itemOrig.cantidad;
+            } else {
+              copiaDestino.push({ ...itemOrig });
+            }
+          });
+
+          return { ...prev, [destinoSeleccionadoId]: copiaDestino };
+        });
+
+        setPagadoPorMesa((prev) => ({
+          ...prev,
+          [destinoSeleccionadoId]: (prev[destinoSeleccionadoId] || 0) + abonoOrigen,
+        }));
+
+        // Liberar el pasillo de origen
+        setPasillosBD((prev) => prev.filter((p) => p.id !== origenId));
+        setCarritosPorPasillo((prev) => {
+          const c = { ...prev };
+          delete c[origenId];
+          return c;
+        });
+        setPagadoPorPasillo((prev) => {
+          const c = { ...prev };
+          delete c[origenId];
+          return c;
+        });
+
+        setMesaSeleccionada(destinoSeleccionadoId);
+        setTipoCanalSeleccionado('mesa');
+      } else if (tipoDestinoTransferencia === 'pasillo') {
+        if (origenId === destinoSeleccionadoId) {
+          alert('⚠️ El pasillo de origen y destino no pueden ser el mismo.');
+          return;
+        }
+
+        setCarritosPorPasillo((prev) => {
+          const itemsDestino = prev[destinoSeleccionadoId] || [];
+          const copiaDestino = [...itemsDestino];
+
+          itemsOrigen.forEach((itemOrig) => {
+            const idx = copiaDestino.findIndex((d) => d.nombre === itemOrig.nombre);
+            if (idx >= 0) {
+              copiaDestino[idx].cantidad += itemOrig.cantidad;
+            } else {
+              copiaDestino.push({ ...itemOrig });
+            }
+          });
+
+          const c = { ...prev, [destinoSeleccionadoId]: copiaDestino };
+          delete c[origenId];
+          return c;
+        });
+
+        setPagadoPorPasillo((prev) => {
+          const abonoDestino = (prev[destinoSeleccionadoId] || 0) + abonoOrigen;
+          const c = { ...prev, [destinoSeleccionadoId]: abonoDestino };
+          delete c[origenId];
+          return c;
+        });
+
+        setPasillosBD((prev) => prev.filter((p) => p.id !== origenId));
+        setPasilloSeleccionadoId(destinoSeleccionadoId);
+      }
+    }
+
+    setMostrarModalTransferir(false);
+    alert('✅ Transferencia de consumo realizada con éxito.');
   }
 
   async function handleEntregarPedidoRappiDirecto() {
@@ -519,6 +756,8 @@ export default function PosPage() {
         return;
       }
 
+      await descontarEmpaquesPorVenta(carritoActual, idSede);
+
       alert('✅ Pedido Rappi registrado y entregado con éxito.');
       setPedidosRappi((prev) => prev.filter((r) => r.id !== rappiSeleccionadoId));
       setRappiSeleccionadoId(null);
@@ -531,7 +770,6 @@ export default function PosPage() {
     }
   }
 
-  // FILTROS Y BÚSQUEDAS
   const listaEmpaquesFiltrados = Array.from(
     new Set(
       empaquesBD
@@ -572,8 +810,7 @@ export default function PosPage() {
   const limpiarTotalPaletasInv = () => setTotalPaletasInventario('');
   const limpiarCantidadesInv = () => setCantidadesInventario({});
   const limpiarObsInv = () => setObservacionesInventario('');
-  const limpiarPedidosCat = () =>
-    setPedidosCategorias({ paletas: {}, produccion: {}, insumos: {} });
+  const limpiarPedidosCat = () => setPedidosCategorias({ paletas: {}, produccion: {}, insumos: {} });
   const limpiarObsPedido = () => setObservacionPedido('');
 
   const bloqueadoPorApertura = !baseGuardada || !aperturaRealizada;
@@ -590,7 +827,7 @@ export default function PosPage() {
 
   const rappiActual = pedidosRappi.find((r) => r.id === rappiSeleccionadoId);
   const totalConsumidoMesa = carritoActual.reduce((acc, item) => acc + item.precio * item.cantidad, 0);
-  
+
   const abonosMesaActual =
     tipoCanalSeleccionado === 'mesa' && mesaSeleccionada
       ? pagadoPorMesa[mesaSeleccionada] || 0
@@ -720,6 +957,7 @@ export default function PosPage() {
     if (metodo === 'otros') setPagoOtros(String(faltante));
   }
 
+  // LÓGICA DE COBRO CON CORRECCIÓN: MESAS CONTINÚAN MARCADAS COMO OCUPADAS HASTA LIBERAR
   async function handleFinalizarVentaBD() {
     if (guardandoVenta || saldoPendienteModal > 0) return;
     const idSede = Number(sesion?.sede_id || sedeIdActual);
@@ -750,18 +988,20 @@ export default function PosPage() {
         return;
       }
 
-      alert('✅ Pago registrado con éxito.');
+      await descontarEmpaquesPorVenta(carritoActual, idSede);
 
+      alert('✅ Pago de la mesa registrado con éxito.');
+
+      // CÁLCULO DEL CUBRIMIENTO TOTAL
+      const montoTotalCubierto = totalACobrar + numDescuento;
+
+      // ACTUALIZACIÓN DE ABONOS MANTENIENDO LA MESA OCUPADA / EN ROJO
       if (tipoCanalSeleccionado === 'mesa' && mesaSeleccionada) {
-        setPagadoPorMesa((prev) => ({
-          ...prev,
-          [mesaSeleccionada]: (prev[mesaSeleccionada] || 0) + totalACobrar,
-        }));
+        const nuevoAbonoAcumulado = (pagadoPorMesa[mesaSeleccionada] || 0) + montoTotalCubierto;
+        setPagadoPorMesa((prev) => ({ ...prev, [mesaSeleccionada]: nuevoAbonoAcumulado }));
       } else if (tipoCanalSeleccionado === 'pasillo' && pasilloSeleccionadoId) {
-        setPagadoPorPasillo((prev) => ({
-          ...prev,
-          [pasilloSeleccionadoId]: (prev[pasilloSeleccionadoId] || 0) + totalACobrar,
-        }));
+        const nuevoAbonoPasillo = (pagadoPorPasillo[pasilloSeleccionadoId] || 0) + montoTotalCubierto;
+        setPagadoPorPasillo((prev) => ({ ...prev, [pasilloSeleccionadoId]: nuevoAbonoPasillo }));
       }
 
       setMostrarModalPago(false);
@@ -845,7 +1085,7 @@ export default function PosPage() {
             .select();
 
           if (cmError || !nuevaCaja || nuevaCaja.length === 0) {
-            alert('❌ No se encontró ni se pudo crear una caja abierta para hoy. Guarda primero la base en el Módulo 1.');
+            alert('❌ No se encontró ni se pudo crear una caja abierta para hoy.');
             setGuardandoCierreVentas(false);
             return;
           }
@@ -1289,7 +1529,7 @@ export default function PosPage() {
         }
       }
 
-      alert(`✅ ¡${tipoMovimiento.toUpperCase()} registrada con éxito! Stock actualizado en base de datos.`);
+      alert(`✅ ¡${tipoMovimiento.toUpperCase()} registrada con éxito! Stock actualizado.`);
 
       limpiarTotalPaletasInv();
       limpiarCantidadesInv();
@@ -1495,7 +1735,7 @@ export default function PosPage() {
     }
 
     if (agregadosCount === 0) {
-      alert('ℹ️ No hay productos faltantes (sin marcar) en los pedidos de hoy para pasar.');
+      alert('ℹ️ No hay productos faltantes en los pedidos de hoy.');
       return;
     }
 
@@ -1506,26 +1746,26 @@ export default function PosPage() {
     }));
 
     await cargarHistorialPedidos(idSede);
-    alert(`✅ ¡Se han cargado los ${agregadosCount} producto(s) faltante(s) y se han retirado de la lista de pendientes!`);
+    alert(`✅ ¡Se han cargado los ${agregadosCount} producto(s) faltantes!`);
   }
 
   async function handleGuardarCierreFinal() {
     if (guardandoCierre) return;
 
     if (nominasDiaBD.length === 0) {
-      alert('⚠️ No se puede realizar el cierre porque falta registrar el pago de nómina del día. Debe existir al menos una nómina.');
+      alert('⚠️ No se puede realizar el cierre sin registrar el pago de nómina del día.');
       return;
     }
 
     if (resumenPedidoActual.length > 0) {
-      alert('⚠️ Tienes productos seleccionados en el Módulo de Pedidos que aún no han sido enviados a bodega. Debes enviarlos antes de cerrar.');
+      alert('⚠️ Tienes productos en el Módulo de Pedidos sin enviar a bodega.');
       return;
     }
 
     const fisicoNum = dineroFisicoCierre === '' ? 0 : Number(dineroFisicoCierre);
 
     if (dineroFisicoCierre === '' || fisicoNum < 0) {
-      alert('⚠️ Debes digitar cuánto dinero físico hay en caja (Efectivo contado) para poder realizar el cierre (puede ser 0 si la caja quedó vacía).');
+      alert('⚠️ Ingresa cuánto dinero físico hay en caja para cerrar.');
       return;
     }
 
@@ -1737,7 +1977,7 @@ export default function PosPage() {
 
   async function borrarPedidosBD(idsABorrar: number[]) {
     if (idsABorrar.length === 0 || eliminandoPedido) return;
-    if (!confirm(`¿Estás segura de eliminar permanentemente este pedido de la Base de Datos?`)) return;
+    if (!confirm(`¿Estás segura de eliminar permanentemente este pedido?`)) return;
 
     setEliminandoPedido(true);
     try {
@@ -1763,6 +2003,7 @@ export default function PosPage() {
   const totalDaviplataVentasPos = ventasDiaBD.reduce((acc, v) => acc + (Number(v.pago_daviplata) || 0), 0);
   const totalRappiVentasPos = ventasDiaBD.reduce((acc, v) => acc + (Number(v.rappi) || 0), 0);
   const totalOtrosVentasPos = ventasDiaBD.reduce((acc, v) => acc + (Number(v.otros) || 0), 0);
+  const totalDescuentosVentasPos = ventasDiaBD.reduce((acc, v) => acc + (Number(v.descuento) || 0), 0);
 
   const efectivoBaseCajaInicial = Number(baseCaja || cajaDataActual?.monto_apertura || 0);
 
@@ -2085,7 +2326,7 @@ export default function PosPage() {
               <div className="relative">
                 <input
                   type="text"
-                  placeholder="🔍 Buscar producto en esta categoría..."
+                  placeholder="🔍 Buscar producto..."
                   value={busquedaInsumoPedido}
                   onChange={(e) => setBusquedaInsumoPedido(e.target.value)}
                   className="w-full bg-[#051829] border border-[#0066b3] text-white text-xs font-bold rounded-xl p-2.5 pr-8 outline-none shadow-inner"
@@ -2104,7 +2345,7 @@ export default function PosPage() {
 
             <div className="max-h-[350px] overflow-y-auto space-y-2 pr-1">
               {insumosFiltrados.length === 0 ? (
-                <p className="text-xs text-sky-400 italic text-center py-8">No hay productos disponibles en esta categoría.</p>
+                <p className="text-xs text-sky-400 italic text-center py-8">No hay productos disponibles.</p>
               ) : (
                 insumosFiltrados.map((prod) => (
                   <div key={prod.id || prod.nombre} className="flex justify-between items-center bg-[#051829] p-3 rounded-xl border border-[#0066b3]">
@@ -2113,7 +2354,6 @@ export default function PosPage() {
                         <button
                           type="button"
                           onClick={() => desactivarProductoDeSede(prod.id, prod.nombre)}
-                          title="Eliminar de la lista"
                           className="text-sky-400 hover:text-rose-400 font-black text-xs px-1 cursor-pointer transition-colors"
                         >
                           🗑️
@@ -2145,14 +2385,14 @@ export default function PosPage() {
           <div className="lg:col-span-5 bg-[#0b2b48] border border-[#0066b3] p-5 rounded-2xl space-y-4 shadow-md">
             <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
               <h3 className="text-xs font-black text-sky-200 uppercase flex items-center gap-1.5">
-                🛒 LISTADO DEL PEDIDO EN CURSO ({resumenPedidoActual.length} ÍTEMS)
+                🛒 LISTADO EN CURSO ({resumenPedidoActual.length} ÍTEMS)
               </h3>
             </div>
 
             <div className="max-h-[260px] overflow-y-auto space-y-2 pr-1 bg-[#051829] p-3 rounded-xl border border-[#0066b3]">
               {resumenPedidoActual.length === 0 ? (
                 <p className="text-xs text-sky-400 italic text-center py-6">
-                  Aún no has seleccionado ningún producto para enviar en este pedido.
+                  Sin productos seleccionados.
                 </p>
               ) : (
                 resumenPedidoActual.map((item, idx) => (
@@ -2175,8 +2415,7 @@ export default function PosPage() {
                           });
                         }}
                         disabled={enviandoPedido}
-                        title="Quitar ítem"
-                        className="text-sky-300 hover:text-rose-400 font-black text-sm px-1 rounded transition-colors cursor-pointer disabled:opacity-50"
+                        className="text-sky-300 hover:text-rose-400 font-black text-sm px-1 cursor-pointer"
                       >
                         ✕
                       </button>
@@ -2204,28 +2443,28 @@ export default function PosPage() {
                   : 'bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer'
               }`}
             >
-              <span>🚀</span> {enviandoPedido ? '⏳ ENVIANDO PEDIDO...' : `ENVIAR PEDIDO A BODEGA (${resumenPedidoActual.length} PRODUCTOS)`}
+              <span>🚀</span> {enviandoPedido ? 'ENVIANDO...' : `ENVIAR PEDIDO (${resumenPedidoActual.length} PRODUCTOS)`}
             </button>
           </div>
 
           <div className="lg:col-span-12 bg-[#0b2b48] border border-[#0066b3] p-5 rounded-2xl space-y-3 shadow-md mt-2">
             <div className="flex flex-wrap justify-between items-center border-b border-[#0066b3]/50 pb-2">
               <h3 className="text-xs font-black text-sky-200 uppercase">
-                📋 CONTROL DE PEDIDOS SOLICITADOS HOY (CHULO POR CADA PRODUCTO)
+                📋 CONTROL DE PEDIDOS SOLICITADOS HOY
               </h3>
               <button
                 type="button"
                 onClick={pasarFaltantesAlListadoActual}
                 className="bg-amber-600 hover:bg-amber-500 text-white font-black text-xs px-3 py-1.5 rounded-xl cursor-pointer shadow transition-all flex items-center gap-1.5"
               >
-                <span>🔄</span> Pasar Faltantes al Listado de Hoy
+                <span>🔄</span> Pasar Faltantes al Listado
               </button>
             </div>
 
             <div className="max-h-96 overflow-y-auto space-y-3 pr-1">
               {historialPedidosBD.length === 0 ? (
                 <p className="text-xs text-sky-400 italic text-center py-6">
-                  No hay pedidos solicitados hoy en la base de datos.
+                  No hay pedidos solicitados hoy.
                 </p>
               ) : (
                 historialPedidosBD.map((ped) => {
@@ -2257,7 +2496,7 @@ export default function PosPage() {
                       <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
                         <div className="flex items-center gap-2">
                           <span className="font-black text-white text-xs">
-                            Pedido #{ped.id} ({horaPed}) - PENDIENTES POR ENTREGAR ({itemsPendientes.length}):
+                            Pedido #{ped.id} ({horaPed}) - PENDIENTES ({itemsPendientes.length}):
                           </span>
                           <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-amber-900 text-amber-300 border border-amber-500">
                             PENDIENTE
@@ -2266,9 +2505,9 @@ export default function PosPage() {
                         <button
                           type="button"
                           onClick={() => borrarPedidosBD([ped.id])}
-                          className="bg-rose-600 hover:bg-rose-500 text-white font-bold text-[10px] px-2 py-1 rounded cursor-pointer transition-colors"
+                          className="bg-rose-600 hover:bg-rose-500 text-white font-bold text-[10px] px-2 py-1 rounded cursor-pointer"
                         >
-                          🗑️ Eliminar Pedido
+                          🗑️ Eliminar
                         </button>
                       </div>
 
@@ -2279,8 +2518,7 @@ export default function PosPage() {
                               <button
                                 type="button"
                                 onClick={() => toggleChuloProductoPedido(ped.id, colCat, nom)}
-                                title="Marcar como entregado y ocultar"
-                                className="w-5 h-5 rounded font-black text-xs flex items-center justify-center cursor-pointer transition-all bg-[#051829] border border-sky-400 text-transparent hover:text-sky-300"
+                                className="w-5 h-5 rounded font-black text-xs flex items-center justify-center cursor-pointer bg-[#051829] border border-sky-400 text-transparent hover:text-sky-300"
                               >
                                 ✓
                               </button>
@@ -2308,7 +2546,7 @@ export default function PosPage() {
         <div className="bg-[#0b2b48] border border-[#0066b3] p-5 rounded-2xl space-y-4 shadow-md max-w-2xl mx-auto">
           <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
             <h2 className="text-sm font-black text-white flex items-center gap-1.5">
-              3. 💸 Registro de Gastos Directos de Insumos (Descuenta de Caja)
+              3. 💸 Registro de Gastos Directos de Insumos
             </h2>
             <span className="text-xs font-black text-amber-300 bg-[#051829] px-3 py-1 rounded-full border border-amber-500/40">
               Total Gastos Insumos: {formatearMoneda(totalGastosHoy) || '$ 0'}
@@ -2319,7 +2557,7 @@ export default function PosPage() {
             <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
               <input
                 type="text"
-                placeholder="Concepto (ej. 1 kg fresa, plátanos, bolsas...)"
+                placeholder="Concepto (ej. fresas, bolsas...)"
                 value={descripcionGasto}
                 onChange={(e) => setDescripcionGasto(e.target.value)}
                 disabled={guardandoGasto}
@@ -2379,8 +2617,7 @@ export default function PosPage() {
                       <button
                         type="button"
                         onClick={() => handleBorrarGastoBD(gasto.id, gasto.descripcion)}
-                        title="Eliminar gasto"
-                        className="text-sky-400 hover:text-rose-400 font-black text-xs px-1 cursor-pointer transition-colors"
+                        className="text-sky-400 hover:text-rose-400 font-black text-xs px-1 cursor-pointer"
                       >
                         🗑️
                       </button>
@@ -2399,7 +2636,7 @@ export default function PosPage() {
           <div className="flex flex-wrap gap-3 bg-[#0b2b48] border border-[#0066b3] p-3 rounded-2xl shadow-md items-center justify-between">
             <div className="flex items-center gap-2">
               <span className="text-xs font-black text-white uppercase flex items-center gap-1.5">
-                📊 Accesos Rápidos de Ventas:
+                📊 Accesos Rápidos:
               </span>
             </div>
             <div className="flex gap-2">
@@ -2434,7 +2671,7 @@ export default function PosPage() {
                   ¿Deseas realizar las ventas directamente en este sistema?
                 </h3>
                 <p className="text-xs text-sky-200">
-                  Selecciona <b>SÍ</b> para vender directamente desde las mesas, pasillos y Rappi, o <b>NO</b> para registrar los totales de otro sistema.
+                  Selecciona <b>SÍ</b> para vender directamente desde mesas/pasillos o <b>NO</b> para registrar totales de otro POS.
                 </p>
 
                 <div className="flex gap-3 pt-2">
@@ -2461,7 +2698,7 @@ export default function PosPage() {
             <div className="bg-[#0b2b48] border border-[#0066b3] p-5 rounded-2xl space-y-4 shadow-md max-w-xl mx-auto">
               <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
                 <h2 className="text-sm font-black text-white flex items-center gap-1.5">
-                  📲 Registro de Totales de Ventas (Sistema Externo)
+                  📲 Registro de Totales (Sistema Externo)
                 </h2>
                 <button
                   type="button"
@@ -2474,9 +2711,7 @@ export default function PosPage() {
 
               <div className="bg-[#051829] border border-[#0066b3] p-4 rounded-xl space-y-3">
                 <div>
-                  <label className="text-xs font-bold text-sky-200 block mb-1">
-                    💵 Total Efectivo (Según Sistema Externo):
-                  </label>
+                  <label className="text-xs font-bold text-sky-200 block mb-1">Total Efectivo:</label>
                   <input
                     type="text"
                     placeholder="$ 0"
@@ -2488,9 +2723,7 @@ export default function PosPage() {
                 </div>
 
                 <div>
-                  <label className="text-xs font-bold text-sky-200 block mb-1">
-                    🟣 Total Nequi:
-                  </label>
+                  <label className="text-xs font-bold text-sky-200 block mb-1">Total Nequi:</label>
                   <input
                     type="text"
                     placeholder="$ 0"
@@ -2502,9 +2735,7 @@ export default function PosPage() {
                 </div>
 
                 <div>
-                  <label className="text-xs font-bold text-sky-200 block mb-1">
-                    🔴 Total Daviplata:
-                  </label>
+                  <label className="text-xs font-bold text-sky-200 block mb-1">Total Daviplata:</label>
                   <input
                     type="text"
                     placeholder="$ 0"
@@ -2516,9 +2747,7 @@ export default function PosPage() {
                 </div>
 
                 <div>
-                  <label className="text-xs font-bold text-sky-200 block mb-1">
-                    🟠 Total Rappi:
-                  </label>
+                  <label className="text-xs font-bold text-sky-200 block mb-1">Total Rappi:</label>
                   <input
                     type="text"
                     placeholder="$ 0"
@@ -2530,9 +2759,7 @@ export default function PosPage() {
                 </div>
 
                 <div>
-                  <label className="text-xs font-bold text-sky-200 block mb-1">
-                    💳 Total Tarjetas / Otros:
-                  </label>
+                  <label className="text-xs font-bold text-sky-200 block mb-1">Total Otros:</label>
                   <input
                     type="text"
                     placeholder="$ 0"
@@ -2563,7 +2790,7 @@ export default function PosPage() {
                     🛒 Consolidar y Guardar Ventas en Caja
                   </h3>
                   <p className="text-[11px] text-sky-200 mt-0.5">
-                    Suma todas las ventas del día y actualiza los campos de efectivo, Nequi, Daviplata, Rappi y Otros en la base de datos.
+                    Actualiza el registro contable diario en la base de datos de la caja.
                   </p>
                 </div>
                 <button
@@ -2572,7 +2799,7 @@ export default function PosPage() {
                   disabled={guardandoCierreVentas}
                   className="bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs px-5 py-2.5 rounded-xl shadow cursor-pointer transition-all disabled:opacity-50 uppercase flex items-center gap-2 mt-2 sm:mt-0"
                 >
-                  <span>💾</span> {guardandoCierreVentas ? '⏳ Guardando en Caja...' : 'Guardar Cierre de Ventas en Caja'}
+                  <span>💾</span> {guardandoCierreVentas ? '⏳ Guardando...' : 'Guardar Cierre de Ventas en Caja'}
                 </button>
               </div>
 
@@ -2581,7 +2808,7 @@ export default function PosPage() {
                   <div className="space-y-2">
                     <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
                       <span className="text-xs font-black text-white flex items-center gap-1.5 uppercase">
-                        🪑 Mesas
+                        🪑 Mesas / Pasillos
                       </span>
                     </div>
 
@@ -2593,8 +2820,8 @@ export default function PosPage() {
                         const abonadoMesa = pagadoPorMesa[mesa.id] || 0;
                         const saldoMesa = Math.max(0, totalMesa - abonadoMesa);
 
+                        const estaOcupada = itemsMesa.length > 0;
                         const estaPagadaTotal = totalMesa > 0 && saldoMesa === 0;
-                        const estaOcupadaConDeuda = saldoMesa > 0;
 
                         return (
                           <div
@@ -2606,20 +2833,22 @@ export default function PosPage() {
                             className={`p-2.5 rounded-xl border cursor-pointer transition-all ${
                               esActiva
                                 ? 'bg-[#0078d4] border-white text-white shadow-lg'
-                                : estaOcupadaConDeuda
-                                ? 'bg-rose-950/40 border-rose-500/60 text-rose-200'
-                                : estaPagadaTotal
-                                ? 'bg-sky-900/60 border-sky-400/80 text-sky-100'
+                                : estaOcupada
+                                ? 'bg-rose-700/80 border-rose-400 text-white font-black shadow-md'
                                 : 'bg-[#051829] border-[#0066b3] text-sky-200 hover:border-sky-400'
                             }`}
                           >
                             <div className="flex justify-between items-center font-black text-xs">
                               <div className="flex items-center gap-1.5">
-                                <span>{estaOcupadaConDeuda ? '🔴' : estaPagadaTotal ? '🔵' : '🟢'}</span>
+                                <span>{estaOcupada ? '🔴' : '🟢'}</span>
                                 <span>{mesa.nombre || `MESA ${mesa.id}`}</span>
                               </div>
                               <span className={saldoMesa > 0 ? 'text-amber-300' : 'text-emerald-300'}>
-                                {saldoMesa > 0 ? `Falta: ${formatearMoneda(saldoMesa)}` : formatearMoneda(totalMesa) || '$ 0'}
+                                {saldoMesa > 0
+                                  ? `Falta: ${formatearMoneda(saldoMesa)}`
+                                  : estaPagadaTotal
+                                  ? `Pagado`
+                                  : formatearMoneda(totalMesa) || '$ 0'}
                               </span>
                             </div>
                           </div>
@@ -2628,7 +2857,6 @@ export default function PosPage() {
                     </div>
                   </div>
 
-                  {/* PASILLOS EXCLUSIVOS */}
                   <div className="space-y-2 border-t border-[#0066b3]/50 pt-3">
                     <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
                       <span className="text-xs font-black text-sky-300 flex items-center gap-1.5 uppercase">
@@ -2646,7 +2874,7 @@ export default function PosPage() {
                     <div className="space-y-1.5 max-h-[140px] overflow-y-auto pr-1">
                       {pasillosBD.length === 0 ? (
                         <p className="text-[11px] text-sky-400 italic py-2 text-center">
-                          No hay pasillos activos. Haz clic en "Nuevo Pasillo".
+                          No hay pasillos activos.
                         </p>
                       ) : (
                         pasillosBD.map((pas) => {
@@ -2682,7 +2910,6 @@ export default function PosPage() {
                     </div>
                   </div>
 
-                  {/* PEDIDOS RAPPI (Con botón de eliminar incorporado) */}
                   <div className="space-y-2 border-t border-[#0066b3]/50 pt-3">
                     <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
                       <span className="text-xs font-black text-orange-400 flex items-center gap-1.5 uppercase">
@@ -2700,7 +2927,7 @@ export default function PosPage() {
                     <div className="space-y-1.5 max-h-[140px] overflow-y-auto pr-1">
                       {pedidosRappi.length === 0 ? (
                         <p className="text-[11px] text-sky-400 italic py-2 text-center">
-                          No hay pedidos activos de Rappi.
+                          No hay pedidos activos.
                         </p>
                       ) : (
                         pedidosRappi.map((rap) => {
@@ -2727,7 +2954,6 @@ export default function PosPage() {
                               <button
                                 type="button"
                                 onClick={(e) => eliminarPedidoRappi(rap.id, e)}
-                                title="Eliminar pedido Rappi"
                                 className="text-white/80 hover:text-rose-200 font-bold text-xs p-1 rounded transition-colors cursor-pointer"
                               >
                                 🗑️
@@ -2795,7 +3021,7 @@ export default function PosPage() {
                   <div className="max-h-[380px] overflow-y-auto pr-1">
                     {productosVentaFiltrados.length === 0 ? (
                       <p className="text-xs text-sky-400 italic text-center py-10">
-                        No hay productos disponibles en esta categoría.
+                        No hay productos disponibles.
                       </p>
                     ) : (
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -2829,7 +3055,7 @@ export default function PosPage() {
                                     onClick={() => agregarProductoACarrito(prod, true)}
                                     className="bg-amber-600 hover:bg-amber-500 text-white font-bold text-[10px] py-1.5 rounded-lg cursor-pointer transition-all uppercase text-center"
                                   >
-                                    Para Llevar
+                                    Llevar
                                   </button>
                                 </div>
                               ) : (
@@ -2859,31 +3085,44 @@ export default function PosPage() {
                         : `🛵 RAPPI: ${rappiActual ? rappiActual.codigo : 'NINGUNO'}`}
                     </span>
 
-                    {tipoCanalSeleccionado === 'mesa' && mesaSeleccionada && (
-                      <button
-                        type="button"
-                        onClick={() => liberarMesaLimpia(mesaSeleccionada)}
-                        className="bg-rose-700 hover:bg-rose-600 text-white font-bold text-[10px] px-2 py-1 rounded-lg transition-all"
-                      >
-                        🚪 LIBERAR MESA
-                      </button>
-                    )}
+                    <div className="flex items-center gap-1">
+                      {(tipoCanalSeleccionado === 'mesa' || tipoCanalSeleccionado === 'pasillo') && carritoActual.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={abrirModalTransferir}
+                          className="bg-amber-600 hover:bg-amber-500 text-white font-bold text-[10px] px-2 py-1 rounded-lg transition-all flex items-center gap-1"
+                          title="Transferir consumo a otra mesa o pasillo"
+                        >
+                          🔄 TRANSFERIR
+                        </button>
+                      )}
 
-                    {tipoCanalSeleccionado === 'pasillo' && pasilloSeleccionadoId && (
-                      <button
-                        type="button"
-                        onClick={() => liberarPasillo(pasilloSeleccionadoId)}
-                        className="bg-rose-700 hover:bg-rose-600 text-white font-bold text-[10px] px-2 py-1 rounded-lg transition-all"
-                      >
-                        🚪 LIBERAR PASILLO
-                      </button>
-                    )}
+                      {tipoCanalSeleccionado === 'mesa' && mesaSeleccionada && (carritosPorMesa[mesaSeleccionada]?.length || 0) > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => liberarMesaLimpia(mesaSeleccionada)}
+                          className="bg-rose-700 hover:bg-rose-600 text-white font-bold text-[10px] px-2 py-1 rounded-lg transition-all"
+                        >
+                          🚪 LIBERAR
+                        </button>
+                      )}
+
+                      {tipoCanalSeleccionado === 'pasillo' && pasilloSeleccionadoId && (
+                        <button
+                          type="button"
+                          onClick={() => liberarPasillo(pasilloSeleccionadoId)}
+                          className="bg-rose-700 hover:bg-rose-600 text-white font-bold text-[10px] px-2 py-1 rounded-lg transition-all"
+                        >
+                          🚪 LIBERAR
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   <div className="max-h-[220px] overflow-y-auto space-y-2 pr-1 bg-[#051829] p-2.5 rounded-xl border border-[#0066b3]">
                     {carritoActual.length === 0 ? (
                       <p className="text-xs text-sky-400 italic text-center py-8">
-                        Canal vacío. Selecciona productos.
+                        Mesa/Canal libre.
                       </p>
                     ) : (
                       carritoActual.map((item) => (
@@ -2916,11 +3155,11 @@ export default function PosPage() {
                   </div>
 
                   <div className="bg-[#051829] border border-[#0066b3] p-2.5 rounded-xl space-y-1.5">
-                    <span className="text-[11px] text-purple-300 font-black block uppercase">➕ AGREGAR ADICIÓN ($)</span>
+                    <span className="text-[11px] text-purple-300 font-black block uppercase">➕ ADICIÓN ($)</span>
                     <div className="flex gap-2">
                       <input
                         type="text"
-                        placeholder="$ Monto adición"
+                        placeholder="$ Monto"
                         value={formatearMoneda(valorAdicionInput)}
                         onChange={(e) => setValorAdicionInput(desformatearMoneda(e.target.value))}
                         className="w-full bg-[#0e385e] border border-[#0066b3] text-purple-300 font-bold text-xs p-1.5 rounded-lg outline-none"
@@ -2957,7 +3196,7 @@ export default function PosPage() {
                       type="button"
                       onClick={() => {
                         if (saldoFaltanteMesa <= 0) {
-                          alert('ℹ️ Este canal no tiene saldo pendiente por cobrar.');
+                          alert('ℹ️ Sin saldo pendiente por cobrar.');
                           return;
                         }
                         setMostrarModalPago(true);
@@ -3033,7 +3272,7 @@ export default function PosPage() {
                   >
                     {usuariosBD.length === 0 ? (
                       <option value="" disabled className="bg-[#0e385e] text-sky-300">
-                        -- No hay usuarios registrados --
+                        -- Sin usuarios registrados --
                       </option>
                     ) : (
                       usuariosBD.map((u) => (
@@ -3122,12 +3361,12 @@ export default function PosPage() {
               {esTurnoMañanaApertura ? (
                 <div className="space-y-3 border-t border-[#0066b3]/50 pt-3">
                   <p className="text-amber-200 font-bold">
-                    ⚠️ Turno de Mañana/Apertura detectado: Al entregar turno, se cerrará tu registro de caja y el operario entrante iniciará con el efectivo físico que dejes.
+                    ⚠️ Turno de Mañana/Apertura detectado.
                   </p>
 
                   <div>
                     <label className="text-sky-200 font-bold block mb-1">
-                      💵 ¿Cuánta plata física deja en caja para el siguiente operario?:
+                      💵 Plata física entregada al operario entrante:
                     </label>
                     <input
                       type="text"
@@ -3143,12 +3382,12 @@ export default function PosPage() {
                     onClick={() => setMostrarModalCambioTurno(true)}
                     className="w-full bg-amber-600 hover:bg-amber-500 text-white font-black text-xs py-3 rounded-xl uppercase shadow cursor-pointer"
                   >
-                    🔐 Cerrar Mi Turno y Entregar Caja
+                    🔐 Entregar Turno
                   </button>
                 </div>
               ) : (
                 <div className="bg-[#0e385e] p-3 rounded-xl border border-[#0066b3] text-sky-200 font-bold">
-                  ✓ El turno actual es <b>DÍA COMPLETO</b>. No se solicita cambio de turno obligatorio durante la jornada.
+                  ✓ El turno actual es <b>DÍA COMPLETO</b>.
                 </div>
               )}
             </div>
@@ -3156,13 +3395,13 @@ export default function PosPage() {
 
           <div className="lg:col-span-12 bg-[#0b2b48] border border-[#0066b3] p-5 rounded-2xl space-y-3 shadow-md mt-2">
             <h3 className="text-xs font-black text-sky-200 uppercase flex items-center justify-between">
-              <span>📋 HISTORIAL DE NÓMINAS PAGADAS HOY EN ESTA SEDE ({nominasDiaBD.length})</span>
+              <span>📋 HISTORIAL DE NÓMINAS PAGADAS HOY ({nominasDiaBD.length})</span>
             </h3>
 
             <div className="max-h-60 overflow-y-auto space-y-2 pr-1">
               {nominasDiaBD.length === 0 ? (
                 <p className="text-xs text-rose-300 italic text-center py-6 font-bold">
-                  ⚠️ No hay pagos de nómina registrados el día de hoy en esta sede.
+                  ⚠️ No hay pagos de nómina registrados hoy.
                 </p>
               ) : (
                 nominasDiaBD.map((nom) => (
@@ -3276,11 +3515,11 @@ export default function PosPage() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="bg-[#0e385e] p-3 rounded-xl border border-[#0066b3] flex justify-between items-center">
-                <span className="text-amber-300 font-bold">💸 Total Gastos (Insumos):</span>
+                <span className="text-amber-300 font-bold">💸 Total Gastos:</span>
                 <span className="font-black text-white">{formatearMoneda(totalGastosHoy) || '$ 0'}</span>
               </div>
               <div className="bg-[#0e385e] p-3 rounded-xl border border-[#0066b3] flex justify-between items-center">
-                <span className="text-purple-300 font-bold">💼 Total Nóminas ({nominasDiaBD.length} registradas):</span>
+                <span className="text-purple-300 font-bold">💼 Total Nóminas:</span>
                 <span className="font-black text-white">{formatearMoneda(totalNominasHoy) || '$ 0'}</span>
               </div>
               <div className="bg-[#0e385e] p-3 rounded-xl border border-[#0066b3] flex justify-between items-center">
@@ -3300,26 +3539,26 @@ export default function PosPage() {
                 <span className="font-black text-white">{formatearMoneda(totalRappiJornada) || '$ 0'}</span>
               </div>
               <div className="bg-[#0e385e] p-3 rounded-xl border border-[#0066b3] flex justify-between items-center sm:col-span-2">
-                <span className="text-sky-300 font-bold">💳 Total Tarjetas / Otros:</span>
+                <span className="text-sky-300 font-bold">💳 Total Otros:</span>
                 <span className="font-black text-white">{formatearMoneda(totalOtrosJornada) || '$ 0'}</span>
               </div>
             </div>
 
             <div className="bg-[#0e385e] border-2 border-emerald-400 p-3.5 rounded-xl flex justify-between items-center text-sm mt-2">
-              <span className="font-black text-emerald-300 uppercase">📈 Gran Total de Todas las Ventas:</span>
+              <span className="font-black text-emerald-300 uppercase">📈 Gran Total Ventas:</span>
               <span className="font-black text-white">{formatearMoneda(granTotalVentasJornada) || '$ 0'}</span>
             </div>
 
             <div className="bg-[#0e385e] border-2 border-sky-400 p-3.5 rounded-xl flex justify-between items-center text-sm mt-2">
               <span className="font-black text-sky-300 uppercase">
-                💵 Efectivo Esperado en Caja Sistema (Base + Ventas Efectivo - Gastos - Nómina):
+                💵 Efectivo Esperado en Caja Sistema:
               </span>
               <span className="font-black text-white">{formatearMoneda(efectivoCajaSistema) || '$ 0'}</span>
             </div>
 
             <div className="bg-[#0e385e] border-2 border-rose-500/60 p-4 rounded-xl space-y-3 mt-2">
               <label className="text-white font-black block uppercase">
-                💵 ¿Cuánto dinero físico hay en caja (Efectivo contado)? * (Obligatorio - Puedes poner 0 si está vacía)
+                💵 ¿Cuánto dinero físico hay en caja? *
               </label>
               <input
                 type="text"
@@ -3331,7 +3570,7 @@ export default function PosPage() {
 
               {dineroFisicoCierre !== '' && (
                 <div className={`p-3 rounded-lg font-black text-xs flex justify-between items-center ${diferenciaCierreVal === 0 ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-500' : 'bg-rose-950/80 text-rose-300 border border-rose-500'}`}>
-                  <span>{diferenciaCierreVal === 0 ? '✓ Cuadre perfecto de caja (Sin diferencias)' : '⚠️ Hay una diferencia en efectivo:'}</span>
+                  <span>{diferenciaCierreVal === 0 ? '✓ Cuadre perfecto' : '⚠️ Diferencia en efectivo:'}</span>
                   <span className="text-sm">{formatearMoneda(Math.abs(diferenciaCierreVal))} {diferenciaCierreVal < 0 ? '(Faltante)' : diferenciaCierreVal > 0 ? '(Sobrante)' : ''}</span>
                 </div>
               )}
@@ -3350,8 +3589,134 @@ export default function PosPage() {
               disabled={guardandoCierre}
               className="w-full bg-rose-600 hover:bg-rose-500 text-white font-black py-3.5 rounded-xl text-xs uppercase shadow-lg transition-all cursor-pointer disabled:opacity-50"
             >
-              {guardandoCierre ? '⏳ Guardando Cierre...' : '🔒 FINALIZAR Y GUARDAR CIERRE DE TURNO'}
+              {guardandoCierre ? '⏳ Guardando...' : '🔒 FINALIZAR CIERRE'}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL TRANSFERENCIA DE CONSUMO DE MESA O PASILLO */}
+      {mostrarModalTransferir && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#0b2b48] border-2 border-[#0066b3] w-full max-w-md rounded-2xl p-5 space-y-4 shadow-2xl">
+            <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
+              <h3 className="text-sm font-black text-white flex items-center gap-1.5">
+                🔄 TRANSFERIR CONSUMO
+              </h3>
+              <button
+                type="button"
+                onClick={() => setMostrarModalTransferir(false)}
+                className="text-sky-300 hover:text-white font-black text-sm cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="bg-[#051829] border border-[#0066b3] p-3 rounded-xl space-y-1">
+                <span className="text-sky-200 font-bold block">Origen actual:</span>
+                <p className="text-white font-black text-sm">
+                  {tipoCanalSeleccionado === 'mesa'
+                    ? `🪑 ${mesasBD.find((m) => m.id === mesaSeleccionada)?.nombre || 'Mesa'}`
+                    : `🚶 ${pasillosBD.find((p) => p.id === pasilloSeleccionadoId)?.nombre || 'Pasillo'}`}
+                </p>
+                <p className="text-emerald-300 font-bold">
+                  Consumo a mover: {formatearMoneda(totalConsumidoMesa)} (Abonos: {formatearMoneda(abonosMesaActual)})
+                </p>
+              </div>
+
+              <div>
+                <label className="text-sky-200 font-bold block mb-1">Tipo de Destino:</label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTipoDestinoTransferencia('mesa');
+                      const mDispo = mesasBD.find((m) => m.id !== mesaSeleccionada);
+                      setDestinoSeleccionadoId(mDispo ? mDispo.id : null);
+                    }}
+                    className={`w-1/2 py-2 rounded-lg text-xs font-black uppercase cursor-pointer ${
+                      tipoDestinoTransferencia === 'mesa'
+                        ? 'bg-[#0078d4] text-white'
+                        : 'bg-[#051829] text-sky-300 border border-[#0066b3]'
+                    }`}
+                  >
+                    🪑 Hacia Mesa
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTipoDestinoTransferencia('pasillo');
+                      const pDispo = pasillosBD.find((p) => p.id !== pasilloSeleccionadoId);
+                      setDestinoSeleccionadoId(pDispo ? pDispo.id : null);
+                    }}
+                    className={`w-1/2 py-2 rounded-lg text-xs font-black uppercase cursor-pointer ${
+                      tipoDestinoTransferencia === 'pasillo'
+                        ? 'bg-sky-600 text-white'
+                        : 'bg-[#051829] text-sky-300 border border-[#0066b3]'
+                    }`}
+                  >
+                    🚶 Hacia Pasillo
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-sky-200 font-bold block mb-1">Seleccionar Destino:</label>
+                {tipoDestinoTransferencia === 'mesa' ? (
+                  <select
+                    value={destinoSeleccionadoId || ''}
+                    onChange={(e) => setDestinoSeleccionadoId(Number(e.target.value))}
+                    className="w-full bg-[#051829] border border-[#0066b3] text-white p-2.5 rounded-xl outline-none font-bold cursor-pointer"
+                  >
+                    {mesasBD
+                      .filter((m) => tipoCanalSeleccionado !== 'mesa' || m.id !== mesaSeleccionada)
+                      .map((m) => (
+                        <option key={m.id} value={m.id} className="bg-[#051829] text-white font-bold">
+                          {m.nombre || `MESA ${m.id}`}
+                        </option>
+                      ))}
+                  </select>
+                ) : (
+                  <select
+                    value={destinoSeleccionadoId || ''}
+                    onChange={(e) => setDestinoSeleccionadoId(Number(e.target.value))}
+                    className="w-full bg-[#051829] border border-[#0066b3] text-white p-2.5 rounded-xl outline-none font-bold cursor-pointer"
+                  >
+                    {pasillosBD.length === 0 ? (
+                      <option value="" disabled className="bg-[#051829] text-sky-300">
+                        -- No hay pasillos activos --
+                      </option>
+                    ) : (
+                      pasillosBD
+                        .filter((p) => tipoCanalSeleccionado !== 'pasillo' || p.id !== pasilloSeleccionadoId)
+                        .map((p) => (
+                          <option key={p.id} value={p.id} className="bg-[#051829] text-white font-bold">
+                            {p.nombre}
+                          </option>
+                        ))
+                    )}
+                  </select>
+                )}
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setMostrarModalTransferir(false)}
+                className="w-1/2 bg-[#051829] border border-[#0066b3] hover:bg-[#08223a] text-sky-200 font-bold py-2.5 rounded-xl text-xs uppercase cursor-pointer"
+              >
+                CANCELAR
+              </button>
+              <button
+                type="button"
+                onClick={ejecutarTransferencia}
+                className="w-1/2 bg-amber-600 hover:bg-amber-500 text-white font-black py-2.5 rounded-xl text-xs uppercase shadow cursor-pointer"
+              >
+                CONFIRMAR
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -3374,12 +3739,12 @@ export default function PosPage() {
             </div>
 
             {cargandoResumenVentas ? (
-              <p className="text-xs text-sky-300 text-center py-6">Cargando resumen de caja...</p>
+              <p className="text-xs text-sky-300 text-center py-6">Cargando...</p>
             ) : (
               <div className="space-y-2.5 text-xs">
                 <div className="bg-[#051829] border border-[#0066b3] p-3 rounded-xl space-y-2">
                   <div className="flex justify-between items-center">
-                    <span className="text-emerald-300 font-bold">💵 Base Inicial (Apertura):</span>
+                    <span className="text-emerald-300 font-bold">💵 Base Inicial:</span>
                     <span className="font-black text-white">{formatearMoneda(efectivoBaseCajaInicial) || '$ 0'}</span>
                   </div>
                   <div className="flex justify-between items-center">
@@ -3391,7 +3756,7 @@ export default function PosPage() {
                     <span className="font-black text-white">-{formatearMoneda(totalGastosHoy) || '$ 0'}</span>
                   </div>
                   <div className="flex justify-between items-center pt-1 border-t border-[#0066b3]/50">
-                    <span className="text-emerald-400 font-black uppercase">💵 Total Esperado en Caja (Efectivo):</span>
+                    <span className="text-emerald-400 font-black uppercase">💵 Total Esperado Efectivo:</span>
                     <span className="font-black text-emerald-300 text-sm">
                       {formatearMoneda(efectivoBaseCajaInicial + totalEfectivoVentasPos - totalGastosHoy) || '$ 0'}
                     </span>
@@ -3400,7 +3765,7 @@ export default function PosPage() {
 
                 <div className="bg-[#051829] border border-[#0066b3] p-3 rounded-xl space-y-2">
                   <span className="text-[10px] text-sky-300 font-bold uppercase block border-b border-[#0066b3]/40 pb-1">
-                    💳 Resumen por Medios de Pago
+                    💳 Medios de Pago
                   </span>
                   <div className="flex justify-between items-center">
                     <span className="text-purple-300 font-bold">🟣 Nequi:</span>
@@ -3417,6 +3782,10 @@ export default function PosPage() {
                   <div className="flex justify-between items-center">
                     <span className="text-sky-300 font-bold">💳 Otros / Tarjetas:</span>
                     <span className="font-black text-white">{formatearMoneda(totalOtrosVentasPos) || '$ 0'}</span>
+                  </div>
+                  <div className="flex justify-between items-center border-t border-[#0066b3]/40 pt-1">
+                    <span className="text-amber-300 font-bold">🎟️ Total Descuentos:</span>
+                    <span className="font-black text-amber-300">{formatearMoneda(totalDescuentosVentasPos) || '$ 0'}</span>
                   </div>
                 </div>
 
@@ -3456,9 +3825,9 @@ export default function PosPage() {
             </div>
 
             {cargandoResumenVentas ? (
-              <p className="text-xs text-sky-300 text-center py-8">Cargando facturas pagas...</p>
+              <p className="text-xs text-sky-300 text-center py-8">Cargando...</p>
             ) : ventasDiaBD.length === 0 ? (
-              <p className="text-xs text-sky-400 italic text-center py-8">No hay facturas pagas registradas hoy en la base de datos.</p>
+              <p className="text-xs text-sky-400 italic text-center py-8">No hay facturas pagas registradas hoy.</p>
             ) : (
               <div className="max-h-[380px] overflow-y-auto space-y-2.5 pr-1">
                 {ventasDiaBD.map((venta) => {
@@ -3468,6 +3837,7 @@ export default function PosPage() {
                     minute: '2-digit',
                   });
                   const itemsVenta = Array.isArray(venta.items) ? venta.items : [];
+                  const valDescuento = Number(venta.descuento) || 0;
 
                   return (
                     <div key={venta.id} className="bg-[#051829] border border-[#0066b3] p-3 rounded-xl space-y-2 text-xs">
@@ -3475,6 +3845,11 @@ export default function PosPage() {
                         <span className="font-black text-white">Factura #{venta.id} ({venta.tipo_venta || 'local'})</span>
                         <div className="flex items-center gap-2">
                           <span className="text-[10px] text-sky-300">Hora: {horaVenta}</span>
+                          {valDescuento > 0 && (
+                            <span className="bg-amber-700/80 text-amber-200 font-bold px-2 py-0.5 rounded text-[10px] border border-amber-500/50">
+                              Desc: {formatearMoneda(valDescuento)}
+                            </span>
+                          )}
                           <span className="bg-emerald-600 text-white font-black px-2 py-0.5 rounded text-[11px]">
                             {formatearMoneda(venta.monto_total)}
                           </span>
@@ -3533,7 +3908,7 @@ export default function PosPage() {
 
             <div className="space-y-3 text-xs">
               <div>
-                <label className="text-sky-200 font-bold block mb-1">Selecciona el Operario Entrante:</label>
+                <label className="text-sky-200 font-bold block mb-1">Operario Entrante:</label>
                 <select
                   value={usuarioEntranteId}
                   onChange={(e) => setUsuarioEntranteId(e.target.value)}
@@ -3541,7 +3916,7 @@ export default function PosPage() {
                 >
                   {usuariosBD.length === 0 ? (
                     <option value="" disabled className="bg-[#051829] text-sky-300">
-                      -- No hay usuarios registrados --
+                      -- Sin usuarios --
                     </option>
                   ) : (
                     usuariosBD.map((u) => (
@@ -3554,10 +3929,10 @@ export default function PosPage() {
               </div>
 
               <div>
-                <label className="text-sky-200 font-bold block mb-1">Código de Acceso / Clave del Operario Entrante:</label>
+                <label className="text-sky-200 font-bold block mb-1">Código de Acceso / Clave:</label>
                 <input
                   type="password"
-                  placeholder="Escribe la clave para ingresar..."
+                  placeholder="Escribe la clave..."
                   value={claveUsuarioEntrante}
                   onChange={(e) => setClaveUsuarioEntrante(e.target.value)}
                   className="w-full bg-[#051829] border border-[#0066b3] text-white p-2.5 rounded-xl outline-none font-bold"
@@ -3579,14 +3954,14 @@ export default function PosPage() {
                 disabled={verificandoCambioTurno || usuariosBD.length === 0}
                 className="w-1/2 bg-amber-600 hover:bg-amber-500 text-white font-black py-2.5 rounded-xl text-xs uppercase shadow cursor-pointer disabled:opacity-50"
               >
-                {verificandoCambioTurno ? 'PROCESANDO...' : 'CONFIRMAR CAMBIO'}
+                {verificandoCambioTurno ? 'PROCESANDO...' : 'CONFIRMAR'}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* MODAL COBRAR / REGISTRAR PAGO DE MESA O PASILLO */}
+      {/* MODAL COBRAR SALDO */}
       {mostrarModalPago && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-[#0b2b48] border-2 border-[#0066b3] w-full max-w-lg rounded-2xl p-5 space-y-4 shadow-2xl">
@@ -3633,7 +4008,7 @@ export default function PosPage() {
               </div>
 
               <div className="space-y-2 border-t border-[#0066b3]/50 pt-2">
-                <span className="font-black text-sky-200 block">MÉTODOS DE PAGO (CLIC PARA LLENAR):</span>
+                <span className="font-black text-sky-200 block">MÉTODOS DE PAGO:</span>
 
                 <div className="grid grid-cols-2 gap-2">
                   <div>
@@ -3642,7 +4017,7 @@ export default function PosPage() {
                       onClick={() => autocompletarMetodoPago('efectivo')}
                       className="text-emerald-300 text-[11px] font-bold block mb-1 hover:underline cursor-pointer text-left"
                     >
-                      💵 Efectivo (clic para llenar)
+                      💵 Efectivo (clic auto)
                     </button>
                     <input
                       type="text"
@@ -3659,7 +4034,7 @@ export default function PosPage() {
                       onClick={() => autocompletarMetodoPago('nequi')}
                       className="text-purple-300 text-[11px] font-bold block mb-1 hover:underline cursor-pointer text-left"
                     >
-                      🟣 Nequi (clic para llenar)
+                      🟣 Nequi (clic auto)
                     </button>
                     <input
                       type="text"
@@ -3676,7 +4051,7 @@ export default function PosPage() {
                       onClick={() => autocompletarMetodoPago('daviplata')}
                       className="text-rose-300 text-[11px] font-bold block mb-1 hover:underline cursor-pointer text-left"
                     >
-                      🔴 Daviplata (clic para llenar)
+                      🔴 Daviplata (clic auto)
                     </button>
                     <input
                       type="text"
@@ -3693,7 +4068,7 @@ export default function PosPage() {
                       onClick={() => autocompletarMetodoPago('otros')}
                       className="text-sky-200 text-[11px] font-bold block mb-1 hover:underline cursor-pointer text-left"
                     >
-                      💳 Tarjetas / Otros (clic para llenar)
+                      💳 Otros (clic auto)
                     </button>
                     <input
                       type="text"
@@ -3708,7 +4083,7 @@ export default function PosPage() {
                 {numOtros > 0 && (
                   <input
                     type="text"
-                    placeholder="Detalle del otro método (ej. Tarjeta, Transferencia...)"
+                    placeholder="Detalle del otro método..."
                     value={detalleOtro}
                     onChange={(e) => setDetalleOtro(e.target.value)}
                     className="w-full bg-[#051829] border border-sky-400 text-white font-bold p-2 rounded-lg outline-none"
@@ -3746,7 +4121,7 @@ export default function PosPage() {
                 disabled={guardandoVenta || saldoPendienteModal > 0}
                 className="w-1/2 bg-emerald-600 hover:bg-emerald-500 text-white font-black py-2.5 rounded-xl text-xs uppercase shadow cursor-pointer disabled:opacity-50"
               >
-                {guardandoVenta ? '⏳ REGISTRANDO...' : 'REGISTRAR PAGO'}
+                {guardandoVenta ? 'REGISTRANDO...' : 'REGISTRAR PAGO'}
               </button>
             </div>
           </div>
@@ -3759,7 +4134,7 @@ export default function PosPage() {
           <div className="bg-[#0b2b48] border-2 border-[#0066b3] w-full max-w-md rounded-2xl p-5 space-y-4 shadow-2xl">
             <div className="flex justify-between items-center border-b border-[#0066b3]/50 pb-2">
               <h3 className="text-sm font-black text-white flex items-center gap-1.5">
-                <span>➕</span> CREAR NUEVO PRODUCTO EN BASE DE DATOS
+                <span>➕</span> CREAR NUEVO PRODUCTO
               </h3>
               <button
                 type="button"
@@ -3775,7 +4150,7 @@ export default function PosPage() {
                 <label className="text-sky-200 font-bold block mb-1">Nombre del Producto:</label>
                 <input
                   type="text"
-                  placeholder="Ej. Vasos de cartón 8oz, Cucharas..."
+                  placeholder="Ej. Vasos de cartón 8oz..."
                   value={nuevoProdNombre}
                   onChange={(e) => setNuevoProdNombre(e.target.value)}
                   className="w-full bg-[#051829] border border-[#0066b3] text-white p-2.5 rounded-xl outline-none font-bold placeholder-sky-300/40"
@@ -3783,13 +4158,13 @@ export default function PosPage() {
               </div>
 
               <div>
-                <label className="text-sky-200 font-bold block mb-1">Categoría / Pestaña:</label>
+                <label className="text-sky-200 font-bold block mb-1">Categoría:</label>
                 <select
                   value={nuevoProdCategoria}
                   onChange={(e) => setNuevoProdCategoria(e.target.value)}
                   className="w-full bg-[#051829] border border-[#0066b3] text-white p-2.5 rounded-xl outline-none font-bold cursor-pointer"
                 >
-                  <option value="" disabled className="bg-[#051829] text-sky-300">-- Seleccione categoría --</option>
+                  <option value="" disabled className="bg-[#051829] text-sky-300">-- Seleccionar --</option>
                   <option value="Paleta" className="bg-[#051829] text-white">Paleta</option>
                   <option value="Producción" className="bg-[#051829] text-white">Producción</option>
                   <option value="Insumos" className="bg-[#051829] text-white">Insumo / Topping</option>
@@ -3811,7 +4186,7 @@ export default function PosPage() {
                 disabled={guardandoProducto}
                 className="w-1/2 bg-emerald-600 hover:bg-emerald-500 text-white font-black py-2.5 rounded-xl text-xs uppercase shadow cursor-pointer disabled:opacity-50"
               >
-                {guardandoProducto ? '⏳ CREANDO...' : 'CREAR PRODUCTO'}
+                {guardandoProducto ? 'CREANDO...' : 'CREAR PRODUCTO'}
               </button>
             </div>
           </div>
