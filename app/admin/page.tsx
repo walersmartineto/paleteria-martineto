@@ -5,43 +5,49 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { useSede } from '@/context/SedeContext';
 
+// 1. OBTENER FECHA LOCAL (YYYY-MM-DD)
 const obtenerFechaLocalStr = (fechaRaw: any): string => {
   if (!fechaRaw) return '';
-  const d = new Date(fechaRaw);
-  if (isNaN(d.getTime())) return String(fechaRaw).split('T')[0];
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  const str = String(fechaRaw).trim();
+  if (str.includes(' ') || str.includes('T')) {
+    const separador = str.includes('T') ? 'T' : ' ';
+    return str.split(separador)[0];
+  }
+  return str;
 };
 
+// 2. OBTENER HORA TAL CUAL DE LA COLUMNA FECHA DE LA TABLA CAJA
 const obtenerHoraLocalStr = (fechaRaw: any): string => {
   if (!fechaRaw) return '--:--';
-  const d = new Date(fechaRaw);
-  if (isNaN(d.getTime())) return String(fechaRaw);
-  try {
-    return d.toLocaleTimeString('es-CO', { 
-      hour: '2-digit', 
-      minute: '2-digit', 
-      hour12: true, 
-      timeZone: 'America/Bogota' 
-    });
-  } catch (e) {
-    const horas = d.getHours();
-    const minutos = d.getMinutes();
-    const h12 = horas % 12 || 12;
-    const ampm = horas >= 12 ? 'p. m.' : 'a. m.';
-    return `${String(h12).padStart(2, '0')}:${String(minutos).padStart(2, '0')} ${ampm}`;
+
+  const str = String(fechaRaw).trim();
+
+  // Si el string contiene fecha y hora (ej: "2026-11-10 10:39:27-0")
+  if (str.includes(' ') || str.includes('T')) {
+    const separador = str.includes('T') ? 'T' : ' ';
+    const parteHora = str.split(separador)[1];
+    
+    if (parteHora) {
+      const partes = parteHora.split(':');
+      let h = parseInt(partes[0], 10);
+      const m = partes[1];
+      if (!isNaN(h) && m) {
+        const ampm = h >= 12 ? 'p. m.' : 'a. m.';
+        h = h % 12 || 12;
+        return `${String(h).padStart(2, '0')}:${m} ${ampm}`;
+      }
+    }
   }
+
+  return '--:--';
 };
 
 export default function AdminPage() {
   const router = useRouter();
   const { sedeData } = useSede();
 
-  const fechaHoy = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Bogota'
-  }).format(new Date());
+  // FECHA HOY AJUSTADA A ZONA LOCAL COLOMBIA
+  const fechaHoy = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Bogota' });
 
   const [fechaInicio, setFechaInicio] = useState<string>(fechaHoy);
   const [fechaFin, setFechaFin] = useState<string>(fechaHoy);
@@ -52,12 +58,13 @@ export default function AdminPage() {
   
   // SUBPESTAÑAS
   const [subPestanaLogistica, setSubPestanaLogistica] = useState<'por_sede' | 'por_proveedor'>('por_sede');
-  const [subPestanaCierres, setSubPestanaCierres] = useState<'caja' | 'descuadres'>('caja');
+  const [subPestanaCierres, setSubPestanaCierres] = useState<'caja' | 'descuadres' | 'gastos'>('caja');
 
   // SUB-ACORDEONES INTERNOS
   const [subAcordeonesSedesLogistica, setSubAcordeonesSedesLogistica] = useState<{ [key: string]: boolean }>({});
   const [subAcordeonesProvLogistica, setSubAcordeonesProvLogistica] = useState<{ [key: string]: boolean }>({});
   const [subAcordeonesDescuadres, setSubAcordeonesDescuadres] = useState<{ [key: string]: boolean }>({});
+  const [subAcordeonesGastos, setSubAcordeonesGastos] = useState<{ [key: string]: boolean }>({});
   const [acordeonesCierres, setAcordeonesCierres] = useState<{ [key: string]: boolean }>({});
   const [subAcordeonesStock, setSubAcordeonesStock] = useState<{ [key: string]: boolean }>({});
   const [acordeonesVentasAbanico, setAcordeonesVentasAbanico] = useState<{ [key: string]: boolean }>({});
@@ -70,6 +77,7 @@ export default function AdminPage() {
   const [pedidos, setPedidos] = useState<any[]>([]);
   const [productosBD, setProductosBD] = useState<any[]>([]);
   const [registrosCaja, setRegistrosCaja] = useState<any[]>([]);
+  const [registrosGastos, setRegistrosGastos] = useState<any[]>([]);
   const [registrosNomina, setRegistrosNomina] = useState<any[]>([]);
   const [inventarioMovimientos, setInventarioMovimientos] = useState<any[]>([]);
   const [inventarioMovsDia, setInventarioMovsDia] = useState<any[]>([]);
@@ -191,6 +199,16 @@ export default function AdminPage() {
           apertura: row.monto_apertura ?? row.base_inicial ?? 0
         }));
 
+      // CARGA DE TABLA GASTO
+      const { data: gastoDataRaw } = await supabase.from('gasto').select('*');
+      const gastosFiltrados = (gastoDataRaw || []).filter(row => {
+        const fechaRef = row.fecha || row.fecha_registro || row.created_at;
+        if (!fechaRef) return false;
+        const fRow = obtenerFechaLocalStr(fechaRef);
+        return fRow >= fechaInicio && fRow <= fechaFin;
+      });
+      setRegistrosGastos(gastosFiltrados);
+
       const { data: nominaDataRaw } = await supabase.from('nomina').select('*');
       const nominaData = (nominaDataRaw || []).filter(row => {
         if (!row.fecha_pago) return false;
@@ -274,37 +292,52 @@ export default function AdminPage() {
   const getNombreSede = (id: number) => mapaSedes[id] || `Sede ${id}`;
   const getNombreUsuario = (id: number) => usuariosBD[id] || `Empleado #${id}`;
 
+  // CONTROL DE APERTURAS: FILTRADO ESTRICTO POR LA FECHA DE INICIO SELECCIONADA
   const controlAperturaSedes = (() => {
     return sedesBD.map(s => {
       const idSede = s.id;
       const nombreSede = getNombreSede(idSede);
 
+      // 1. Filtrar registros de caja por sede Y estrictamente por la fechaInicio seleccionada
       const registrosCajaSede = registrosCaja
-        .filter(c => Number(c.sede_id) === idSede)
-        .sort((a, b) => new Date(b.created_at || b.fecha || 0).getTime() - new Date(a.created_at || a.fecha || 0).getTime());
+        .filter(c => {
+          if (Number(c.sede_id) !== idSede) return false;
+          if (!c.fecha) return false;
+          return obtenerFechaLocalStr(c.fecha) === fechaInicio;
+        })
+        .sort((a, b) => (b.id || 0) - (a.id || 0));
+
+      // 2. Filtrar inventario diario por sede Y estrictamente por la fechaInicio seleccionada
+      const regInvApertura = inventarioMovsDia
+        .filter(m => {
+          if (Number(m.sede_id) !== idSede) return false;
+          const fechaRef = m.fecha_registro || m.created_at || m.fecha;
+          if (!fechaRef) return false;
+          return obtenerFechaLocalStr(fechaRef) === fechaInicio;
+        })
+        .sort((a, b) => (b.id || 0) - (a.id || 0))[0];
 
       const regCajaActual = registrosCajaSede[0];
-      const regInvApertura = inventarioMovsDia
-        .filter(m => Number(m.sede_id) === idSede)
-        .sort((a, b) => new Date(b.created_at || b.fecha_registro || 0).getTime() - new Date(a.created_at || a.fecha_registro || 0).getTime())[0];
 
-      const estaAbierta = regCajaActual ? (regCajaActual.estado === 'abierta' || regCajaActual.tipo === 'apertura') : false;
-      const estadoCaja = regCajaActual 
-        ? (estaAbierta ? '🟢 Abierta' : '🔒 Cerrada') 
-        : (regInvApertura ? '🟢 Abierta' : '🔒 Pendiente');
+      // 3. Evaluar si se abrió caja en el día seleccionado
+      const estaAbierta = regCajaActual 
+        ? (regCajaActual.estado === 'abierta' || regCajaActual.tipo === 'apertura') 
+        : false;
 
-      const timestampRaw = regCajaActual?.created_at || regCajaActual?.fecha || regInvApertura?.fecha_registro;
-      const horaApertura = timestampRaw ? obtenerHoraLocalStr(timestampRaw) : '--:--';
+      const estadoCaja = estaAbierta ? '🟢 Abierta' : '🔒 Cerrada';
 
-      const paletasContadas = regInvApertura?.total_paletas !== undefined && regInvApertura?.total_paletas !== null 
+      // 4. Si NO hay registro de apertura en fechaInicio, hora es --:-- y contadores quedan pendientes/vacíos
+      const horaApertura = regCajaActual?.fecha ? obtenerHoraLocalStr(regCajaActual.fecha) : '--:--';
+
+      const paletasContadas = (estaAbierta || regInvApertura) && regInvApertura?.total_paletas !== undefined && regInvApertura?.total_paletas !== null 
         ? `✅ ${regInvApertura.total_paletas} unids` 
         : '⚠️ Pendiente';
 
       const tieneEmpaques = regInvApertura?.detalle_empaques && Object.keys(regInvApertura.detalle_empaques).length > 0;
-      const insumosContados = tieneEmpaques ? '✅ Registrados' : '⚠️ Pendiente';
+      const insumosContados = (estaAbierta || regInvApertura) && tieneEmpaques ? '✅ Registrados' : '⚠️ Pendiente';
 
-      const idUsuarioOp = regCajaActual?.usuario_id || regInvApertura?.usuario_id;
-      const operario = idUsuarioOp ? getNombreUsuario(idUsuarioOp) : (regCajaActual?.operario_nombre || '--');
+      const idUsuarioOp = regCajaActual?.usuario_id || (regInvApertura ? regInvApertura.usuario_id : null);
+      const operario = idUsuarioOp ? getNombreUsuario(idUsuarioOp) : '--';
 
       return {
         idSede,
@@ -320,7 +353,6 @@ export default function AdminPage() {
 
   const pedidosPendientesCompra = pedidos.filter(p => p.estado === 'pendiente');
 
-  // RESUMEN DE COMPRAS POR SEDE
   const resumenComprasPorSede = (() => {
     const mapa: { [nombreSede: string]: { [prod: string]: number } } = {};
     pedidosPendientesCompra.forEach(p => {
@@ -346,7 +378,6 @@ export default function AdminPage() {
     return mapa;
   })();
 
-  // RESUMEN DE COMPRAS POR PROVEEDOR -> SEDE
   const resumenComprasPorProveedor = (() => {
     const mapa: { [lugar: string]: { [nombreSede: string]: { [prod: string]: number } } } = {};
 
@@ -548,6 +579,60 @@ export default function AdminPage() {
     return mapa;
   })();
 
+  const descuadresTablaCajaPorSede = (() => {
+    const mapa: { [nombreSede: string]: { registros: any[]; totalDiferencia: number } } = {};
+
+    sedesBD.forEach(s => {
+      const nombreSede = s.nombre;
+      mapa[nombreSede] = { registros: [], totalDiferencia: 0 };
+    });
+
+    registrosCaja.forEach(row => {
+      if (!mapaSedes[row.sede_id]) return;
+      const nombreSede = getNombreSede(row.sede_id);
+      const dif = Number(row.diferencia || 0);
+
+      if (!mapa[nombreSede]) {
+        mapa[nombreSede] = { registros: [], totalDiferencia: 0 };
+      }
+
+      mapa[nombreSede].registros.push(row);
+      mapa[nombreSede].totalDiferencia += dif;
+    });
+
+    return mapa;
+  })();
+
+  const gastosPorSede = (() => {
+    const mapa: { [nombreSede: string]: { lista: any[]; totalSede: number } } = {};
+    let totalGeneral = 0;
+
+    sedesBD.forEach(s => {
+      mapa[s.nombre] = { lista: [], totalSede: 0 };
+    });
+
+    registrosGastos.forEach(row => {
+      const idSede = Number(row.sede_id);
+      if (!mapaSedes[idSede]) return;
+      const nombreSede = getNombreSede(idSede);
+      const montoVal = Number(row.monto || row.valor || row.precio || 0);
+
+      if (!mapa[nombreSede]) {
+        mapa[nombreSede] = { lista: [], totalSede: 0 };
+      }
+
+      mapa[nombreSede].lista.push({
+        ...row,
+        descripcion: row.descripcion || row.motivo || row.concepto || 'Sin descripción',
+        monto: montoVal
+      });
+      mapa[nombreSede].totalSede += montoVal;
+      totalGeneral += montoVal;
+    });
+
+    return { mapa, totalGeneral };
+  })();
+
   const rappiYDescuentosData = (() => {
     let totalRappiGlobal = 0;
     let totalDescuentosGlobal = 0;
@@ -582,7 +667,6 @@ export default function AdminPage() {
     return { totalRappiGlobal, totalDescuentosGlobal, porSede };
   })();
 
-  // AUDITORÍA DE DESCUADRES DESDE INVENTARIO_EMPAQUES_SEDES
   const auditoriaDescuadres = (() => {
     const mapaSedDescuadres: { 
       [sedeName: string]: { 
@@ -677,13 +761,11 @@ export default function AdminPage() {
     return mapa;
   })();
 
-  // INTELIGENCIA DE NEGOCIO AMPLIADA Y COMPARATIVO DE SEDES
   const datosBIAmpliados = (() => {
     const totalProductos: { [prod: string]: number } = {};
     const totalCategorias: { [cat: string]: number } = {};
     const ventasPorFechaGlobal: { [fecha: string]: number } = {};
     
-    // ANALÍTICA COMPARATIVA POR SEDE
     const analiticaPorSede: { 
       [nombreSede: string]: {
         totalUnidades: number;
@@ -742,7 +824,6 @@ export default function AdminPage() {
     const diasConVentasCount = Object.keys(ventasPorFechaGlobal).length || 1;
     const promedioDiarioUnidades = Math.round(totalUnidades30Dias / diasConVentasCount);
 
-    // PROCESAR COMPARATIVO DE SEDES
     const comparativoSedes = Object.entries(analiticaPorSede).map(([sNombre, sData]) => {
       const prodsOrdenados = Object.entries(sData.productos).sort((a, b) => b[1] - a[1]);
       const masVendido = prodsOrdenados.length > 0 ? prodsOrdenados[0] : ['N/A', 0];
@@ -777,7 +858,6 @@ export default function AdminPage() {
     };
   })();
 
-  // HANDLERS MÓDULO 10: GESTIÓN DEL SISTEMA (PRODUCTOS Y USUARIOS)
   async function toggleEstadoProducto(id: number, activoActual: boolean) {
     const nuevoEstado = !activoActual;
     try {
@@ -1246,9 +1326,10 @@ export default function AdminPage() {
             {moduloAbierto === 'cierres' && (
               <div className="p-3 pt-0 space-y-3 border-t border-[#0066b3]/30 bg-[#031d35]/60">
                 
-                <div className="grid grid-cols-2 gap-2 pt-3">
-                  <button onClick={() => setSubPestanaCierres('caja')} className={`py-2 rounded-xl font-extrabold text-[11px] uppercase border ${subPestanaCierres === 'caja' ? 'bg-emerald-700 border-emerald-400 text-white' : 'bg-[#0b2b48] border-[#0066b3] text-sky-300'}`}>💵 Cierres de Caja</button>
-                  <button onClick={() => setSubPestanaCierres('descuadres')} className={`py-2 rounded-xl font-extrabold text-[11px] uppercase border ${subPestanaCierres === 'descuadres' ? 'bg-emerald-700 border-emerald-400 text-white' : 'bg-[#0b2b48] border-[#0066b3] text-sky-300'}`}>🔍 Descuadres</button>
+                <div className="grid grid-cols-3 gap-1.5 pt-3">
+                  <button onClick={() => setSubPestanaCierres('caja')} className={`py-2 rounded-xl font-extrabold text-[10px] uppercase border ${subPestanaCierres === 'caja' ? 'bg-emerald-700 border-emerald-400 text-white shadow-md' : 'bg-[#0b2b48] border-[#0066b3] text-sky-300'}`}>💵 Cierres</button>
+                  <button onClick={() => setSubPestanaCierres('descuadres')} className={`py-2 rounded-xl font-extrabold text-[10px] uppercase border ${subPestanaCierres === 'descuadres' ? 'bg-emerald-700 border-emerald-400 text-white shadow-md' : 'bg-[#0b2b48] border-[#0066b3] text-sky-300'}`}>🔍 Descuadres</button>
+                  <button onClick={() => setSubPestanaCierres('gastos')} className={`py-2 rounded-xl font-extrabold text-[10px] uppercase border ${subPestanaCierres === 'gastos' ? 'bg-emerald-700 border-emerald-400 text-white shadow-md' : 'bg-[#0b2b48] border-[#0066b3] text-sky-300'}`}>📉 Gastos</button>
                 </div>
 
                 {subPestanaCierres === 'caja' && (
@@ -1337,29 +1418,122 @@ export default function AdminPage() {
                   </div>
                 )}
 
+                {/* SUBPESTAÑA DESCUADRES (OBTENIDOS DE LA COLUMNA diferencia DE LA TABLA CAJA) */}
                 {subPestanaCierres === 'descuadres' && (
-                  <div className="space-y-3">
-                    {Object.keys(auditoriaDescuadres).length === 0 ? (
-                      <p className="text-center text-xs text-sky-300 py-4 font-semibold">No hay diferencias detalladas para este rango.</p>
+                  <div className="space-y-3 pt-1">
+                    {Object.keys(descuadresTablaCajaPorSede).length === 0 ? (
+                      <p className="text-center text-xs text-sky-300 py-4 font-semibold">No se encontraron registros de caja en el rango seleccionado.</p>
                     ) : (
-                      Object.entries(auditoriaDescuadres).map(([nombreSede, infoSede]) => (
-                        <div key={nombreSede} className="border border-[#0066b3] bg-[#0b2b48] rounded-xl overflow-hidden p-3 space-y-2">
-                          <div className="flex justify-between items-center border-b border-[#0066b3]/40 pb-1">
-                            <span className="font-bold text-white uppercase">📍 {nombreSede}</span>
-                            <span className="text-[10px] bg-amber-950 text-amber-300 px-2 py-0.5 rounded font-black">
-                              Total Dif: {infoSede.totalDiferencia}
-                            </span>
-                          </div>
-                          <div className="space-y-1">
-                            {infoSede.diferencias.map((item, idx) => (
-                              <div key={idx} className="flex justify-between text-[11px] text-white border-b border-[#0066b3]/20 py-1">
-                                <span>{item.producto}</span>
-                                <span className="font-black text-amber-400">{item.dif}</span>
+                      Object.entries(descuadresTablaCajaPorSede).map(([nombreSede, dataSede]) => {
+                        const estaAbierto = !!subAcordeonesDescuadres[nombreSede];
+
+                        return (
+                          <div key={nombreSede} className="border border-[#0066b3] bg-[#0b2b48] rounded-xl overflow-hidden shadow-sm">
+                            <button
+                              onClick={() => setSubAcordeonesDescuadres(prev => ({ ...prev, [nombreSede]: !estaAbierto }))}
+                              className="w-full p-3 flex justify-between items-center text-xs font-bold text-white uppercase cursor-pointer border-b border-[#0066b3]/30"
+                            >
+                              <span className="flex items-center gap-2">
+                                <span>{estaAbierto ? '👁️‍🗨️' : '👁️'}</span> 📍 {nombreSede}
+                              </span>
+                              <span className={`text-[10px] px-2 py-0.5 rounded font-black border ${dataSede.totalDiferencia < 0 ? 'bg-rose-950 text-rose-300 border-rose-500/40' : 'bg-emerald-950 text-emerald-300 border-emerald-500/40'}`}>
+                                Total Dif: ${dataSede.totalDiferencia.toLocaleString()}
+                              </span>
+                            </button>
+
+                            {estaAbierto && (
+                              <div className="p-3 bg-[#031d35] text-xs space-y-2">
+                                {dataSede.registros.length === 0 ? (
+                                  <p className="text-center text-[11px] text-sky-300 py-2">Sin descuadres registrados para esta sede.</p>
+                                ) : (
+                                  dataSede.registros.map((row, idx) => {
+                                    const difVal = Number(row.diferencia || 0);
+                                    const fStr = row.fecha ? obtenerFechaLocalStr(row.fecha) : '---';
+                                    const hStr = row.fecha ? obtenerHoraLocalStr(row.fecha) : '';
+
+                                    return (
+                                      <div key={row.id || idx} className="bg-[#0b2b48] p-2 rounded-lg border border-[#0066b3]/40 space-y-1">
+                                        <div className="flex justify-between items-center text-[10px] text-sky-300">
+                                          <span>📅 {fStr} {hStr && `| 🕒 ${hStr}`}</span>
+                                          <span className="text-white font-bold">ID Caja: #{row.id}</span>
+                                        </div>
+                                        <div className="flex justify-between items-center font-bold text-xs">
+                                          <span className="text-white">Diferencia:</span>
+                                          <span className={difVal < 0 ? 'text-rose-400' : difVal > 0 ? 'text-amber-300' : 'text-emerald-400'}>
+                                            ${difVal.toLocaleString()}
+                                          </span>
+                                        </div>
+                                        {row.motivo_descuadre && (
+                                          <p className="text-[10px] text-sky-200 italic pt-0.5">
+                                            💬 Motivo: {row.motivo_descuadre}
+                                          </p>
+                                        )}
+                                      </div>
+                                    );
+                                  })
+                                )}
                               </div>
-                            ))}
+                            )}
                           </div>
-                        </div>
-                      ))
+                        );
+                      })
+                    )}
+                  </div>
+                )}
+
+                {/* SUBPESTAÑA GASTOS (OBTENIDOS DE LA TABLA GASTO) */}
+                {subPestanaCierres === 'gastos' && (
+                  <div className="space-y-3 pt-1">
+                    <div className="bg-[#0b2b48] border border-amber-500/50 p-3 rounded-xl flex justify-between items-center">
+                      <span className="text-xs font-black text-amber-300 uppercase">📉 TOTAL GASTOS REGISTRADOS:</span>
+                      <span className="text-sm font-black text-amber-400">${gastosPorSede.totalGeneral.toLocaleString()}</span>
+                    </div>
+
+                    {Object.keys(gastosPorSede.mapa).length === 0 ? (
+                      <p className="text-center text-xs text-sky-300 py-4 font-semibold">No se encontraron gastos registrados en el rango seleccionado.</p>
+                    ) : (
+                      Object.entries(gastosPorSede.mapa)
+                        .filter(([_, dataSede]) => dataSede.totalSede > 0 && dataSede.lista.length > 0)
+                        .map(([nombreSede, dataSede]) => {
+                          const estaAbierto = !!subAcordeonesGastos[nombreSede];
+
+                          return (
+                            <div key={nombreSede} className="border border-[#0066b3] bg-[#0b2b48] rounded-xl overflow-hidden shadow-sm">
+                              <button
+                                onClick={() => setSubAcordeonesGastos(prev => ({ ...prev, [nombreSede]: !estaAbierto }))}
+                                className="w-full p-3 flex justify-between items-center text-xs font-bold text-white uppercase cursor-pointer border-b border-[#0066b3]/30"
+                              >
+                                <span className="flex items-center gap-2">
+                                  <span>{estaAbierto ? '👁️‍🗨️' : '👁️'}</span> 📍 {nombreSede}
+                                </span>
+                                <span className="text-amber-300 font-extrabold text-[11px]">
+                                  Total: ${dataSede.totalSede.toLocaleString()}
+                                </span>
+                              </button>
+
+                              {estaAbierto && (
+                                <div className="p-3 bg-[#031d35] text-xs space-y-2">
+                                  <div className="space-y-1.5">
+                                    {dataSede.lista.map((gastoItem, idx) => (
+                                      <div key={gastoItem.id || idx} className="bg-[#0b2b48] p-2.5 rounded-lg border border-[#0066b3]/40 flex justify-between items-center text-white">
+                                        <div className="space-y-0.5 max-w-[70%]">
+                                          <span className="font-bold block text-xs truncate">• {gastoItem.descripcion}</span>
+                                        </div>
+                                        <span className="font-black text-amber-400 text-xs">
+                                          ${Number(gastoItem.monto).toLocaleString()}
+                                        </span>
+                                      </div>
+                                    ))}
+                                    <div className="flex justify-between items-center pt-2 border-t border-amber-500/40 text-xs font-black text-white">
+                                      <span>SUMA TOTAL {nombreSede.toUpperCase()}:</span>
+                                      <span className="text-amber-300">${dataSede.totalSede.toLocaleString()}</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })
                     )}
                   </div>
                 )}

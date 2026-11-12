@@ -201,6 +201,30 @@ export default function PosPage() {
     return val.replace(/\D/g, '');
   };
 
+  // CÁLCULO DE DIFERENCIA EN EFECTIVO SEGÚN REGLAS DE CAJA
+  const calcularDiferenciaCaja = (efectivoCierre: number, efectivoFisico: number) => {
+    if (efectivoCierre < 0) {
+      return {
+        fisicoFinal: 0,
+        diferencia: efectivoCierre,
+      };
+    }
+
+    if (efectivoCierre === efectivoFisico) {
+      return {
+        fisicoFinal: efectivoFisico,
+        diferencia: 0,
+      };
+    }
+
+    // Si efectivoCierre > efectivoFisico -> negativo (faltante)
+    // Si efectivoCierre < efectivoFisico -> positivo (sobrante)
+    return {
+      fisicoFinal: efectivoFisico,
+      diferencia: efectivoFisico - efectivoCierre,
+    };
+  };
+
   const obtenerCantidadPlana = (val: any): number => {
     if (typeof val === 'number') return val;
     if (typeof val === 'object' && val !== null && 'cantidad' in val) {
@@ -317,7 +341,13 @@ export default function PosPage() {
         setMesasBD(mesasData);
         setMesaSeleccionada(mesasData[0].id);
       } else {
-        setMesasBD([{ id: 1, nombre: 'MESA 1' }, { id: 2, nombre: 'MESA 2' }, { id: 3, nombre: 'MESA 3' }, { id: 4, nombre: 'MESA 4' }, { id: 5, nombre: 'MESA 5' }]);
+        setMesasBD([
+          { id: 1, nombre: 'MESA 1' },
+          { id: 2, nombre: 'MESA 2' },
+          { id: 3, nombre: 'MESA 3' },
+          { id: 4, nombre: 'MESA 4' },
+          { id: 5, nombre: 'MESA 5' },
+        ]);
         setMesaSeleccionada(1);
       }
 
@@ -369,6 +399,7 @@ export default function PosPage() {
         nombre: p.nombre,
         categoria: p.categoria || 'General',
         precio: Number(p.precio) || 0,
+        empaque_id: p.empaque_id ? Number(p.empaque_id) : null,
       }));
       setProductosVentaBD(
         formateados.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }))
@@ -431,29 +462,36 @@ export default function PosPage() {
     }
   }
 
+  // DESCUENTO DE STOCK EN INVENTARIO_EMPAQUES_SEDES USANDO EL EMPAQUE_ID DE PRODUCTOS_PARA_VENTA
   async function descontarEmpaquesPorVenta(items: any[], idSede: number) {
     const fechaActual = obtenerFechaHoraColombia();
-    const empaquesActualizados = [...empaquesBD];
+
+    const { data: empaquesFrescos, error: errorFetch } = await supabase
+      .from('inventario_empaques_sedes')
+      .select('*')
+      .eq('sede_id', idSede);
+
+    if (errorFetch || !empaquesFrescos) {
+      console.error('Error al cargar inventario de empaques para descontar:', errorFetch);
+      return;
+    }
+
+    const empaquesActualizados = [...empaquesFrescos];
 
     for (const item of items) {
-      const nombreItem = String(item.nombre || '').toLowerCase();
+      const prodCatalogo = productosVentaBD.find((p) => p.id === item.id);
+      const empaqueId = Number(item.empaque_id || prodCatalogo?.empaque_id);
+
+      if (!empaqueId) continue;
+
       const cantidadItem = Number(item.cantidad) || 1;
-      
-      let empaqueABuscar = '';
-      let empaquesADescontar = cantidadItem;
+      const nombreItem = String(item.nombre || '').toLowerCase();
+      const esCorralito = nombreItem.includes('corralito');
+      const esParaLlevar = Boolean(item.esParaLlevar) || nombreItem.includes('(para llevar)');
 
-      if (nombreItem.includes('corralito')) {
-        empaqueABuscar = 'corralito';
-        if (nombreItem.includes('(para llevar)')) {
-          empaquesADescontar = cantidadItem * 2;
-        }
-      } else {
-        empaqueABuscar = nombreItem.replace(' (para llevar)', '').trim();
-      }
+      const empaquesADescontar = esCorralito && esParaLlevar ? cantidadItem * 2 : cantidadItem;
 
-      const index = empaquesActualizados.findIndex(
-        (e) => String(e.nombre || '').toLowerCase().trim() === empaqueABuscar
-      );
+      const index = empaquesActualizados.findIndex((e) => Number(e.id) === empaqueId);
 
       if (index >= 0) {
         const empReg = empaquesActualizados[index];
@@ -461,7 +499,7 @@ export default function PosPage() {
         const nuevoStock = Math.max(0, stockActual - empaquesADescontar);
         const vendidasActuales = Number(empReg.vendidas || 0) + empaquesADescontar;
 
-        await supabase
+        const { error: errorUpdate } = await supabase
           .from('inventario_empaques_sedes')
           .update({
             stock: nuevoStock,
@@ -470,11 +508,15 @@ export default function PosPage() {
           })
           .eq('id', empReg.id);
 
-        empaquesActualizados[index] = {
-          ...empReg,
-          stock: nuevoStock,
-          vendidas: vendidasActuales,
-        };
+        if (!errorUpdate) {
+          empaquesActualizados[index] = {
+            ...empReg,
+            stock: nuevoStock,
+            vendidas: vendidasActuales,
+          };
+        } else {
+          console.error(`Error actualizando stock del empaque ID ${empReg.id}:`, errorUpdate);
+        }
       }
     }
 
@@ -514,7 +556,7 @@ export default function PosPage() {
       alert('⚠️ Ingresa un valor válido para la adición.');
       return;
     }
-    const prodAdicion = { id: Date.now(), nombre: 'Adición Extra', precio: valor };
+    const prodAdicion = { id: Date.now(), nombre: 'Adición Extra', precio: valor, empaque_id: null };
     agregarProductoACarrito(prodAdicion, false);
     setValorAdicionInput('');
   }
@@ -672,7 +714,6 @@ export default function PosPage() {
           [destinoSeleccionadoId]: (prev[destinoSeleccionadoId] || 0) + abonoOrigen,
         }));
 
-        // Liberar el pasillo de origen
         setPasillosBD((prev) => prev.filter((p) => p.id !== origenId));
         setCarritosPorPasillo((prev) => {
           const c = { ...prev };
@@ -851,6 +892,7 @@ export default function PosPage() {
   function agregarProductoACarrito(prod: any, esParaLlevar: boolean = false) {
     const nombreFinal = esParaLlevar ? `${prod.nombre} (Para Llevar)` : prod.nombre;
     const precioFinal = Number(prod.precio) || 0;
+    const empaqueId = prod.empaque_id ? Number(prod.empaque_id) : null;
 
     if (tipoCanalSeleccionado === 'mesa') {
       if (!mesaSeleccionada) return;
@@ -866,7 +908,14 @@ export default function PosPage() {
             ...prev,
             [mesaSeleccionada]: [
               ...actual,
-              { id: prod.id, nombre: nombreFinal, precio: precioFinal, cantidad: 1 },
+              {
+                id: prod.id,
+                nombre: nombreFinal,
+                precio: precioFinal,
+                cantidad: 1,
+                empaque_id: empaqueId,
+                esParaLlevar,
+              },
             ],
           };
         }
@@ -885,7 +934,14 @@ export default function PosPage() {
             ...prev,
             [pasilloSeleccionadoId]: [
               ...actual,
-              { id: prod.id, nombre: nombreFinal, precio: precioFinal, cantidad: 1 },
+              {
+                id: prod.id,
+                nombre: nombreFinal,
+                precio: precioFinal,
+                cantidad: 1,
+                empaque_id: empaqueId,
+                esParaLlevar,
+              },
             ],
           };
         }
@@ -900,7 +956,14 @@ export default function PosPage() {
             if (index >= 0) {
               nuevosItems[index].cantidad += 1;
             } else {
-              nuevosItems.push({ id: prod.id, nombre: nombreFinal, precio: precioFinal, cantidad: 1 });
+              nuevosItems.push({
+                id: prod.id,
+                nombre: nombreFinal,
+                precio: precioFinal,
+                cantidad: 1,
+                empaque_id: empaqueId,
+                esParaLlevar,
+              });
             }
             return { ...rap, items: nuevosItems };
           }
@@ -910,12 +973,16 @@ export default function PosPage() {
     }
   }
 
-  function cambiarCantidadItem(idProd: number, delta: number) {
+  function cambiarCantidadItem(idProd: number, delta: number, nombreItem?: string) {
     if (tipoCanalSeleccionado === 'mesa' && mesaSeleccionada) {
       setCarritosPorMesa((prev) => {
         const actual = prev[mesaSeleccionada] || [];
         const copia = actual
-          .map((i) => (i.id === idProd ? { ...i, cantidad: i.cantidad + delta } : i))
+          .map((i) =>
+            i.id === idProd && (!nombreItem || i.nombre === nombreItem)
+              ? { ...i, cantidad: i.cantidad + delta }
+              : i
+          )
           .filter((i) => i.cantidad > 0);
         return { ...prev, [mesaSeleccionada]: copia };
       });
@@ -923,7 +990,11 @@ export default function PosPage() {
       setCarritosPorPasillo((prev) => {
         const actual = prev[pasilloSeleccionadoId] || [];
         const copia = actual
-          .map((i) => (i.id === idProd ? { ...i, cantidad: i.cantidad + delta } : i))
+          .map((i) =>
+            i.id === idProd && (!nombreItem || i.nombre === nombreItem)
+              ? { ...i, cantidad: i.cantidad + delta }
+              : i
+          )
           .filter((i) => i.cantidad > 0);
         return { ...prev, [pasilloSeleccionadoId]: copia };
       });
@@ -932,7 +1003,11 @@ export default function PosPage() {
         prev.map((rap) => {
           if (rap.id === rappiSeleccionadoId) {
             const nuevosItems = rap.items
-              .map((i) => (i.id === idProd ? { ...i, cantidad: i.cantidad + delta } : i))
+              .map((i) =>
+                i.id === idProd && (!nombreItem || i.nombre === nombreItem)
+                  ? { ...i, cantidad: i.cantidad + delta }
+                  : i
+              )
               .filter((i) => i.cantidad > 0);
             return { ...rap, items: nuevosItems };
           }
@@ -957,7 +1032,7 @@ export default function PosPage() {
     if (metodo === 'otros') setPagoOtros(String(faltante));
   }
 
-  // LÓGICA DE COBRO CON CORRECCIÓN: MESAS CONTINÚAN MARCADAS COMO OCUPADAS HASTA LIBERAR
+  // LÓGICA DE COBRO
   async function handleFinalizarVentaBD() {
     if (guardandoVenta || saldoPendienteModal > 0) return;
     const idSede = Number(sesion?.sede_id || sedeIdActual);
@@ -992,10 +1067,8 @@ export default function PosPage() {
 
       alert('✅ Pago de la mesa registrado con éxito.');
 
-      // CÁLCULO DEL CUBRIMIENTO TOTAL
       const montoTotalCubierto = totalACobrar + numDescuento;
 
-      // ACTUALIZACIÓN DE ABONOS MANTENIENDO LA MESA OCUPADA / EN ROJO
       if (tipoCanalSeleccionado === 'mesa' && mesaSeleccionada) {
         const nuevoAbonoAcumulado = (pagadoPorMesa[mesaSeleccionada] || 0) + montoTotalCubierto;
         setPagadoPorMesa((prev) => ({ ...prev, [mesaSeleccionada]: nuevoAbonoAcumulado }));
@@ -1120,12 +1193,12 @@ export default function PosPage() {
       } else {
         alert(
           `✅ Cierre de ventas registrado en Caja con éxito.\n` +
-          `• Efectivo Cierre: ${formatearMoneda(efecTot)}\n` +
-          `• Nequi: ${formatearMoneda(neqTot)}\n` +
-          `• Daviplata: ${formatearMoneda(davTot)}\n` +
-          `• Rappi: ${formatearMoneda(rapTot)}\n` +
-          `• Otros: ${formatearMoneda(otrTot)}\n` +
-          `• Gastos Registrados: ${formatearMoneda(totalGastosHoy)}`
+            `• Efectivo Cierre: ${formatearMoneda(efecTot)}\n` +
+            `• Nequi: ${formatearMoneda(neqTot)}\n` +
+            `• Daviplata: ${formatearMoneda(davTot)}\n` +
+            `• Rappi: ${formatearMoneda(rapTot)}\n` +
+            `• Otros: ${formatearMoneda(otrTot)}\n` +
+            `• Gastos Registrados: ${formatearMoneda(totalGastosHoy)}`
         );
       }
     } catch (e: any) {
@@ -1411,7 +1484,8 @@ export default function PosPage() {
           total_paletas: totalPaletasNum,
           detalle_paletas: {},
           detalle_empaques: detalleEmpaquesLimpio,
-          observaciones: observacionesInventario,
+          detalle_vendidas: {},
+          observaciones: observacionesInventario || '',
           turno_id: sesion?.turno_id ? Number(sesion.turno_id) : null,
           fecha_registro: fechaRealSQL,
         },
@@ -1762,15 +1836,22 @@ export default function PosPage() {
       return;
     }
 
-    const fisicoNum = dineroFisicoCierre === '' ? 0 : Number(dineroFisicoCierre);
+    const efectivoSistema = efectivoBaseCajaInicial + totalEfectivoJornada - totalGastosHoy - totalNominasHoy;
 
-    if (dineroFisicoCierre === '' || fisicoNum < 0) {
+    // Si el efectivo en sistema es negativo, el físico es 0 automáticamente
+    const fisicoIngresado =
+      efectivoSistema < 0 ? 0 : dineroFisicoCierre === '' ? 0 : Number(dineroFisicoCierre);
+
+    if (efectivoSistema >= 0 && (dineroFisicoCierre === '' || fisicoIngresado < 0)) {
       alert('⚠️ Ingresa cuánto dinero físico hay en caja para cerrar.');
       return;
     }
 
-    const efectivoSistema = efectivoBaseCajaInicial + totalEfectivoJornada - totalGastosHoy - totalNominasHoy;
-    const diferenciaCalculada = fisicoNum - efectivoSistema;
+    const { fisicoFinal, diferencia: diferenciaCalculada } = calcularDiferenciaCaja(
+      efectivoSistema,
+      fisicoIngresado
+    );
+
     const fechaRealSQL = obtenerFechaHoraColombia();
     const inicioDia = obtenerInicioDiaColombia();
 
@@ -1778,7 +1859,8 @@ export default function PosPage() {
     try {
       const idSede = Number(sesion?.sede_id || sedeIdActual);
       const usuarioId = sesion?.usuario_id || sesion?.id;
-      const totalPaletasContadas = totalPaletasCierre === '' ? obtenerStockActualBD('Total Paletas') : Number(totalPaletasCierre);
+      const totalPaletasContadas =
+        totalPaletasCierre === '' ? obtenerStockActualBD('Total Paletas') : Number(totalPaletasCierre);
 
       const detalleEmpaquesCierre: { [key: string]: number } = {};
       const unidadesVendidas: { [key: string]: number } = {};
@@ -1812,7 +1894,9 @@ export default function PosPage() {
       ]);
 
       for (const [nombreEmp, cantContada] of Object.entries(detalleEmpaquesCierre)) {
-        const empReg = empaquesBD.find((e) => (e.nombre || '').toLowerCase().trim() === nombreEmp.toLowerCase().trim());
+        const empReg = empaquesBD.find(
+          (e) => (e.nombre || '').toLowerCase().trim() === nombreEmp.toLowerCase().trim()
+        );
         if (empReg) {
           const vendidasEmp = unidadesVendidas[nombreEmp] || 0;
           await supabase
@@ -1875,7 +1959,7 @@ export default function PosPage() {
           .from('caja')
           .update({
             efectivo_cierre: efectivoSistema,
-            efectivo_fisico: fisicoNum,
+            efectivo_fisico: fisicoFinal,
             monto_gasto: totalGastosHoy,
             nequi: totalNequiJornada,
             daviplata: totalDaviplataJornada,
@@ -1887,7 +1971,15 @@ export default function PosPage() {
           .eq('id', cajaIdActual);
       }
 
-      alert(`✅ Cierre registrado correctamente. ${diferenciaCalculada !== 0 ? `⚠️ Diferencia en efectivo: ${formatearMoneda(Math.abs(diferenciaCalculada))}` : '✓ Sin diferencias en caja.'}`);
+      alert(
+        `✅ Cierre registrado correctamente. ${
+          diferenciaCalculada !== 0
+            ? `⚠️ Diferencia en efectivo: ${diferenciaCalculada < 0 ? '-' : '+'}${formatearMoneda(
+                Math.abs(diferenciaCalculada)
+              )}`
+            : '✓ Sin diferencias en caja.'
+        }`
+      );
 
       localStorage.removeItem('martineto_session');
       router.replace('/login');
@@ -2027,8 +2119,8 @@ export default function PosPage() {
   const esTurnoMañanaApertura = (sesion?.turno_nombre || '').toLowerCase().includes('mañana') || (sesion?.turno_nombre || '').toLowerCase().includes('apertura');
 
   const efectivoCajaSistema = efectivoBaseCajaInicial + totalEfectivoJornada - totalGastosHoy - totalNominasHoy;
-  const fisicoNumCierre = dineroFisicoCierre === '' ? 0 : Number(dineroFisicoCierre);
-  const diferenciaCierreVal = fisicoNumCierre - efectivoCajaSistema;
+  const fisicoNumCierre = efectivoCajaSistema < 0 ? 0 : (dineroFisicoCierre === '' ? 0 : Number(dineroFisicoCierre));
+  const { diferencia: diferenciaCierreVal } = calcularDiferenciaCaja(efectivoCajaSistema, fisicoNumCierre);
 
   return (
     <main className="min-h-screen bg-[#004e8c] text-[#f1f5f9] p-4 font-sans max-w-[1600px] mx-auto space-y-4 relative">
@@ -3125,8 +3217,8 @@ export default function PosPage() {
                         Mesa/Canal libre.
                       </p>
                     ) : (
-                      carritoActual.map((item) => (
-                        <div key={item.id} className="bg-[#0e385e] border border-[#0066b3] p-2 rounded-lg flex justify-between items-center text-xs">
+                      carritoActual.map((item, idx) => (
+                        <div key={`${item.id}_${item.nombre}_${idx}`} className="bg-[#0e385e] border border-[#0066b3] p-2 rounded-lg flex justify-between items-center text-xs">
                           <div className="max-w-[110px]">
                             <p className="font-bold text-white truncate">{item.nombre}</p>
                             <p className="text-[10px] text-emerald-300 font-bold">{formatearMoneda(item.precio * item.cantidad)}</p>
@@ -3135,7 +3227,7 @@ export default function PosPage() {
                           <div className="flex items-center gap-1.5">
                             <button
                               type="button"
-                              onClick={() => cambiarCantidadItem(item.id, -1)}
+                              onClick={() => cambiarCantidadItem(item.id, -1, item.nombre)}
                               className="bg-[#051829] border border-[#0066b3] text-white font-black text-xs px-2 py-0.5 rounded cursor-pointer"
                             >
                               -
@@ -3143,7 +3235,7 @@ export default function PosPage() {
                             <span className="font-black text-white text-xs">{item.cantidad}</span>
                             <button
                               type="button"
-                              onClick={() => cambiarCantidadItem(item.id, 1)}
+                              onClick={() => cambiarCantidadItem(item.id, 1, item.nombre)}
                               className="bg-[#051829] border border-[#0066b3] text-white font-black text-xs px-2 py-0.5 rounded cursor-pointer"
                             >
                               +
@@ -3563,15 +3655,38 @@ export default function PosPage() {
               <input
                 type="text"
                 placeholder="$ 0"
-                value={dineroFisicoCierre === '' ? '' : formatearMoneda(dineroFisicoCierre)}
+                disabled={efectivoCajaSistema < 0}
+                value={
+                  efectivoCajaSistema < 0
+                    ? '$ 0'
+                    : dineroFisicoCierre === ''
+                    ? ''
+                    : formatearMoneda(dineroFisicoCierre)
+                }
                 onChange={(e) => setDineroFisicoCierre(desformatearMoneda(e.target.value))}
-                className="w-full bg-[#051829] border border-[#0066b3] text-emerald-300 font-black text-sm p-3 rounded-xl outline-none"
+                className="w-full bg-[#051829] border border-[#0066b3] text-emerald-300 font-black text-sm p-3 rounded-xl outline-none disabled:opacity-60"
               />
 
-              {dineroFisicoCierre !== '' && (
-                <div className={`p-3 rounded-lg font-black text-xs flex justify-between items-center ${diferenciaCierreVal === 0 ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-500' : 'bg-rose-950/80 text-rose-300 border border-rose-500'}`}>
-                  <span>{diferenciaCierreVal === 0 ? '✓ Cuadre perfecto' : '⚠️ Diferencia en efectivo:'}</span>
-                  <span className="text-sm">{formatearMoneda(Math.abs(diferenciaCierreVal))} {diferenciaCierreVal < 0 ? '(Faltante)' : diferenciaCierreVal > 0 ? '(Sobrante)' : ''}</span>
+              {(dineroFisicoCierre !== '' || efectivoCajaSistema < 0) && (
+                <div
+                  className={`p-3 rounded-lg font-black text-xs flex justify-between items-center ${
+                    diferenciaCierreVal === 0
+                      ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-500'
+                      : 'bg-rose-950/80 text-rose-300 border border-rose-500'
+                  }`}
+                >
+                  <span>
+                    {diferenciaCierreVal === 0
+                      ? '✓ Cuadre perfecto'
+                      : '⚠️ Diferencia en efectivo:'}
+                  </span>
+                  <span className="text-sm">
+                    {diferenciaCierreVal === 0
+                      ? '$ 0'
+                      : `${diferenciaCierreVal < 0 ? '-' : '+'}${formatearMoneda(Math.abs(diferenciaCierreVal))} ${
+                          diferenciaCierreVal < 0 ? '(Faltante)' : '(Sobrante)'
+                        }`}
+                  </span>
                 </div>
               )}
             </div>
